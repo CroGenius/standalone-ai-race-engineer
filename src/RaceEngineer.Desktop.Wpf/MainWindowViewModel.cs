@@ -32,6 +32,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly StorageService storageService;
     private readonly StoredResearchService researchService;
     private readonly SessionState session = new();
+    private SessionState? reviewSession;
+    private bool isReviewMode;
+    private IReadOnlyList<string> reviewSessionNotes = [];
+    private string sessionLabel;
     private RacePrepPlan? loadedPrepPlan;
     private string chatInput = "";
     private string postSessionNote = "";
@@ -78,13 +82,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         voiceService.SetVoiceEnabled(settings.VoiceEnabledDefault);
         storageService = new StorageService(settings.DatabasePath);
         researchService = new StoredResearchService(storageService);
-        SessionLabel = $"Session {session.SessionId}";
+        sessionLabel = $"Session {session.SessionId}";
         SendChatCommand = new RelayCommand(SendChat, () => !string.IsNullOrWhiteSpace(ChatInput));
         SavePrepCommand = new RelayCommand(() => _ = SavePrepAsync());
         LoadPrepCommand = new RelayCommand(() => _ = LoadPrepAsync());
         SavePostSessionNoteCommand = new RelayCommand(SavePostSessionNote, () => !string.IsNullOrWhiteSpace(PostSessionNote));
         RefreshSessionsCommand = new RelayCommand(() => _ = RefreshSessionsAsync());
         LoadSelectedSessionCommand = new RelayCommand(() => _ = LoadSelectedSessionAsync(), () => SelectedSession is not null);
+        ExitReviewModeCommand = new RelayCommand(ExitReviewMode, () => IsReviewMode);
         ExportSessionJsonCommand = new RelayCommand(() => _ = ExportSelectedSessionJsonAsync(), () => SelectedSession is not null);
         ExportCoachingMarkdownCommand = new RelayCommand(() => _ = ExportSelectedSessionMarkdownAsync(), () => SelectedSession is not null);
         TogglePushToTalkCommand = new RelayCommand(TogglePushToTalk);
@@ -108,7 +113,19 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public ObservableCollection<EventLogItem> EventLog { get; } = [];
     public ObservableCollection<SessionBrowserItem> Sessions { get; } = [];
     public ObservableCollection<KnowledgeSourceItem> KnowledgeSources { get; } = [];
-    public string SessionLabel { get; }
+    public string SessionLabel
+    {
+        get => sessionLabel;
+        private set => SetField(ref sessionLabel, value);
+    }
+
+    public bool IsReviewMode => isReviewMode;
+
+    public string ReviewModeBanner => isReviewMode
+        ? "Review Mode — Loaded Session (read-only; live telemetry continues in background)"
+        : "";
+
+    public ICommand ExitReviewModeCommand { get; }
     public ICommand SendChatCommand { get; }
     public ICommand SavePrepCommand { get; }
     public ICommand LoadPrepCommand { get; }
@@ -128,8 +145,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public ICommand ImportKnowledgeCommand { get; }
     public ICommand DeleteKnowledgeCommand { get; }
 
-    public string TelemetryStatus => session.TelemetryOnline ? "Telemetry online" : "Telemetry offline";
-    public Brush TelemetryStatusBrush => session.TelemetryOnline ? Brushes.LightGreen : Brushes.Orange;
+    public string TelemetryStatus => isReviewMode
+        ? "Review mode"
+        : ActiveSession.TelemetryOnline ? "Telemetry online" : "Telemetry offline";
+    public Brush TelemetryStatusBrush => isReviewMode
+        ? Brushes.DeepSkyBlue
+        : ActiveSession.TelemetryOnline ? Brushes.LightGreen : Brushes.Orange;
     public int PacketsReceivedCount => packetsReceivedCount;
     public int ValidPacketsCount => validPacketsCount;
     public int InvalidPacketsCount => invalidPacketsCount;
@@ -145,26 +166,26 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string CurrentSchemaSeen => diagnostics.CurrentSchema is null ? "-" : $"{diagnostics.CurrentSchema} v{diagnostics.CurrentSchemaVersion?.ToString(CultureInfo.InvariantCulture) ?? "?"}";
     public string RawCaptureState => rawPacketCapture.Enabled ? "Capture On" : "Capture Off";
     public string RawCapturePath => rawPacketCapture.FilePath;
-    public string Speed => Format(session.LatestSnapshot?.Car.SpeedKmh, "0.0 km/h");
-    public string Rpm => Format(session.LatestSnapshot?.Car.Rpm, "0");
-    public string Gear => session.LatestSnapshot?.Car.Gear?.ToString(CultureInfo.InvariantCulture) ?? "-";
-    public string Throttle => Format(session.LatestSnapshot?.Inputs.Throttle, "0.00");
-    public string Brake => Format(session.LatestSnapshot?.Inputs.Brake, "0.00");
-    public string Steering => Format(session.LatestSnapshot?.Inputs.Steering, "0.00");
-    public string LapTime => Format(session.LatestSnapshot?.Lap.LapTimeS, "0.000 s");
-    public string LapProgress => Format(session.LatestSnapshot?.Lap.LapProgress, "0.000");
-    public string Fuel => Format(session.LatestSnapshot?.Condition.Fuel, "0.0");
-    public string Position => session.LatestSnapshot?.Race.Position?.ToString(CultureInfo.InvariantCulture) ?? "-";
+    public string Speed => Format(ActiveSession.LatestSnapshot?.Car.SpeedKmh, "0.0 km/h");
+    public string Rpm => Format(ActiveSession.LatestSnapshot?.Car.Rpm, "0");
+    public string Gear => ActiveSession.LatestSnapshot?.Car.Gear?.ToString(CultureInfo.InvariantCulture) ?? "-";
+    public string Throttle => Format(ActiveSession.LatestSnapshot?.Inputs.Throttle, "0.00");
+    public string Brake => Format(ActiveSession.LatestSnapshot?.Inputs.Brake, "0.00");
+    public string Steering => Format(ActiveSession.LatestSnapshot?.Inputs.Steering, "0.00");
+    public string LapTime => Format(ActiveSession.LatestSnapshot?.Lap.LapTimeS, "0.000 s");
+    public string LapProgress => Format(ActiveSession.LatestSnapshot?.Lap.LapProgress, "0.000");
+    public string Fuel => Format(ActiveSession.LatestSnapshot?.Condition.Fuel, "0.0");
+    public string Position => ActiveSession.LatestSnapshot?.Race.Position?.ToString(CultureInfo.InvariantCulture) ?? "-";
     public string VoiceLabel => voiceService.VoiceEnabled ? "Voice On" : "Voice Off";
     public string TtsLabel => voiceService.EngineerMuted ? "Engineer Muted" : "Engineer Audible";
     public string VoiceState => $"{voiceService.StateText} / {voiceService.MuteText}";
     public string VoiceSuppressionState => calloutManager.LastSuppressionState;
-    public string CurrentLap => session.CurrentLap.ToString(CultureInfo.InvariantCulture);
-    public string LastLapTime => FormatDuration(session.LastLap?.Duration);
-    public string BestLapTime => FormatDuration(session.BestLap?.Duration);
-    public string CompletedLapsCount => session.CompletedLaps.Count.ToString(CultureInfo.InvariantCulture);
-    public string StintTime => FormatDuration(session.StintDuration);
-    public string EstimatedLapsRemaining => Format(session.EstimatedLapsRemaining, "0.0");
+    public string CurrentLap => ActiveSession.CurrentLap.ToString(CultureInfo.InvariantCulture);
+    public string LastLapTime => FormatDuration(ActiveSession.LastLap?.Duration);
+    public string BestLapTime => FormatDuration(ActiveSession.BestLap?.Duration);
+    public string CompletedLapsCount => ActiveSession.CompletedLaps.Count.ToString(CultureInfo.InvariantCulture);
+    public string StintTime => FormatDuration(ActiveSession.StintDuration);
+    public string EstimatedLapsRemaining => Format(ActiveSession.EstimatedLapsRemaining, "0.0");
     public string LoadedSessionSummary
     {
         get => loadedSessionSummary;
@@ -268,15 +289,19 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         get
         {
-            var counts = session.RecentEvents
+            var counts = ActiveSession.RecentEvents
                 .GroupBy(item => item.Type)
                 .OrderByDescending(group => group.Count())
                 .Select(group => $"{group.Key}: {group.Count()}");
-            return session.RecentEvents.Count == 0
-                ? "Complete a run to generate recurring mistakes, tyre/brake/fuel summary, and an improvement plan."
+            return ActiveSession.RecentEvents.Count == 0
+                ? isReviewMode
+                    ? "No events were recorded for this loaded session."
+                    : "Complete a run to generate recurring mistakes, tyre/brake/fuel summary, and an improvement plan."
                 : string.Join(Environment.NewLine, counts);
         }
     }
+
+    private SessionState ActiveSession => reviewSession ?? session;
 
     private async Task StartAsync()
     {
@@ -336,12 +361,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             invalidPacketsCount++;
             lastParserWarning = packet.Warning ?? "Packet rejected.";
-            EventLog.Insert(0, EventLogItem.ParserWarning(lastParserWarning));
+            if (!isReviewMode)
+            {
+                EventLog.Insert(0, EventLogItem.ParserWarning(lastParserWarning));
+            }
         }
 
-        while (EventLog.Count > 100)
+        if (!isReviewMode)
         {
-            EventLog.RemoveAt(EventLog.Count - 1);
+            while (EventLog.Count > 100)
+            {
+                EventLog.RemoveAt(EventLog.Count - 1);
+            }
         }
 
         RaisePacketDebugProperties();
@@ -373,39 +404,43 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         Application.Current.Dispatcher.Invoke(() =>
         {
-            foreach (var item in events)
+            if (!isReviewMode)
             {
-                EventLog.Insert(0, EventLogItem.FromEvent(item));
-            }
-
-            while (EventLog.Count > 100)
-            {
-                EventLog.RemoveAt(EventLog.Count - 1);
-            }
-
-            var callout = coachEngine.ChooseLiveCallout(events);
-            var spoken = false;
-            foreach (var item in events.OrderBy(VoicePriority))
-            {
-                var voiceCallout = calloutManager.TryCreateCallout(item);
-                if (voiceCallout is not null)
+                foreach (var item in events)
                 {
-                    spoken = voiceService.Speak(voiceCallout);
-                    if (spoken)
-                    {
-                        LastCallout = voiceCallout;
-                    }
-
-                    break;
+                    EventLog.Insert(0, EventLogItem.FromEvent(item));
                 }
+
+                while (EventLog.Count > 100)
+                {
+                    EventLog.RemoveAt(EventLog.Count - 1);
+                }
+
+                var callout = coachEngine.ChooseLiveCallout(events);
+                var spoken = false;
+                foreach (var item in events.OrderBy(VoicePriority))
+                {
+                    var voiceCallout = calloutManager.TryCreateCallout(item);
+                    if (voiceCallout is not null)
+                    {
+                        spoken = voiceService.Speak(voiceCallout);
+                        if (spoken)
+                        {
+                            LastCallout = voiceCallout;
+                        }
+
+                        break;
+                    }
+                }
+
+                if (!spoken && callout is not null)
+                {
+                    LastCallout = callout.Content;
+                }
+
+                RaiseTelemetryProperties();
             }
 
-            if (!spoken && callout is not null)
-            {
-                LastCallout = callout.Content;
-            }
-
-            RaiseTelemetryProperties();
             RaiseVoiceProperties();
         });
 
@@ -421,10 +456,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         }
 
         ChatInput = "";
-        ChatMessages.Add($"You: {message}");
-        var answer = coachEngine.Answer(session, message, CurrentCoachContext());
+        ChatMessages.Add(isReviewMode ? $"You (review): {message}" : $"You: {message}");
+        var answer = coachEngine.Answer(ActiveSession, message, CurrentCoachContext());
         var uncertainty = string.IsNullOrWhiteSpace(answer.Uncertainty) ? "" : $" ({answer.Uncertainty})";
-        ChatMessages.Add($"Coach: {answer.Content}{uncertainty}");
+        ChatMessages.Add(isReviewMode ? $"Coach (review): {answer.Content}{uncertainty}" : $"Coach: {answer.Content}{uncertainty}");
     }
 
     private async Task SavePrepAsync()
@@ -457,8 +492,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         }
 
         PostSessionNote = "";
-        ChatMessages.Add("Coach: Post-session note saved.");
-        _ = storageService.AddNoteAsync(session.SessionId, "post_session", note);
+        var targetSessionId = isReviewMode ? reviewSession!.SessionId : session.SessionId;
+        ChatMessages.Add(isReviewMode
+            ? "Coach (review): Note saved to the loaded session."
+            : "Coach: Post-session note saved.");
+        _ = storageService.AddNoteAsync(targetSessionId, "post_session", note);
     }
 
     public async Task StopAsync()
@@ -492,7 +530,78 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             return;
         }
 
-        LoadedSessionSummary = await storageService.LoadSessionSummaryMarkdownAsync(SelectedSession.SessionId);
+        var bundle = await storageService.LoadSessionReviewBundleAsync(SelectedSession.SessionId);
+        if (bundle is null)
+        {
+            LoadedSessionSummary = "Selected session could not be loaded.";
+            ChatMessages.Add("Coach: Selected session could not be loaded from storage.");
+            return;
+        }
+
+        reviewSession = SessionState.FromPersisted(
+            bundle.SessionId,
+            bundle.StartedAt,
+            bundle.Snapshots,
+            bundle.Events,
+            bundle.CompletedLaps);
+        reviewSessionNotes = bundle.Notes.Select(note => $"{note.Kind}: {note.Content}").ToArray();
+        isReviewMode = true;
+        LoadedSessionSummary = bundle.SummaryMarkdown;
+
+        var car = bundle.Car ?? "";
+        var track = bundle.Track ?? "";
+        var startedLabel = bundle.StartedAt.LocalDateTime.ToString("g", CultureInfo.CurrentCulture);
+        SessionLabel = $"Review Mode | {startedLabel} | {car} | {track}".Trim(' ', '|');
+
+        loadedPrepPlan = await storageService.LoadRacePrepPlanAsync(bundle.Car, bundle.Track);
+        if (loadedPrepPlan is not null)
+        {
+            ApplyPrepPlan(loadedPrepPlan);
+        }
+        else if (!string.IsNullOrWhiteSpace(car) || !string.IsNullOrWhiteSpace(track))
+        {
+            PrepCar = car;
+            PrepTrack = track;
+            await RefreshKnowledgeAsync();
+        }
+
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            EventLog.Clear();
+            foreach (var item in bundle.Events.OrderByDescending(evt => evt.Timestamp))
+            {
+                EventLog.Insert(0, EventLogItem.FromEvent(item));
+            }
+
+            while (EventLog.Count > 100)
+            {
+                EventLog.RemoveAt(EventLog.Count - 1);
+            }
+        });
+
+        ChatMessages.Add($"Coach (review): Loaded session from {startedLabel}. Ask about laps, events, fuel, or session summary.");
+        RaiseReviewModeProperties();
+        RaiseTelemetryProperties();
+        (ExitReviewModeCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    private void ExitReviewMode()
+    {
+        if (!isReviewMode)
+        {
+            return;
+        }
+
+        isReviewMode = false;
+        reviewSession = null;
+        reviewSessionNotes = [];
+        SessionLabel = $"Session {session.SessionId}";
+        LoadedSessionSummary = "Select a previous session to load it for review.";
+        Application.Current.Dispatcher.Invoke(EventLog.Clear);
+        ChatMessages.Add("Coach: Exited review mode. Live session restored.");
+        RaiseReviewModeProperties();
+        RaiseTelemetryProperties();
+        (ExitReviewModeCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
     private async Task ExportSelectedSessionJsonAsync()
@@ -525,8 +634,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             var query = ChatInput.Trim();
             ChatInput = "";
             ChatMessages.Add($"You voice: {query}");
-            var result = voiceService.HandleSpokenQuery(session, query, coachEngine, CurrentCoachContext());
-            ChatMessages.Add($"Coach: {result.WrittenResponse.Content}");
+            var result = voiceService.HandleSpokenQuery(ActiveSession, query, coachEngine, CurrentCoachContext());
+            ChatMessages.Add(isReviewMode ? $"Coach (review): {result.WrittenResponse.Content}" : $"Coach: {result.WrittenResponse.Content}");
             LastCallout = result.SpokenResponse;
         }
 
@@ -779,11 +888,19 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private CoachContext CurrentCoachContext()
     {
         return new CoachContext(
-            null,
+            reviewSessionNotes.Count > 0 ? reviewSessionNotes : null,
             LoadedSessionSummary,
             CurrentPrepPlan(),
             KnowledgeSources.Select(item => item.Source).ToArray(),
             false);
+    }
+
+    private void RaiseReviewModeProperties()
+    {
+        OnPropertyChanged(nameof(IsReviewMode));
+        OnPropertyChanged(nameof(ReviewModeBanner));
+        OnPropertyChanged(nameof(TelemetryStatus));
+        OnPropertyChanged(nameof(TelemetryStatusBrush));
     }
 
     private object CurrentSessionSummaryObject()

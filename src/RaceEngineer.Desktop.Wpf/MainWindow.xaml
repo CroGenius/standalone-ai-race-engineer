@@ -39,6 +39,7 @@
             <StackPanel DockPanel.Dock="Left">
                 <TextBlock Text="AI Race Engineer" FontSize="24" FontWeight="SemiBold" />
                 <TextBlock Text="{Binding SessionLabel}" Foreground="#9AA6AC" Margin="0,4,0,0" />
+                <TextBlock Text="{Binding ReviewModeBanner}" Foreground="#5BC0FF" Margin="0,4,0,0" TextWrapping="Wrap" />
             </StackPanel>
             <TextBlock DockPanel.Dock="Right" Text="{Binding TelemetryStatus}" Foreground="{Binding TelemetryStatusBrush}" FontSize="14" HorizontalAlignment="Right" VerticalAlignment="Center" />
         </DockPanel>
@@ -216,8 +217,11 @@
                         <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshSessionsCommand}" />
                     </DockPanel>
                     <ListBox ItemsSource="{Binding Sessions}" SelectedItem="{Binding SelectedSession}" DisplayMemberPath="Display" MinHeight="120" MaxHeight="180" Background="#15191D" Foreground="#EFF3F4" BorderBrush="#30383E" />
-                    <UniformGrid Columns="3" Margin="0,10,0,10">
-                        <Button Content="Load Summary" Command="{Binding LoadSelectedSessionCommand}" />
+                    <UniformGrid Columns="2" Margin="0,10,0,10">
+                        <Button Content="Review Session" Command="{Binding LoadSelectedSessionCommand}" />
+                        <Button Content="Exit Review" Command="{Binding ExitReviewModeCommand}" />
+                    </UniformGrid>
+                    <UniformGrid Columns="2" Margin="0,0,0,10">
                         <Button Content="Export JSON" Command="{Binding ExportSessionJsonCommand}" />
                         <Button Content="Export MD" Command="{Binding ExportCoachingMarkdownCommand}" />
                     </UniformGrid>

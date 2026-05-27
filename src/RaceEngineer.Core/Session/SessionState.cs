@@ -11,8 +11,20 @@ public sealed class SessionState
     private double? currentLapStartFuel;
     private bool currentLapInvalid;
 
-    public Guid SessionId { get; } = Guid.NewGuid();
-    public DateTimeOffset StartedAt { get; } = DateTimeOffset.UtcNow;
+    public SessionState()
+    {
+        SessionId = Guid.NewGuid();
+        StartedAt = DateTimeOffset.UtcNow;
+    }
+
+    private SessionState(Guid sessionId, DateTimeOffset startedAt)
+    {
+        SessionId = sessionId;
+        StartedAt = startedAt;
+    }
+
+    public Guid SessionId { get; }
+    public DateTimeOffset StartedAt { get; }
     public TelemetrySnapshot? LatestSnapshot { get; private set; }
     public IReadOnlyList<TelemetryEvent> RecentEvents => events.TakeLast(50).ToArray();
     public IReadOnlyList<CompletedLap> CompletedLaps => completedLaps;
@@ -37,6 +49,40 @@ public sealed class SessionState
     public double? EstimatedLapsRemaining => LatestFuelLevel.HasValue && FuelUsedPerLap is { } perLap && perLap > 0
         ? LatestFuelLevel.Value / perLap
         : null;
+
+    public static SessionState FromPersisted(
+        Guid sessionId,
+        DateTimeOffset startedAt,
+        IReadOnlyList<TelemetrySnapshot> snapshots,
+        IReadOnlyList<TelemetryEvent> persistedEvents,
+        IReadOnlyList<CompletedLap> persistedLaps)
+    {
+        var state = new SessionState(sessionId, startedAt);
+        state.events.AddRange(persistedEvents);
+        state.completedLaps.AddRange(persistedLaps.OrderBy(lap => lap.LapNumber));
+        state.LatestSnapshot = snapshots.Count > 0 ? snapshots[^1] : null;
+
+        var lastLapStart = persistedEvents.LastOrDefault(item => item.Type == EventType.LapStart);
+        var lastLapEnd = persistedEvents.LastOrDefault(item => item.Type == EventType.LapEnd);
+        if (lastLapStart is not null && (lastLapEnd is null || lastLapStart.Timestamp > lastLapEnd.Timestamp))
+        {
+            state.CurrentLap = lastLapStart.LapNumber ?? state.completedLaps.Count + 1;
+            state.currentLapStartedAt = lastLapStart.Timestamp;
+        }
+        else if (state.completedLaps.Count > 0)
+        {
+            var lastCompleted = state.completedLaps[^1];
+            state.CurrentLap = lastCompleted.LapNumber + 1;
+            state.currentLapStartedAt = lastCompleted.EndedAt;
+        }
+
+        if (state.LatestSnapshot is not null)
+        {
+            state.currentLapStartFuel = state.LatestSnapshot.Condition.Fuel;
+        }
+
+        return state;
+    }
 
     public void ApplySnapshot(TelemetrySnapshot snapshot, IReadOnlyList<TelemetryEvent> newEvents)
     {

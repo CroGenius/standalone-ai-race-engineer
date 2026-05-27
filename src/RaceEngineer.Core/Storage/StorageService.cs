@@ -18,6 +18,23 @@ public sealed record SessionBrowserRow(
     TimeSpan? BestLap,
     int EventCount);
 
+public sealed record SessionNoteRow(
+    string Kind,
+    string Content,
+    DateTimeOffset CreatedAt);
+
+public sealed record SessionReviewBundle(
+    Guid SessionId,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? EndedAt,
+    string? Car,
+    string? Track,
+    IReadOnlyList<TelemetrySnapshot> Snapshots,
+    IReadOnlyList<TelemetryEvent> Events,
+    IReadOnlyList<CompletedLap> CompletedLaps,
+    IReadOnlyList<SessionNoteRow> Notes,
+    string SummaryMarkdown);
+
 public sealed class StorageService
 {
     private const int SchemaVersion = 4;
@@ -307,6 +324,56 @@ public sealed class StorageService
             : await BuildMarkdownSummaryAsync(sessionId, cancellationToken);
     }
 
+    public async Task<SessionReviewBundle?> LoadSessionReviewBundleAsync(Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken);
+        var sessionCommand = connection.CreateCommand();
+        sessionCommand.CommandText = "SELECT started_at, ended_at, car, track, summary_markdown FROM sessions WHERE id = $id";
+        sessionCommand.Parameters.AddWithValue("$id", sessionId.ToString());
+        await using var sessionReader = await sessionCommand.ExecuteReaderAsync(cancellationToken);
+        if (!await sessionReader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var startedAt = DateTimeOffset.Parse(sessionReader.GetString(0));
+        var endedAt = ReadDateTime(sessionReader, 1);
+        var car = ReadString(sessionReader, 2);
+        var track = ReadString(sessionReader, 3);
+        var summaryMarkdown = ReadString(sessionReader, 4);
+        await sessionReader.CloseAsync();
+
+        if (string.IsNullOrWhiteSpace(summaryMarkdown))
+        {
+            var reportCommand = connection.CreateCommand();
+            reportCommand.CommandText = "SELECT markdown FROM post_session_reports WHERE session_id = $id";
+            reportCommand.Parameters.AddWithValue("$id", sessionId.ToString());
+            summaryMarkdown = await reportCommand.ExecuteScalarAsync(cancellationToken) as string;
+        }
+
+        if (string.IsNullOrWhiteSpace(summaryMarkdown))
+        {
+            summaryMarkdown = await BuildMarkdownSummaryAsync(sessionId, cancellationToken);
+        }
+
+        var snapshots = await LoadSnapshotsAsync(connection, sessionId, cancellationToken);
+        var events = await LoadEventsAsync(connection, sessionId, cancellationToken);
+        var completedLaps = await LoadCompletedLapsAsync(connection, sessionId, cancellationToken);
+        var notes = await LoadSessionNotesAsync(connection, sessionId, cancellationToken);
+
+        return new SessionReviewBundle(
+            sessionId,
+            startedAt,
+            endedAt,
+            car,
+            track,
+            snapshots,
+            events,
+            completedLaps,
+            notes,
+            summaryMarkdown);
+    }
+
     public async Task<string> ExportSessionJsonAsync(Guid sessionId, CancellationToken cancellationToken = default)
     {
         var export = await BuildSessionExportAsync(sessionId, cancellationToken);
@@ -589,6 +656,68 @@ public sealed class StorageService
         builder.AppendLine(JsonSerializer.Serialize(export, new JsonSerializerOptions(JsonOptions) { WriteIndented = true }));
         builder.AppendLine("```");
         return builder.ToString();
+    }
+
+    private static async Task<IReadOnlyList<TelemetrySnapshot>> LoadSnapshotsAsync(SqliteConnection connection, Guid sessionId, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT payload_json FROM snapshots WHERE session_id = $id ORDER BY timestamp";
+        command.Parameters.AddWithValue("$id", sessionId.ToString());
+        return await ReadPayloadListAsync(command, JsonSerializer.Deserialize<TelemetrySnapshot>, cancellationToken);
+    }
+
+    private static async Task<IReadOnlyList<TelemetryEvent>> LoadEventsAsync(SqliteConnection connection, Guid sessionId, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT payload_json FROM events WHERE session_id = $id ORDER BY timestamp";
+        command.Parameters.AddWithValue("$id", sessionId.ToString());
+        return await ReadPayloadListAsync(command, JsonSerializer.Deserialize<TelemetryEvent>, cancellationToken);
+    }
+
+    private static async Task<IReadOnlyList<CompletedLap>> LoadCompletedLapsAsync(SqliteConnection connection, Guid sessionId, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT payload_json FROM completed_laps WHERE session_id = $id ORDER BY lap_number";
+        command.Parameters.AddWithValue("$id", sessionId.ToString());
+        return await ReadPayloadListAsync(command, JsonSerializer.Deserialize<CompletedLap>, cancellationToken);
+    }
+
+    private static async Task<IReadOnlyList<SessionNoteRow>> LoadSessionNotesAsync(SqliteConnection connection, Guid sessionId, CancellationToken cancellationToken)
+    {
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT kind, content, created_at FROM notes WHERE session_id = $id ORDER BY created_at";
+        command.Parameters.AddWithValue("$id", sessionId.ToString());
+        var notes = new List<SessionNoteRow>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            notes.Add(new SessionNoteRow(
+                reader.GetString(0),
+                reader.GetString(1),
+                DateTimeOffset.Parse(reader.GetString(2))));
+        }
+
+        return notes;
+    }
+
+    private static async Task<IReadOnlyList<T>> ReadPayloadListAsync<T>(
+        SqliteCommand command,
+        Func<string, JsonSerializerOptions, T?> deserialize,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        var items = new List<T>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var item = deserialize(reader.GetString(0), JsonOptions);
+            if (item is not null)
+            {
+                items.Add(item);
+            }
+        }
+
+        return items;
     }
 
     private async Task<IReadOnlyDictionary<string, object?>?> QuerySingleDictionaryAsync(SqliteConnection connection, string sql, Guid sessionId, CancellationToken cancellationToken)
