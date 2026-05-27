@@ -2,6 +2,7 @@ using RaceEngineer.Core.Analytics;
 using RaceEngineer.Core.Coaching;
 using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Session;
+using RaceEngineer.Core.Strategy;
 using RaceEngineer.Core.Telemetry;
 using RaceEngineer.Core.TelemetryVisualization;
 
@@ -14,6 +15,7 @@ internal sealed record LocalEndToEndReplayResult(
     IReadOnlyList<TelemetrySnapshot> Snapshots,
     SessionTelemetryAnalytics Analytics,
     SessionLapIntelligence LapIntelligence,
+    SessionStrategy Strategy,
     TelemetryTimeline Timeline,
     CoachEvidenceBundle Evidence,
     IReadOnlyDictionary<string, CoachMessage> CoachAnswers);
@@ -25,7 +27,8 @@ internal static class LocalEndToEndReplay
         "where am I losing time?",
         "how is my braking?",
         "how is my throttle?",
-        "what should I improve?"
+        "what should I improve?",
+        "what is my strategy?"
     ];
 
     public static LocalEndToEndReplayResult Run(string fixturePath)
@@ -53,6 +56,12 @@ internal static class LocalEndToEndReplay
             session,
             analysisSnapshots,
             session.LastLap?.LapNumber));
+        var strategy = new StrategyEngine().Analyze(new StrategyInput(
+            session,
+            analytics,
+            lapIntelligence,
+            null,
+            session.Events));
         var timeline = new TelemetryTraceBuilder().Build(new TelemetryTimelineInput(
             session,
             analysisSnapshots,
@@ -64,6 +73,7 @@ internal static class LocalEndToEndReplay
             session.Events,
             analytics,
             lapIntelligence,
+            strategy,
             timeline));
 
         var coach = new CoachEngine();
@@ -78,6 +88,7 @@ internal static class LocalEndToEndReplay
             snapshots,
             analytics,
             lapIntelligence,
+            strategy,
             timeline,
             evidence,
             answers);
@@ -96,6 +107,8 @@ internal static class LocalEndToEndReplay
         Assert(result.Analytics.LapConsistency.SampleCount >= 2, "Analytics should compute lap consistency samples.");
         Assert(result.Analytics.BestVsAverage.BestLapSeconds is > 0, "Analytics should compute best vs average.");
         Assert(result.LapIntelligence.LapComparison.BestLapSeconds is > 0, "Lap intelligence should compute lap comparison.");
+        Assert(result.Strategy.Fuel.FuelUsedPerLap is > 0, "Strategy should compute fuel used per lap from fixture.");
+        Assert(result.Strategy.Pit.Recommendation != PitRecommendation.Unknown, "Strategy should produce a pit recommendation.");
         Assert(
             result.LapIntelligence.SectorDeltas.Sectors.Count > 0
                 || result.LapIntelligence.CoachingInsights.Count > 0

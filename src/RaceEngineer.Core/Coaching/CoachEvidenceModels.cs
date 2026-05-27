@@ -9,6 +9,7 @@ public enum CoachEvidenceTopic
     LapComparison,
     RacePace,
     Fuel,
+    Strategy,
     Incidents,
     SetupNotes
 }
@@ -51,6 +52,7 @@ public sealed record CoachEvidenceInput(
     IReadOnlyList<Events.TelemetryEvent>? Events = null,
     Analytics.SessionTelemetryAnalytics? Analytics = null,
     Analytics.SessionLapIntelligence? LapIntelligence = null,
+    Strategy.SessionStrategy? Strategy = null,
     TelemetryVisualization.TelemetryTimeline? Timeline = null,
     IReadOnlyList<Knowledge.KnowledgeSource>? KnowledgeSources = null);
 
@@ -65,6 +67,7 @@ public static class CoachEvidenceSelector
         [CoachEvidenceTopic.LapComparison] = ["LapComparison", "DeltaTrace", "Sector"],
         [CoachEvidenceTopic.RacePace] = ["Pace", "Analytics", "LapIntelligence"],
         [CoachEvidenceTopic.Fuel] = ["Fuel", "Analytics", "Session"],
+        [CoachEvidenceTopic.Strategy] = ["Strategy"],
         [CoachEvidenceTopic.Incidents] = ["Incident", "Event"],
         [CoachEvidenceTopic.SetupNotes] = ["Knowledge"]
     };
@@ -78,8 +81,37 @@ public static class CoachEvidenceSelector
             return [];
         }
 
-        return packets
+        var filtered = packets
             .Where(packet => categories.Contains(packet.Category, StringComparer.Ordinal))
+            .ToArray();
+
+        if (topic == CoachEvidenceTopic.Strategy)
+        {
+            string[] priority =
+            [
+                "Pit recommendation",
+                "Strategy summary",
+                "Fuel risk",
+                "Laps remaining",
+                "Tyre risk",
+                "Minimum fuel to finish",
+                "Fuel used per lap",
+                "Estimated finish fuel",
+                "Pit window"
+            ];
+
+            return filtered
+                .OrderBy(packet =>
+                {
+                    var index = Array.IndexOf(priority, packet.Summary);
+                    return index >= 0 ? index : priority.Length;
+                })
+                .ThenBy(packet => packet.Summary, StringComparer.Ordinal)
+                .Take(8)
+                .ToArray();
+        }
+
+        return filtered
             .OrderBy(packet => packet.Category, StringComparer.Ordinal)
             .ThenBy(packet => packet.Summary, StringComparer.Ordinal)
             .Take(6)

@@ -14,6 +14,7 @@ using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.Storage;
+using RaceEngineer.Core.Strategy;
 using RaceEngineer.Core.Telemetry;
 using RaceEngineer.Core.TelemetryVisualization;
 using RaceEngineer.Core.Voice;
@@ -37,6 +38,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly VoiceService voiceService;
     private readonly VoiceInputService voiceInputService;
     private readonly CalloutManager calloutManager = new();
+    private readonly StrategyEngine strategyEngine = new();
+    private readonly StrategyCalloutManager strategyCalloutManager = new();
     private readonly PushToTalkHotkey pushToTalkHotkey;
     private readonly StorageService storageService;
     private readonly StoredResearchService researchService;
@@ -93,10 +96,17 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string lapIntelligenceSectorGainLoss = "-";
     private string lapIntelligenceStrengths = "-";
     private string lapIntelligenceWeaknesses = "-";
+    private string strategyPanelTitle = "Strategy (Live Session)";
+    private string strategyFuelRisk = "-";
+    private string strategyLapsRemaining = "-";
+    private string strategyPitRecommendation = "-";
+    private string strategyTyreRisk = "-";
+    private string strategySummary = "-";
     private TelemetryTimeline traceTimeline = TelemetryTimeline.Empty;
     private double timelineCursorProgress;
     private SessionTelemetryAnalytics sessionAnalytics = SessionTelemetryAnalytics.Empty;
     private SessionLapIntelligence sessionLapIntelligence = SessionLapIntelligence.Empty;
+    private SessionStrategy sessionStrategy = SessionStrategy.Empty;
 
     public MainWindowViewModel()
     {
@@ -178,6 +188,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string LapIntelligenceSectorGainLoss => lapIntelligenceSectorGainLoss;
     public string LapIntelligenceStrengths => lapIntelligenceStrengths;
     public string LapIntelligenceWeaknesses => lapIntelligenceWeaknesses;
+
+    public string StrategyPanelTitle => strategyPanelTitle;
+    public string StrategyFuelRisk => strategyFuelRisk;
+    public string StrategyLapsRemaining => strategyLapsRemaining;
+    public string StrategyPitRecommendation => strategyPitRecommendation;
+    public string StrategyTyreRisk => strategyTyreRisk;
+    public string StrategySummary => strategySummary;
 
     public TelemetryTimeline TraceTimeline => traceTimeline;
 
@@ -558,6 +575,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             ActiveSession.Events,
             sessionAnalytics,
             sessionLapIntelligence,
+            sessionStrategy,
             traceTimeline,
             KnowledgeSources.Select(item => item.Source).ToArray()));
     }
@@ -1121,7 +1139,45 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             ? "No weaknesses identified yet."
             : string.Join(" ", intelligence.Weaknesses);
 
+        strategyPanelTitle = isReviewMode ? "Strategy (Review Session)" : "Strategy (Live Session)";
+        sessionStrategy = strategyEngine.Analyze(new StrategyInput(
+            ActiveSession,
+            metrics,
+            intelligence,
+            CurrentPrepPlan(),
+            ActiveSession.Events));
+        var strategy = sessionStrategy;
+        strategyFuelRisk = strategy.Fuel.RiskLevel.ToString();
+        strategyLapsRemaining = strategy.Fuel.LapsRemaining?.ToString("0.0", CultureInfo.InvariantCulture)
+            ?? strategy.Fuel.Availability;
+        strategyPitRecommendation = strategy.Pit.Recommendation == PitRecommendation.Unknown
+            ? strategy.Pit.Availability
+            : $"{strategy.Pit.Recommendation} — {strategy.Pit.RecommendationReason}";
+        strategyTyreRisk = strategy.TyreRisk.RiskLevel == TyreRiskLevel.Unknown
+            ? strategy.TyreRisk.Availability
+            : $"{strategy.TyreRisk.RiskLevel} ({strategy.TyreRisk.RiskScore0To100:0}/100)";
+        strategySummary = strategy.Summary;
+
         RaiseAnalyticsProperties();
+
+        if (!isReviewMode)
+        {
+            TrySpeakStrategyCallout();
+        }
+    }
+
+    private void TrySpeakStrategyCallout()
+    {
+        var callout = strategyCalloutManager.TryCreateCallout(sessionStrategy, DateTimeOffset.UtcNow);
+        if (callout is null)
+        {
+            return;
+        }
+
+        if (voiceService.Speak(callout))
+        {
+            LastCallout = callout;
+        }
     }
 
     private static string FormatIncidentCounts(IReadOnlyDictionary<string, int> counts)
@@ -1154,6 +1210,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(LapIntelligenceSectorGainLoss));
         OnPropertyChanged(nameof(LapIntelligenceStrengths));
         OnPropertyChanged(nameof(LapIntelligenceWeaknesses));
+        OnPropertyChanged(nameof(StrategyPanelTitle));
+        OnPropertyChanged(nameof(StrategyFuelRisk));
+        OnPropertyChanged(nameof(StrategyLapsRemaining));
+        OnPropertyChanged(nameof(StrategyPitRecommendation));
+        OnPropertyChanged(nameof(StrategyTyreRisk));
+        OnPropertyChanged(nameof(StrategySummary));
     }
 
     private void RaiseVoiceProperties()

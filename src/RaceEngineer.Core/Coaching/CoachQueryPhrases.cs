@@ -56,6 +56,24 @@ public static class CoachQueryPhrases
         "koliko goriva imam"
     ];
 
+    public static readonly string[] Strategy =
+    [
+        "do i need to pit",
+        "should i stay out",
+        "what is my strategy",
+        "when to pit",
+        "pit window",
+        "pit now",
+        "stay out",
+        "strategy",
+        "koliko još mogu voziti",
+        "koliko jos mogu voziti",
+        "imam li dovoljno goriva",
+        "kakva je strategija",
+        "kada u boks",
+        "trebam li u boks"
+    ];
+
     public static readonly string[] Incidents =
     [
         "incident",
@@ -83,6 +101,9 @@ public static class CoachQueryPhrases
         "tell me about this track",
         "setup notes",
         "fuel plan",
+        "what is my strategy",
+        "should I stay out",
+        "do I need to pit",
         "copy",
         "radio check"
     ];
@@ -95,6 +116,7 @@ public static class CoachQueryPhrases
             .Concat(Improvement)
             .Concat(RacePace)
             .Concat(Fuel)
+            .Concat(Strategy)
             .Concat(Incidents)
             .Distinct(StringComparer.OrdinalIgnoreCase);
 }

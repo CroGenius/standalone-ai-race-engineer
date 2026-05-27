@@ -74,6 +74,11 @@ public sealed class CoachEngine
             return AttachEvidence(RecentMistakesAnswer(recentEvents), evidence, CoachEvidenceTopic.Incidents);
         }
 
+        if (ContainsAny(text, CoachQueryPhrases.Strategy))
+        {
+            return AttachEvidence(StrategyAnswer(evidence), evidence, CoachEvidenceTopic.Strategy);
+        }
+
         if (ContainsAny(text, "tyre", "tire"))
         {
             return TyreAnswer(latest, recentEvents);
@@ -255,6 +260,28 @@ public sealed class CoachEngine
         evidence.Add(session.FuelUsedPerLap.HasValue ? $"fuel used per lap: {FormatNumber(session.FuelUsedPerLap.Value, "0.00")}" : "fuel used per lap: unavailable until enough valid laps are completed");
         evidence.Add(session.EstimatedLapsRemaining.HasValue ? $"estimated laps remaining: {FormatNumber(session.EstimatedLapsRemaining.Value, "0.0")}" : "estimated laps remaining: unavailable");
         return Message(action, evidence, lowFuelEvents.Select(item => item.Id));
+    }
+
+    private static CoachMessage StrategyAnswer(CoachEvidenceBundle? evidence)
+    {
+        var packets = evidence?.Select(CoachEvidenceTopic.Strategy).ToArray() ?? [];
+        if (packets.Length == 0)
+        {
+            return Unavailable(
+                "Strategy is unavailable.",
+                "Need fuel usage data and a few completed laps before pit strategy can be computed.");
+        }
+
+        var recommendation = packets.FirstOrDefault(packet => packet.Summary == "Pit recommendation");
+        var action = recommendation?.Explanation
+            ?? packets.FirstOrDefault(packet => packet.Summary == "Strategy summary")?.Explanation
+            ?? "Review fuel, stint, and tyre risk before your next stop.";
+        var bullets = packets
+            .Select(packet => $"{packet.Summary}: {packet.Explanation}")
+            .Distinct(StringComparer.Ordinal)
+            .Take(6)
+            .ToArray();
+        return Message(action, bullets, []);
     }
 
     private static CoachMessage LastLapAnswer(SessionState session)

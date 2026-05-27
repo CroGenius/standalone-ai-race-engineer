@@ -9,6 +9,7 @@ using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.Storage;
+using RaceEngineer.Core.Strategy;
 using RaceEngineer.Core.Telemetry;
 using RaceEngineer.Core.TelemetryVisualization;
 using RaceEngineer.Core.Voice;
@@ -59,6 +60,9 @@ SpeechRecognitionCultureResolverSupportsConfiguredAndAutoFallback();
 SpeechRecognitionProviderSelectionSupportsConfiguredValues();
 WhisperModelLocatorResolvesDefaultAndConfiguredPaths();
 WhisperSpeechOptionsNormalizeSettingsValues();
+StrategyEngineComputesDeterministicFuelMetrics();
+StrategyCalloutManagerSpeaksOnlyOnStateChange();
+CoachEngineRoutesStrategyQuestions();
 CoachEngineRoutesCroatianBrakingPhrase();
 VoiceInputAcceptsRecognitionAfterPttReleaseGrace();
 VoiceInputReportsNoSpeechAfterGraceTimeout();
@@ -552,6 +556,63 @@ static void WhisperSpeechOptionsNormalizeSettingsValues()
     Assert(configured.Prompt == "braking fuel pace", "Configured prompt should pass through.");
     Assert(configured.TrailingAudioMilliseconds == 700, "Trailing audio should clamp to 700 ms.");
     Assert(configured.NoSpeechThreshold == 0.1f, "No-speech threshold should clamp to minimum 0.1.");
+}
+
+static void StrategyEngineComputesDeterministicFuelMetrics()
+{
+    var (session, _) = SessionWithFuelEstimate();
+    var analytics = new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session));
+    var first = new StrategyEngine().Analyze(new StrategyInput(session, analytics));
+    var second = new StrategyEngine().Analyze(new StrategyInput(session, analytics));
+
+    Assert(first.Fuel.FuelUsedPerLap == second.Fuel.FuelUsedPerLap, "Fuel per lap should be deterministic.");
+    Assert(first.Fuel.LapsRemaining == second.Fuel.LapsRemaining, "Laps remaining should be deterministic.");
+    Assert(first.Pit.Recommendation == second.Pit.Recommendation, "Pit recommendation should be deterministic.");
+    Assert(first.Summary == second.Summary, "Strategy summary should be deterministic.");
+}
+
+static void StrategyCalloutManagerSpeaksOnlyOnStateChange()
+{
+    var manager = new StrategyCalloutManager();
+    var timestamp = DateTimeOffset.UtcNow;
+    var strategy = new StrategyEngine().Analyze(new StrategyInput(SessionWithFuelEstimate().Session));
+
+    var first = manager.TryCreateCallout(strategy, timestamp);
+    var second = manager.TryCreateCallout(strategy, timestamp.AddSeconds(1));
+
+    if (first is not null)
+    {
+        Assert(second is null, "Unchanged strategy state should not create another callout.");
+    }
+}
+
+static void CoachEngineRoutesStrategyQuestions()
+{
+    var coach = new CoachEngine();
+    var (session, _) = SessionWithFuelEstimate();
+    var analytics = new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session));
+    var strategy = new StrategyEngine().Analyze(new StrategyInput(session, analytics));
+    var evidence = new CoachEvidenceBuilder().Build(new CoachEvidenceInput(
+        session,
+        null,
+        session.Events,
+        analytics,
+        null,
+        strategy));
+
+    var english = coach.Answer(session, "what is my strategy", evidence: evidence);
+    var croatian = coach.Answer(session, "kakva je strategija", evidence: evidence);
+    var pit = coach.Answer(session, "do I need to pit", evidence: evidence);
+
+    Assert(english.EvidencePackets.Count > 0, "English strategy question should include evidence packets.");
+    Assert(croatian.EvidencePackets.Count > 0, "Croatian strategy question should include evidence packets.");
+    Assert(pit.EvidencePackets.Count > 0, "Pit strategy question should include evidence packets.");
+    Assert(
+        english.EvidencePackets.Any(packet => packet.Summary == "Pit recommendation"),
+        "Strategy evidence should include a pit recommendation packet.");
+    Assert(
+        english.EvidencePackets.Any(packet => packet.Summary == "Strategy summary"),
+        "Strategy evidence should include a strategy summary packet.");
 }
 
 static void CoachEngineRoutesCroatianBrakingPhrase()

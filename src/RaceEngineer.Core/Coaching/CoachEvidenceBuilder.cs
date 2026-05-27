@@ -3,6 +3,7 @@ using RaceEngineer.Core.Analytics;
 using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Session;
+using RaceEngineer.Core.Strategy;
 using RaceEngineer.Core.Telemetry;
 using RaceEngineer.Core.TelemetryVisualization;
 
@@ -37,6 +38,13 @@ public sealed class CoachEvidenceBuilder
         AddEventPackets(packets, events);
         AddAnalyticsPackets(packets, analytics);
         AddLapIntelligencePackets(packets, lapIntelligence);
+        var strategy = input.Strategy ?? new StrategyEngine().Analyze(new StrategyInput(
+            input.Session,
+            analytics,
+            lapIntelligence,
+            null,
+            events));
+        AddStrategyPackets(packets, strategy);
         AddTracePackets(packets, timeline);
         AddKnowledgePackets(packets, input.KnowledgeSources);
 
@@ -328,6 +336,125 @@ public sealed class CoachEvidenceBuilder
                 null,
                 TrimKnowledge(source.Content)));
         }
+    }
+
+    private static void AddStrategyPackets(List<CoachEvidencePacket> packets, SessionStrategy strategy)
+    {
+        if (strategy.Fuel.FuelUsedPerLap is { } fuelPerLap)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "Strategy",
+                "Fuel used per lap",
+                strategy.Fuel.RiskLevel >= FuelRiskLevel.High ? "Warning" : "Info",
+                0.90,
+                CoachEvidenceSourceType.Session,
+                null,
+                [],
+                fuelPerLap,
+                $"Fuel used per lap is {fuelPerLap.ToString("0.00", CultureInfo.InvariantCulture)}."));
+        }
+
+        if (strategy.Fuel.LapsRemaining is { } lapsRemaining)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "Strategy",
+                "Laps remaining",
+                strategy.Fuel.RiskLevel >= FuelRiskLevel.Moderate ? "Warning" : "Info",
+                0.90,
+                CoachEvidenceSourceType.Session,
+                null,
+                [],
+                lapsRemaining,
+                $"Estimated laps remaining on fuel is {lapsRemaining.ToString("0.0", CultureInfo.InvariantCulture)}."));
+        }
+
+        if (strategy.Fuel.EstimatedFinishFuel is { } finishFuel)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "Strategy",
+                "Estimated finish fuel",
+                finishFuel <= 0 ? "Warning" : "Info",
+                0.85,
+                CoachEvidenceSourceType.Session,
+                null,
+                [],
+                finishFuel,
+                $"Estimated fuel at target stint end is {finishFuel.ToString("0.0", CultureInfo.InvariantCulture)}."));
+        }
+
+        packets.Add(new CoachEvidencePacket(
+            "Strategy",
+            "Fuel risk",
+            strategy.Fuel.RiskLevel >= FuelRiskLevel.High ? "Warning" : "Info",
+            0.85,
+            CoachEvidenceSourceType.Session,
+            null,
+            [],
+            null,
+            $"Fuel risk level is {strategy.Fuel.RiskLevel}."));
+
+        if (strategy.Pit.MinimumFuelToFinish is { } minimumFuel)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "Strategy",
+                "Minimum fuel to finish",
+                minimumFuel > (strategy.Fuel.EstimatedFinishFuel ?? 0) ? "Warning" : "Info",
+                0.85,
+                CoachEvidenceSourceType.Session,
+                null,
+                [],
+                minimumFuel,
+                $"Minimum fuel to finish the stint is about {minimumFuel.ToString("0.0", CultureInfo.InvariantCulture)}."));
+        }
+
+        packets.Add(new CoachEvidencePacket(
+            "Strategy",
+            "Pit recommendation",
+            strategy.Pit.Recommendation is PitRecommendation.PitNow or PitRecommendation.PrepareToPit ? "Warning" : "Info",
+            0.90,
+            CoachEvidenceSourceType.Session,
+            null,
+            [],
+            null,
+            strategy.Pit.RecommendationReason));
+
+        if (strategy.Pit.EstimatedPitWindowStartLap is { } windowStart && strategy.Pit.EstimatedPitWindowEndLap is { } windowEnd)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "Strategy",
+                "Pit window",
+                "Info",
+                0.85,
+                CoachEvidenceSourceType.Session,
+                null,
+                [],
+                windowStart,
+                $"Estimated pit window is lap {windowStart} to lap {windowEnd}."));
+        }
+
+        packets.Add(new CoachEvidencePacket(
+            "Strategy",
+            "Tyre risk",
+            strategy.TyreRisk.RiskLevel >= TyreRiskLevel.High ? "Warning" : "Info",
+            0.80,
+            CoachEvidenceSourceType.Analytics,
+            null,
+            [],
+            strategy.TyreRisk.RiskScore0To100,
+            strategy.TyreRisk.Factors.Count == 0
+                ? $"Tyre risk level is {strategy.TyreRisk.RiskLevel}."
+                : $"Tyre risk level is {strategy.TyreRisk.RiskLevel}: {string.Join(" ", strategy.TyreRisk.Factors)}"));
+
+        packets.Add(new CoachEvidencePacket(
+            "Strategy",
+            "Strategy summary",
+            "Info",
+            0.90,
+            CoachEvidenceSourceType.Session,
+            null,
+            [],
+            null,
+            strategy.Summary));
     }
 
     private static string FormatDuration(TimeSpan? duration)
