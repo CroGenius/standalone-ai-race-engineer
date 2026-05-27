@@ -1,0 +1,68 @@
+Metadata-Version: 2.4
+Name: standalone-ai-race-engineer
+Version: 0.1.0
+Summary: Standalone conversational race engineer and AI coach app.
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi>=0.111
+Requires-Dist: pydantic>=2.7
+Requires-Dist: uvicorn[standard]>=0.30
+Provides-Extra: dev
+Requires-Dist: pytest>=8.2; extra == "dev"
+
+# Standalone AI Race Engineer
+
+Phase 1 focuses on conversational race engineering and coaching. It consumes a SimHub DataCore UDP JSON stream, normalizes telemetry into factual snapshots, detects deterministic events, stores session data, and exposes a simple local UI for live coaching, preparation notes, and post-session review.
+
+## Architecture
+
+- `TelemetryProvider`: receives UDP JSON on `127.0.0.1:20999`.
+- `TelemetrySnapshot`: canonical normalized model with missing values represented as `null`.
+- `EventEngine`: deterministic event detection with evidence, confidence, severity, and short suggested action.
+- `CoachService`: produces grounded callouts and chat responses from live state, recent events, session summary, and driver memory.
+- `SessionStore`: SQLite persistence for sessions, snapshots, events, notes, driver profile, car/track metadata, and coaching preferences.
+- `FastAPI app`: local HTTP/WebSocket API and static UI.
+
+The AI/coaching layer must not invent telemetry. It consumes structured facts and should state uncertainty when data is missing.
+
+## Run
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e .[dev]
+python -m race_engineer_app
+```
+
+Open `http://127.0.0.1:8765`.
+
+## SimHub UDP Payload
+
+Expected schema:
+
+```json
+{
+  "schema": "acevo_engineer.simhub_datacore",
+  "schema_version": 1,
+  "speed_kmh": 182.4,
+  "rpm": 7100,
+  "gear": 4,
+  "throttle": 0.42,
+  "brake": 0.0,
+  "steering": -0.18,
+  "lap_time_ms": 83542,
+  "lap_time_s": 83.542,
+  "lap_progress": 0.63,
+  "fuel": 18.2,
+  "position": 7,
+  "flags": null,
+  "damage": null,
+  "tyre_temp_c": [86.2, 88.1, 82.4, 83.0],
+  "tyre_pressure": [26.1, 26.3, 25.8, 25.9],
+  "brake_temp_c": [610, 624, 530, 536],
+  "tyre_wear": [0.08, 0.09, 0.06, 0.06]
+}
+```
+
+Any omitted or invalid fields normalize to `null`, not fake zero.
+

@@ -1,0 +1,257 @@
+:root {
+  color-scheme: dark;
+  --bg: #101214;
+  --panel: #191d21;
+  --panel-soft: #20262b;
+  --text: #eff3f4;
+  --muted: #9aa6ac;
+  --line: #30383e;
+  --accent: #32d296;
+  --warn: #f5a524;
+  --critical: #ef5b5b;
+  --info: #66b8ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, Segoe UI, system-ui, sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-soft);
+  color: var(--text);
+  padding: 0.6rem 0.8rem;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+.shell {
+  width: min(1440px, 100%);
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 16px;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 1.6rem;
+}
+
+h2 {
+  font-size: 1rem;
+}
+
+.topbar p,
+.telemetry dd,
+.event-log,
+.notes,
+#summary {
+  color: var(--muted);
+}
+
+.status {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.45rem 0.75rem;
+  color: var(--warn);
+}
+
+.status.online {
+  color: var(--accent);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 1.25fr) minmax(280px, 0.75fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.panel {
+  min-height: 260px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 16px;
+}
+
+.panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.chat-panel,
+.summary-panel {
+  grid-column: span 1;
+}
+
+.voice-controls,
+.chat-form {
+  display: flex;
+  gap: 8px;
+}
+
+.callout {
+  border-left: 3px solid var(--accent);
+  background: var(--panel-soft);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.chat-log {
+  height: 320px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.message {
+  max-width: 78%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: var(--panel-soft);
+}
+
+.message.user {
+  align-self: flex-end;
+  border-color: #4c697c;
+}
+
+.message.coach {
+  align-self: flex-start;
+}
+
+.chat-form {
+  margin-top: 12px;
+}
+
+.chat-form input {
+  flex: 1;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #111518;
+  color: var(--text);
+  padding: 0.65rem;
+}
+
+.telemetry {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+  margin: 0;
+}
+
+.telemetry dt {
+  color: var(--text);
+}
+
+.telemetry dd {
+  margin: 0;
+  text-align: right;
+}
+
+.event-log {
+  margin: 0;
+  padding-left: 20px;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.event-log li {
+  margin-bottom: 10px;
+}
+
+.event-log strong {
+  color: var(--text);
+}
+
+.event-log .critical {
+  color: var(--critical);
+}
+
+.event-log .warning {
+  color: var(--warn);
+}
+
+.note-form {
+  display: grid;
+  gap: 10px;
+}
+
+.notes {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.note {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+#summary {
+  display: grid;
+  gap: 8px;
+}
+
+@media (max-width: 920px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar,
+  .panel header,
+  .voice-controls {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .message {
+    max-width: 92%;
+  }
+}
+

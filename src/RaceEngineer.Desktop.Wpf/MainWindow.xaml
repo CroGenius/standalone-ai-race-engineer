@@ -1,0 +1,230 @@
+<Window x:Class="RaceEngineer.Desktop.Wpf.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AI Race Engineer" Height="760" Width="1180" MinHeight="620" MinWidth="920"
+        Background="#101214" Foreground="#EFF3F4">
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#EFF3F4" />
+        </Style>
+        <Style TargetType="Border">
+            <Setter Property="BorderBrush" Value="#30383E" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Background" Value="#191D21" />
+            <Setter Property="Padding" Value="14" />
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="Margin" Value="4,0,0,0" />
+            <Setter Property="Background" Value="#20262B" />
+            <Setter Property="Foreground" Value="#EFF3F4" />
+            <Setter Property="BorderBrush" Value="#30383E" />
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#111518" />
+            <Setter Property="Foreground" Value="#EFF3F4" />
+            <Setter Property="BorderBrush" Value="#30383E" />
+            <Setter Property="Padding" Value="8" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Margin="0,0,0,16">
+            <StackPanel DockPanel.Dock="Left">
+                <TextBlock Text="AI Race Engineer" FontSize="24" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding SessionLabel}" Foreground="#9AA6AC" Margin="0,4,0,0" />
+            </StackPanel>
+            <TextBlock DockPanel.Dock="Right" Text="{Binding TelemetryStatus}" Foreground="{Binding TelemetryStatusBrush}" FontSize="14" HorizontalAlignment="Right" VerticalAlignment="Center" />
+        </DockPanel>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.25*" />
+                <ColumnDefinition Width="0.85*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="1*" />
+                <RowDefinition Height="0.9*" />
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Grid.Column="0" Margin="0,0,14,14">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <DockPanel>
+                        <TextBlock Text="Coach" FontSize="17" FontWeight="SemiBold" />
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
+                            <Button Content="{Binding VoiceLabel}" Command="{Binding ToggleVoiceCommand}" />
+                            <Button Content="Push to Talk" Command="{Binding TogglePushToTalkCommand}" />
+                            <Button Content="{Binding TtsLabel}" Command="{Binding ToggleTtsCommand}" />
+                            <Button Content="Test Voice" Command="{Binding TestVoiceCommand}" />
+                        </StackPanel>
+                    </DockPanel>
+                    <TextBlock Grid.Row="1" Margin="0,10,0,0" Foreground="#9AA6AC" TextWrapping="Wrap"
+                               Text="Try: tyre status, brake status, fuel status, last lap, best lap, recent mistakes, next lap focus, tell me about this track, setup notes, combine my telemetry with track notes" />
+                    <StackPanel Grid.Row="2" Background="#20262B" Margin="0,12,0,12">
+                        <TextBlock Text="{Binding LastCallout}" TextWrapping="Wrap" Padding="10,10,10,4" />
+                        <TextBlock Text="{Binding VoiceState}" Foreground="#9AA6AC" Padding="10,0,10,2" />
+                        <TextBlock Text="{Binding VoiceSuppressionState}" Foreground="#9AA6AC" Padding="10,0,10,10" />
+                    </StackPanel>
+                    <ListBox Grid.Row="3" ItemsSource="{Binding ChatMessages}" Background="#15191D" Foreground="#EFF3F4" BorderBrush="#30383E" />
+                    <DockPanel Grid.Row="4" Margin="0,12,0,0">
+                        <Button DockPanel.Dock="Right" Content="Send" Command="{Binding SendChatCommand}" />
+                        <TextBox Text="{Binding ChatInput, UpdateSourceTrigger=PropertyChanged}" MinHeight="36" />
+                    </DockPanel>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="0" Grid.Column="1" Margin="0,0,0,14">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="Live Telemetry" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                        <UniformGrid Columns="2" Rows="10">
+                            <TextBlock Text="Speed" /><TextBlock Text="{Binding Speed}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="RPM" /><TextBlock Text="{Binding Rpm}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Gear" /><TextBlock Text="{Binding Gear}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Throttle" /><TextBlock Text="{Binding Throttle}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Brake" /><TextBlock Text="{Binding Brake}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Steering" /><TextBlock Text="{Binding Steering}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Lap Time" /><TextBlock Text="{Binding LapTime}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Lap Progress" /><TextBlock Text="{Binding LapProgress}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Fuel" /><TextBlock Text="{Binding Fuel}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Position" /><TextBlock Text="{Binding Position}" TextAlignment="Right" Foreground="#9AA6AC" />
+                        </UniformGrid>
+
+                        <TextBlock Text="Telemetry Diagnostics" FontSize="17" FontWeight="SemiBold" Margin="0,20,0,12" />
+                        <UniformGrid Columns="2" Rows="13">
+                            <TextBlock Text="UDP bind" /><TextBlock Text="{Binding UdpBind}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Receiver" /><TextBlock Text="{Binding ReceiverState}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Packets received" /><TextBlock Text="{Binding PacketsReceivedCount}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Valid packets" /><TextBlock Text="{Binding ValidPacketsCount}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Invalid packets" /><TextBlock Text="{Binding InvalidPacketsCount}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Packets/sec" /><TextBlock Text="{Binding PacketsPerSecond}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Valid/sec" /><TextBlock Text="{Binding ValidPacketsPerSecond}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Invalid/sec" /><TextBlock Text="{Binding InvalidPacketsPerSecond}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Last valid age" /><TextBlock Text="{Binding LastValidPacketAge}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Schema seen" /><TextBlock Text="{Binding CurrentSchemaSeen}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                            <TextBlock Text="Last packet" /><TextBlock Text="{Binding LastPacketTimestamp}" TextAlignment="Right" Foreground="#9AA6AC" />
+                            <TextBlock Text="Last invalid" /><TextBlock Text="{Binding LastInvalidReason}" TextAlignment="Right" Foreground="#F5A524" TextWrapping="Wrap" />
+                            <TextBlock Text="Capture" /><TextBlock Text="{Binding RawCaptureState}" TextAlignment="Right" Foreground="#9AA6AC" />
+                        </UniformGrid>
+                        <UniformGrid Columns="2" Margin="0,10,0,0">
+                            <Button Content="{Binding RawCaptureState}" Command="{Binding ToggleRawCaptureCommand}" />
+                            <Button Content="Replay Capture" Command="{Binding ReplayCaptureCommand}" />
+                        </UniformGrid>
+                        <TextBlock Text="{Binding RawCapturePath}" Foreground="#9AA6AC" TextWrapping="Wrap" Margin="0,8,0,0" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <Border Grid.Row="1" Grid.Column="0" Margin="0,0,14,0">
+                <StackPanel>
+                    <TextBlock Text="Event Log" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <ListBox ItemsSource="{Binding EventLog}" Background="#15191D" Foreground="#EFF3F4" BorderBrush="#30383E">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Expander Margin="4" Foreground="#EFF3F4" Background="#15191D">
+                                    <Expander.Header>
+                                        <StackPanel>
+                                            <DockPanel>
+                                                <TextBlock Text="{Binding Type}" FontWeight="SemiBold" />
+                                                <TextBlock DockPanel.Dock="Right" Text="{Binding Severity}" Margin="10,0,0,0" Foreground="#F5A524" />
+                                            </DockPanel>
+                                            <TextBlock Foreground="#9AA6AC">
+                                                <Run Text="Lap " /><Run Text="{Binding Lap}" />
+                                                <Run Text=" / Progress " /><Run Text="{Binding LapProgress}" />
+                                                <Run Text=" / Confidence " /><Run Text="{Binding Confidence}" />
+                                            </TextBlock>
+                                            <TextBlock Text="{Binding SuggestedAction}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Expander.Header>
+                                    <TextBlock Text="{Binding EvidenceSummary}" TextWrapping="Wrap" Foreground="#9AA6AC" Margin="0,6,0,0" />
+                                </Expander>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Row="1" Grid.Column="1">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <TextBlock Text="Session" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <UniformGrid Columns="2" Rows="7" Margin="0,0,0,18">
+                        <TextBlock Text="Current lap" /><TextBlock Text="{Binding CurrentLap}" TextAlignment="Right" Foreground="#9AA6AC" />
+                        <TextBlock Text="Last lap" /><TextBlock Text="{Binding LastLapTime}" TextAlignment="Right" Foreground="#9AA6AC" />
+                        <TextBlock Text="Best lap" /><TextBlock Text="{Binding BestLapTime}" TextAlignment="Right" Foreground="#9AA6AC" />
+                        <TextBlock Text="Completed laps" /><TextBlock Text="{Binding CompletedLapsCount}" TextAlignment="Right" Foreground="#9AA6AC" />
+                        <TextBlock Text="Stint time" /><TextBlock Text="{Binding StintTime}" TextAlignment="Right" Foreground="#9AA6AC" />
+                        <TextBlock Text="Fuel level" /><TextBlock Text="{Binding Fuel}" TextAlignment="Right" Foreground="#9AA6AC" />
+                        <TextBlock Text="Est. laps remaining" /><TextBlock Text="{Binding EstimatedLapsRemaining}" TextAlignment="Right" Foreground="#9AA6AC" />
+                    </UniformGrid>
+
+                    <TextBlock Text="Race Prep" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <UniformGrid Columns="2">
+                        <TextBlock Text="Car" /><TextBox Text="{Binding PrepCar, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="Track" /><TextBox Text="{Binding PrepTrack, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="Session type" /><TextBox Text="{Binding PrepSessionType, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="Target stint" /><TextBox Text="{Binding PrepTargetStintLength, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="Fuel plan" /><TextBox Text="{Binding PrepFuelPlan, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="Tyre plan" /><TextBox Text="{Binding PrepTyrePlan, UpdateSourceTrigger=PropertyChanged}" />
+                    </UniformGrid>
+                    <TextBlock Text="Practice goal" Margin="0,8,0,2" /><TextBox Text="{Binding PrepPracticeGoal, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBlock Text="Driver reminders" Margin="0,8,0,2" /><TextBox Text="{Binding PrepDriverReminders, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" MinHeight="44" TextWrapping="Wrap" />
+                    <TextBlock Text="Setup notes" Margin="0,8,0,2" /><TextBox Text="{Binding PrepSetupNotes, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" MinHeight="44" TextWrapping="Wrap" />
+                    <TextBlock Text="Strategy notes" Margin="0,8,0,2" /><TextBox Text="{Binding PrepStrategyNotes, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" MinHeight="44" TextWrapping="Wrap" />
+                    <UniformGrid Columns="2" Margin="0,10,0,18">
+                        <Button Content="Save Prep" Command="{Binding SavePrepCommand}" />
+                        <Button Content="Load Prep" Command="{Binding LoadPrepCommand}" />
+                    </UniformGrid>
+                    <TextBlock Text="Track Knowledge" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <UniformGrid Columns="2">
+                        <TextBlock Text="Title" /><TextBox Text="{Binding KnowledgeTitle, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="Category" /><TextBox Text="{Binding KnowledgeCategory, UpdateSourceTrigger=PropertyChanged}" />
+                    </UniformGrid>
+                    <TextBlock Text="Reliability note" Margin="0,8,0,2" /><TextBox Text="{Binding KnowledgeConfidence, UpdateSourceTrigger=PropertyChanged}" />
+                    <TextBlock Text="Content" Margin="0,8,0,2" /><TextBox Text="{Binding KnowledgeContent, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" MinHeight="72" TextWrapping="Wrap" />
+                    <UniformGrid Columns="3" Margin="0,10,0,10">
+                        <Button Content="Save Note" Command="{Binding SaveKnowledgeCommand}" />
+                        <Button Content="Import File" Command="{Binding ImportKnowledgeCommand}" />
+                        <Button Content="Delete" Command="{Binding DeleteKnowledgeCommand}" />
+                    </UniformGrid>
+                    <DockPanel Margin="0,0,0,8">
+                        <Button DockPanel.Dock="Right" Content="Search" Command="{Binding SearchKnowledgeCommand}" />
+                        <TextBox Text="{Binding KnowledgeSearch, UpdateSourceTrigger=PropertyChanged}" />
+                    </DockPanel>
+                    <ListBox ItemsSource="{Binding KnowledgeSources}" SelectedItem="{Binding SelectedKnowledgeSource}" DisplayMemberPath="Display" MinHeight="90" MaxHeight="130" Background="#15191D" Foreground="#EFF3F4" BorderBrush="#30383E" Margin="0,0,0,18" />
+
+                    <TextBlock Text="Post-Session Summary" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <TextBlock Text="{Binding SessionSummary}" TextWrapping="Wrap" Foreground="#9AA6AC" />
+                    <TextBox Text="{Binding PostSessionNote, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" MinHeight="72" TextWrapping="Wrap" Margin="0,10,0,0" />
+                    <Button Content="Save Post Note" Command="{Binding SavePostSessionNoteCommand}" HorizontalAlignment="Right" Margin="0,10,0,18" />
+
+                    <DockPanel Margin="0,0,0,8">
+                        <TextBlock Text="Session Browser" FontSize="17" FontWeight="SemiBold" />
+                        <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshSessionsCommand}" />
+                    </DockPanel>
+                    <ListBox ItemsSource="{Binding Sessions}" SelectedItem="{Binding SelectedSession}" DisplayMemberPath="Display" MinHeight="120" MaxHeight="180" Background="#15191D" Foreground="#EFF3F4" BorderBrush="#30383E" />
+                    <UniformGrid Columns="3" Margin="0,10,0,10">
+                        <Button Content="Load Summary" Command="{Binding LoadSelectedSessionCommand}" />
+                        <Button Content="Export JSON" Command="{Binding ExportSessionJsonCommand}" />
+                        <Button Content="Export MD" Command="{Binding ExportCoachingMarkdownCommand}" />
+                    </UniformGrid>
+                    <TextBlock Text="{Binding LoadedSessionSummary}" TextWrapping="Wrap" Foreground="#9AA6AC" />
+                </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

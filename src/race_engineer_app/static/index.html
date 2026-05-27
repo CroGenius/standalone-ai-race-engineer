@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Race Engineer</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="topbar">
+        <div>
+          <h1>AI Race Engineer</h1>
+          <p id="sessionLabel">Waiting for session</p>
+        </div>
+        <div class="status" id="telemetryStatus">Telemetry offline</div>
+      </section>
+
+      <section class="grid">
+        <article class="panel chat-panel">
+          <header>
+            <h2>Coach</h2>
+            <div class="voice-controls">
+              <button id="pttButton" type="button">Push to Talk</button>
+              <button id="muteButton" type="button">TTS Muted</button>
+            </div>
+          </header>
+          <div class="callout" id="callout">Grounded callouts will appear here.</div>
+          <div class="chat-log" id="chatLog"></div>
+          <form id="chatForm" class="chat-form">
+            <input id="chatInput" name="message" autocomplete="off" placeholder="Ask about fuel, tyres, braking, or summary" />
+            <button type="submit">Send</button>
+          </form>
+        </article>
+
+        <article class="panel">
+          <header>
+            <h2>Live State</h2>
+          </header>
+          <dl class="telemetry" id="telemetryGrid"></dl>
+        </article>
+
+        <article class="panel">
+          <header>
+            <h2>Event Log</h2>
+          </header>
+          <ol class="event-log" id="eventLog"></ol>
+        </article>
+
+        <article class="panel">
+          <header>
+            <h2>Race Prep</h2>
+          </header>
+          <form id="noteForm" class="note-form">
+            <select id="noteKind">
+              <option value="track_note">Track notes</option>
+              <option value="setup_note">Car setup notes</option>
+              <option value="stint_plan">Stint plan</option>
+              <option value="practice_goal">Practice goals</option>
+              <option value="personal_reminder">Personal reminders</option>
+            </select>
+            <textarea id="noteContent" rows="5" placeholder="Add prep notes for this session"></textarea>
+            <button type="submit">Save Note</button>
+          </form>
+          <div class="notes" id="notes"></div>
+        </article>
+
+        <article class="panel summary-panel">
+          <header>
+            <h2>Post-Session</h2>
+            <button id="summaryButton" type="button">Refresh Summary</button>
+          </header>
+          <div id="summary"></div>
+        </article>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
+
