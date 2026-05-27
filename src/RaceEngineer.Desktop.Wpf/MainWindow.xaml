@@ -172,6 +172,18 @@
                         <TextBlock Text="Est. laps remaining" /><TextBlock Text="{Binding EstimatedLapsRemaining}" TextAlignment="Right" Foreground="#9AA6AC" />
                     </UniformGrid>
 
+                    <TextBlock Text="{Binding AnalyticsPanelTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <UniformGrid Columns="2" Rows="8" Margin="0,0,0,18">
+                        <TextBlock Text="Lap consistency" /><TextBlock Text="{Binding AnalyticsLapConsistency}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Fuel trend" /><TextBlock Text="{Binding AnalyticsFuelTrend}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Brake stability" /><TextBlock Text="{Binding AnalyticsBrakeStability}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Throttle smoothness" /><TextBlock Text="{Binding AnalyticsThrottleSmoothness}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Pace trend" /><TextBlock Text="{Binding AnalyticsPaceTrend}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Incidents" /><TextBlock Text="{Binding AnalyticsIncidents}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Best vs average" /><TextBlock Text="{Binding AnalyticsBestVsAverage}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Driver profile" /><TextBlock Text="{Binding AnalyticsDriverProfile}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
+
                     <TextBlock Text="Race Prep" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2">
                         <TextBlock Text="Car" /><TextBox Text="{Binding PrepCar, UpdateSourceTrigger=PropertyChanged}" />

@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
 using RaceEngineer.Core;
+using RaceEngineer.Core.Analytics;
 using RaceEngineer.Core.Coaching;
 using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
@@ -27,12 +28,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly PacketReplayTool replayTool = new();
     private readonly EventEngine eventEngine = new();
     private readonly CoachEngine coachEngine = new();
+    private readonly TelemetryAnalyticsService analyticsService = new();
     private readonly VoiceService voiceService;
     private readonly CalloutManager calloutManager = new();
     private readonly StorageService storageService;
     private readonly StoredResearchService researchService;
     private readonly SessionState session = new();
     private SessionState? reviewSession;
+    private IReadOnlyList<TelemetrySnapshot> reviewSnapshots = [];
     private bool isReviewMode;
     private IReadOnlyList<string> reviewSessionNotes = [];
     private string sessionLabel;
@@ -66,6 +69,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string knowledgeSearch = "";
     private KnowledgeSourceItem? selectedKnowledgeSource;
     private readonly List<string> startupWarnings = [];
+    private string analyticsPanelTitle = "Analytics (Live Session)";
+    private string analyticsLapConsistency = "-";
+    private string analyticsFuelTrend = "-";
+    private string analyticsBrakeStability = "-";
+    private string analyticsThrottleSmoothness = "-";
+    private string analyticsPaceTrend = "-";
+    private string analyticsIncidents = "-";
+    private string analyticsBestVsAverage = "-";
+    private string analyticsDriverProfile = "-";
 
     public MainWindowViewModel()
     {
@@ -124,6 +136,16 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string ReviewModeBanner => isReviewMode
         ? "Review Mode — Loaded Session (read-only; live telemetry continues in background)"
         : "";
+
+    public string AnalyticsPanelTitle => analyticsPanelTitle;
+    public string AnalyticsLapConsistency => analyticsLapConsistency;
+    public string AnalyticsFuelTrend => analyticsFuelTrend;
+    public string AnalyticsBrakeStability => analyticsBrakeStability;
+    public string AnalyticsThrottleSmoothness => analyticsThrottleSmoothness;
+    public string AnalyticsPaceTrend => analyticsPaceTrend;
+    public string AnalyticsIncidents => analyticsIncidents;
+    public string AnalyticsBestVsAverage => analyticsBestVsAverage;
+    public string AnalyticsDriverProfile => analyticsDriverProfile;
 
     public ICommand ExitReviewModeCommand { get; }
     public ICommand SendChatCommand { get; }
@@ -336,6 +358,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         RaiseDiagnosticsProperties();
         RaiseVoiceProperties();
+        RefreshAnalytics();
     }
 
     private void OnPacketProcessed(object? sender, TelemetryPacketResult packet)
@@ -544,6 +567,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             bundle.Snapshots,
             bundle.Events,
             bundle.CompletedLaps);
+        reviewSnapshots = bundle.Snapshots;
         reviewSessionNotes = bundle.Notes.Select(note => $"{note.Kind}: {note.Content}").ToArray();
         isReviewMode = true;
         LoadedSessionSummary = bundle.SummaryMarkdown;
@@ -594,6 +618,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         isReviewMode = false;
         reviewSession = null;
+        reviewSnapshots = [];
         reviewSessionNotes = [];
         SessionLabel = $"Session {session.SessionId}";
         LoadedSessionSummary = "Select a previous session to load it for review.";
@@ -798,6 +823,74 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(StintTime));
         OnPropertyChanged(nameof(EstimatedLapsRemaining));
         OnPropertyChanged(nameof(VoiceSuppressionState));
+        RefreshAnalytics();
+    }
+
+    private void RefreshAnalytics()
+    {
+        analyticsPanelTitle = isReviewMode ? "Analytics (Review Session)" : "Analytics (Live Session)";
+        var metrics = analyticsService.Analyze(new SessionAnalyticsInput(
+            ActiveSession,
+            isReviewMode ? reviewSnapshots : null));
+
+        analyticsLapConsistency = metrics.LapConsistency.Score0To100 is { } consistency
+            ? $"{consistency:0} / 100 (σ {metrics.LapConsistency.StandardDeviationSeconds:0.000}s, n={metrics.LapConsistency.SampleCount})"
+            : metrics.LapConsistency.Availability;
+
+        analyticsFuelTrend = metrics.FuelTrend.FuelPerLap is { } fuelPerLap
+            ? $"{fuelPerLap:0.00}/lap, stint {metrics.FuelTrend.EstimatedStintFuelUsed?.ToString("0.00", CultureInfo.InvariantCulture) ?? "-"}, est. {metrics.FuelTrend.EstimatedLapsRemaining?.ToString("0.0", CultureInfo.InvariantCulture) ?? "-"} laps — {metrics.FuelTrend.TrendLabel}"
+            : metrics.FuelTrend.Availability;
+
+        analyticsBrakeStability = metrics.BrakeStability.Score0To100 is { } brakeScore
+            ? $"{brakeScore:0} / 100 (unstable {metrics.BrakeStability.UnstableBrakingCount}, abrupt {metrics.BrakeStability.AbruptReleaseCount})"
+            : metrics.BrakeStability.Availability;
+
+        analyticsThrottleSmoothness = metrics.ThrottleSmoothness.Score0To100 is { } throttleScore
+            ? $"{throttleScore:0} / 100 (hesitation {metrics.ThrottleSmoothness.HesitationCount}, early {metrics.ThrottleSmoothness.EarlyThrottleCount})"
+            : metrics.ThrottleSmoothness.Availability;
+
+        analyticsPaceTrend = metrics.PaceTrend.RecentAverageSeconds is { } recent && metrics.PaceTrend.PriorAverageSeconds is { } prior
+            ? $"{metrics.PaceTrend.TrendLabel} (Δ {metrics.PaceTrend.DeltaSeconds:+0.000;-0.000;0.000}s over last {metrics.PaceTrend.LapWindow}, {prior:0.000}s → {recent:0.000}s)"
+            : metrics.PaceTrend.Availability;
+
+        analyticsIncidents = metrics.Incidents.TotalIncidents == 0
+            ? metrics.Incidents.Availability
+            : $"{metrics.Incidents.TotalIncidents} total ({metrics.Incidents.IncidentsPerLap:0.00}/lap) — {FormatIncidentCounts(metrics.Incidents.CountsByType)}";
+
+        analyticsBestVsAverage = metrics.BestVsAverage.BestLapSeconds is { } best && metrics.BestVsAverage.AverageLapSeconds is { } average
+            ? $"best {best:0.000}s vs avg {average:0.000}s (Δ +{metrics.BestVsAverage.DeltaSeconds:0.000}s)"
+            : metrics.BestVsAverage.Availability;
+
+        analyticsDriverProfile = metrics.DriverProfile.Strengths.Count == 0 && metrics.DriverProfile.Weaknesses.Count == 0
+            ? "Collect more laps for strengths/weaknesses."
+            : $"Strengths: {FormatProfileItems(metrics.DriverProfile.Strengths)} | Weaknesses: {FormatProfileItems(metrics.DriverProfile.Weaknesses)}";
+
+        RaiseAnalyticsProperties();
+    }
+
+    private static string FormatIncidentCounts(IReadOnlyDictionary<string, int> counts)
+    {
+        return counts.Count == 0
+            ? "none"
+            : string.Join(", ", counts.Select(pair => $"{pair.Key}: {pair.Value}"));
+    }
+
+    private static string FormatProfileItems(IReadOnlyList<string> items)
+    {
+        return items.Count == 0 ? "none" : string.Join("; ", items);
+    }
+
+    private void RaiseAnalyticsProperties()
+    {
+        OnPropertyChanged(nameof(AnalyticsPanelTitle));
+        OnPropertyChanged(nameof(AnalyticsLapConsistency));
+        OnPropertyChanged(nameof(AnalyticsFuelTrend));
+        OnPropertyChanged(nameof(AnalyticsBrakeStability));
+        OnPropertyChanged(nameof(AnalyticsThrottleSmoothness));
+        OnPropertyChanged(nameof(AnalyticsPaceTrend));
+        OnPropertyChanged(nameof(AnalyticsIncidents));
+        OnPropertyChanged(nameof(AnalyticsBestVsAverage));
+        OnPropertyChanged(nameof(AnalyticsDriverProfile));
     }
 
     private void RaiseVoiceProperties()

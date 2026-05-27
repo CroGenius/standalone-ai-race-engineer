@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using RaceEngineer.Core;
+using RaceEngineer.Core.Analytics;
 using RaceEngineer.Core.Coaching;
 using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
@@ -57,6 +58,7 @@ DiagnosticsCountValidInvalidRates();
 RawCaptureStoresParseResult();
 ReplayDoesNotRequireUdpSocket();
 await StoragePersistsSessionFactsAndExports();
+AnalyticsComputesDeterministicMetrics();
 await ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint();
 
 Console.WriteLine("C# smoke tests passed.");
@@ -678,6 +680,21 @@ static async Task StoragePersistsSessionFactsAndExports()
     Assert(summary.Contains("Good test.", StringComparison.Ordinal), "Stored summary should load.");
     Assert(File.Exists(await storage.ExportSessionJsonAsync(sessionId)), "Session JSON export should be created.");
     Assert(File.Exists(await storage.ExportCoachingMarkdownAsync(sessionId)), "Coaching Markdown export should be created.");
+}
+
+static void AnalyticsComputesDeterministicMetrics()
+{
+    var (session, _) = SessionWithFuelEstimate();
+    var analytics = new TelemetryAnalyticsService();
+    var input = new SessionAnalyticsInput(session);
+    var first = analytics.Analyze(input);
+    var second = analytics.Analyze(input);
+
+    Assert(first.LapConsistency.Score0To100 == second.LapConsistency.Score0To100, "Lap consistency should be deterministic.");
+    Assert(first.BestVsAverage.BestLapSeconds == 89.0, "Best lap should match shortest completed lap.");
+    Assert(first.BestVsAverage.AverageLapSeconds == 89.5, "Average lap should match completed lap average.");
+    Assert(first.FuelTrend.FuelPerLap is > 0, "Fuel per lap should be computed.");
+    Assert(first.DriverProfile.Strengths.Count + first.DriverProfile.Weaknesses.Count > 0, "Driver profile should classify metrics.");
 }
 
 

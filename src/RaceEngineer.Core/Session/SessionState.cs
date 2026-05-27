@@ -27,6 +27,7 @@ public sealed class SessionState
     public DateTimeOffset StartedAt { get; }
     public TelemetrySnapshot? LatestSnapshot { get; private set; }
     public IReadOnlyList<TelemetryEvent> RecentEvents => events.TakeLast(50).ToArray();
+    public IReadOnlyList<TelemetryEvent> Events => events;
     public IReadOnlyList<CompletedLap> CompletedLaps => completedLaps;
     public bool TelemetryOnline => LatestSnapshot is not null;
     public int CurrentLap { get; private set; } = 1;
