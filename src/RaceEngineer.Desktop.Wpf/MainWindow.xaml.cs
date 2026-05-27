@@ -13,11 +13,29 @@ public partial class MainWindow : Window
         viewModel = new MainWindowViewModel();
         DataContext = viewModel;
         Closing += async (_, _) => await viewModel.StopAsync();
+        Loaded += OnLoaded;
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewKeyUp += OnPreviewKeyUp;
-        PushToTalkButton.PreviewMouseLeftButtonDown += (_, _) => viewModel.BeginPushToTalk();
-        PushToTalkButton.PreviewMouseLeftButtonUp += (_, _) => viewModel.EndPushToTalk();
-        PushToTalkButton.MouseLeave += (_, _) => viewModel.EndPushToTalk();
+    }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (PushToTalkButton is null)
+            {
+                viewModel.ReportStartupWarning("Push-to-talk button was not found in the UI.");
+                return;
+            }
+
+            PushToTalkButton.PreviewMouseLeftButtonDown += (_, _) => viewModel.BeginPushToTalk();
+            PushToTalkButton.PreviewMouseLeftButtonUp += (_, _) => viewModel.EndPushToTalk();
+            PushToTalkButton.MouseLeave += (_, _) => viewModel.EndPushToTalk();
+        }
+        catch (Exception exception)
+        {
+            viewModel.ReportStartupWarning($"Push-to-talk UI wiring failed. Hotkey-only mode remains available. {exception.Message}");
+        }
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)

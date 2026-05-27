@@ -47,6 +47,11 @@ public sealed record PushToTalkHotkey(Key Key, ModifierKeys Modifiers)
 
     public bool Matches(KeyEventArgs args)
     {
-        return args.Key == Key && Keyboard.Modifiers == Modifiers;
+        if (args is null)
+        {
+            return false;
+        }
+
+        return args.Key == this.Key && Keyboard.Modifiers == this.Modifiers;
     }
 }

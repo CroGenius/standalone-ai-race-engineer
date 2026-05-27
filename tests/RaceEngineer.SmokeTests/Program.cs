@@ -54,6 +54,13 @@ SpokenQueryRoutesThroughCoachEngine();
 VoiceInputServiceRoutesRecognizedSpeech();
 VoiceInputServiceEnforcesQueryCooldown();
 VoiceInputConfirmationPrefixesSpokenResponse();
+VoiceInputStartupHandlesLazyProviderFailures();
+SpeechRecognitionCultureResolverSupportsConfiguredAndAutoFallback();
+SpeechRecognitionProviderSelectionSupportsConfiguredValues();
+WhisperModelLocatorResolvesDefaultAndConfiguredPaths();
+CoachEngineRoutesCroatianBrakingPhrase();
+VoiceInputAcceptsRecognitionAfterPttReleaseGrace();
+VoiceInputReportsNoSpeechAfterGraceTimeout();
 VoiceCalloutContainsNoFakeTelemetryValues();
 DefaultSettingsLoad();
 InvalidSettingsFallBackSafely();
@@ -463,6 +470,116 @@ static void VoiceInputConfirmationPrefixesSpokenResponse()
 
     Assert(output.SpokenTexts.Count == 1, "Confirmation mode should still produce one spoken response.");
     Assert(output.SpokenTexts[0].StartsWith("Copy.", StringComparison.Ordinal), "Confirmation mode should prefix the spoken response.");
+}
+
+static void VoiceInputStartupHandlesLazyProviderFailures()
+{
+    var lazy = new LazySpeechRecognitionProvider(() => throw new InvalidOperationException("Speech init failed."));
+    var service = VoiceInputStartup.CreateService(lazy, enabled: true);
+
+    Assert(service.StatusText.Contains("ready", StringComparison.OrdinalIgnoreCase)
+        || service.StatusText.Contains("disabled", StringComparison.OrdinalIgnoreCase),
+        "Startup should leave voice input in a safe state before first use.");
+
+    service.BeginPushToTalk();
+
+    Assert(!service.IsListening || service.StatusText.Contains("unavailable", StringComparison.OrdinalIgnoreCase),
+        "Failed lazy speech initialization should degrade without crashing.");
+}
+
+static void SpeechRecognitionCultureResolverSupportsConfiguredAndAutoFallback()
+{
+    var croatian = SpeechRecognitionCultureResolver.Resolve("hr-HR");
+    Assert(croatian.Culture.Name == "hr-HR", "Configured hr-HR culture should resolve.");
+
+    var english = SpeechRecognitionCultureResolver.Resolve("en-US");
+    Assert(english.Culture.Name == "en-US", "Configured en-US culture should resolve.");
+
+    var auto = SpeechRecognitionCultureResolver.Resolve("");
+    Assert(!string.IsNullOrWhiteSpace(auto.Culture.Name), "Auto culture resolution should produce a culture name.");
+
+    var invalid = SpeechRecognitionCultureResolver.Resolve("not-a-culture");
+    Assert(invalid.WarningMessage is not null, "Invalid culture should produce a warning.");
+    Assert(!string.IsNullOrWhiteSpace(invalid.Culture.Name), "Invalid culture should fall back safely.");
+}
+
+static void SpeechRecognitionProviderSelectionSupportsConfiguredValues()
+{
+    Assert(
+        SpeechRecognitionProviderSelection.Parse("auto") == SpeechRecognitionProviderKind.Auto,
+        "Auto provider should parse.");
+    Assert(
+        SpeechRecognitionProviderSelection.Parse("windows") == SpeechRecognitionProviderKind.Windows,
+        "Windows provider should parse.");
+    Assert(
+        SpeechRecognitionProviderSelection.Parse("whisper") == SpeechRecognitionProviderKind.Whisper,
+        "Whisper provider should parse.");
+
+    var invalid = SpeechRecognitionProviderSelection.Resolve("not-a-provider");
+    Assert(invalid.Kind == SpeechRecognitionProviderKind.Auto, "Invalid provider should fall back to auto.");
+    Assert(invalid.WarningMessage is not null, "Invalid provider should produce a warning.");
+}
+
+static void WhisperModelLocatorResolvesDefaultAndConfiguredPaths()
+{
+    var configured = WhisperModelLocator.ResolveModelPath(@"C:\Models\ggml-small.bin");
+    Assert(configured == @"C:\Models\ggml-small.bin", "Configured Whisper model path should resolve verbatim.");
+
+    var defaultPath = WhisperModelLocator.ResolveModelPath("");
+    Assert(
+        defaultPath.EndsWith(Path.Combine("RaceEngineer", "Models", WhisperModelLocator.DefaultModelFileName), StringComparison.OrdinalIgnoreCase),
+        "Default Whisper model path should use LocalAppData/RaceEngineer/Models.");
+    Assert(!WhisperModelLocator.IsModelAvailable(""), "Default model path should not exist in smoke test environment.");
+}
+
+static void CoachEngineRoutesCroatianBrakingPhrase()
+{
+    var coach = new CoachEngine();
+    var (session, _) = SessionWithFuelEstimate();
+    var answer = coach.Answer(session, "kako kočim");
+
+    Assert(
+        answer.Content.Contains("brake", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("Brake", StringComparison.Ordinal)
+            || answer.Uncertainty?.Contains("brake", StringComparison.OrdinalIgnoreCase) == true,
+        "Croatian braking phrase should route to brake coaching.");
+}
+
+static void VoiceInputAcceptsRecognitionAfterPttReleaseGrace()
+{
+    var provider = new RecordingSpeechRecognitionProvider();
+    var service = new VoiceInputService(provider, new VoiceInputOptions { PttResultGracePeriod = TimeSpan.FromSeconds(2) });
+    service.SetEnabled(true);
+    string? query = null;
+    service.QueryRecognized += (_, args) => query = args.Text;
+
+    service.BeginPushToTalk();
+    service.EndPushToTalk();
+    provider.SimulateRecognition("kako kočim");
+
+    Assert(query == "kako kočim", "Recognition arriving after PTT release should still route during grace period.");
+}
+
+static void VoiceInputReportsNoSpeechAfterGraceTimeout()
+{
+    var provider = new RecordingSpeechRecognitionProvider();
+    var service = new VoiceInputService(provider, new VoiceInputOptions { PttResultGracePeriod = TimeSpan.FromMilliseconds(250) });
+    service.SetEnabled(true);
+    SpeechRecognitionDiagnosticEventArgs? timeoutDiagnostic = null;
+    service.DiagnosticRaised += (_, args) =>
+    {
+        if (args.Stage == "No speech timeout")
+        {
+            timeoutDiagnostic = args;
+        }
+    };
+
+    service.BeginPushToTalk();
+    service.EndPushToTalk();
+    Thread.Sleep(500);
+
+    Assert(timeoutDiagnostic is not null, "PTT release without speech should emit a no-speech timeout diagnostic.");
+    Assert(service.StatusText == "No speech recognized", "Status should report no speech recognized.");
 }
 
 static void VoiceCalloutContainsNoFakeTelemetryValues()

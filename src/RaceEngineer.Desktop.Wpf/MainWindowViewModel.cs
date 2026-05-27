@@ -109,22 +109,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         receiver = new TelemetryReceiver(settings.UdpBindIp, settings.UdpPort);
         diagnostics = new TelemetryDiagnostics(settings.UdpBindIp, settings.UdpPort);
         rawPacketCapture = new RawPacketCapture(Path.Combine(settings.CaptureFolder, "raw-packets.jsonl"));
-        voiceService = new VoiceService(WindowsSpeechOutput.CreateOrFallback(startupWarnings.Add));
+        voiceService = new VoiceService(CreateVoiceOutputSafely());
         voiceService.SetVoiceEnabled(settings.VoiceEnabledDefault);
-        var speechProvider = WindowsSpeechRecognitionProvider.CreateOrFallback(startupWarnings.Add);
-        voiceInputService = new VoiceInputService(
-            speechProvider,
-            new VoiceInputOptions
-            {
-                ConfirmationsEnabled = settings.VoiceInputConfirmationsEnabled,
-                QueryCooldown = TimeSpan.FromSeconds(settings.VoiceInputCooldownSeconds)
-            });
-        voiceInputService.SetEnabled(settings.VoiceEnabledDefault);
+        voiceInputService = CreateVoiceInputServiceSafely(settings);
         voiceInputService.QueryRecognized += OnVoiceQueryRecognized;
+        voiceInputService.DiagnosticRaised += OnVoiceDiagnosticRaised;
         voiceInputService.StateChanged += (_, _) => RaiseVoiceProperties();
-        pushToTalkHotkey = PushToTalkHotkey.TryParse(settings.PushToTalkHotkey, out var parsedHotkey)
-            ? parsedHotkey
-            : PushToTalkHotkey.Default;
+        pushToTalkHotkey = ParsePushToTalkHotkeySafely(settings.PushToTalkHotkey);
         storageService = new StorageService(settings.DatabasePath);
         researchService = new StoredResearchService(storageService);
         sessionLabel = $"Session {session.SessionId}";
@@ -386,6 +377,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             ChatMessages.Add($"Startup: {warning}");
         }
+
+        ChatMessages.Add($"Startup: Voice input status — {voiceInputService.StatusText}. Provider: {voiceInputService.ProviderStatus}");
 
         try
         {
@@ -750,6 +743,68 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         LoadedSessionSummary = $"Exported coaching Markdown:\n{path}";
     }
 
+    public void ReportStartupWarning(string message)
+    {
+        if (Application.Current?.Dispatcher is { } dispatcher)
+        {
+            dispatcher.Invoke(() => ChatMessages.Add($"Startup: {message}"));
+        }
+        else
+        {
+            ChatMessages.Add($"Startup: {message}");
+        }
+
+        RaiseVoiceProperties();
+    }
+
+    private IVoiceOutput CreateVoiceOutputSafely()
+    {
+        try
+        {
+            return WindowsSpeechOutput.CreateOrFallback(startupWarnings.Add);
+        }
+        catch (Exception exception)
+        {
+            startupWarnings.Add($"Voice output unavailable. {exception.Message}");
+            return new RecordingVoiceOutput();
+        }
+    }
+
+    private VoiceInputService CreateVoiceInputServiceSafely(AppSettings settings)
+    {
+        var options = new VoiceInputOptions
+        {
+            ConfirmationsEnabled = settings.VoiceInputConfirmationsEnabled,
+            QueryCooldown = TimeSpan.FromSeconds(settings.VoiceInputCooldownSeconds)
+        };
+
+        try
+        {
+            var speechProvider = SpeechRecognitionProviderFactory.CreateOrFallback(
+                settings,
+                startupWarnings.Add);
+            return VoiceInputStartup.CreateService(speechProvider, options, settings.VoiceEnabledDefault);
+        }
+        catch (Exception exception)
+        {
+            return VoiceInputStartup.CreateUnavailableService(
+                exception.Message,
+                options,
+                startupWarnings.Add);
+        }
+    }
+
+    private PushToTalkHotkey ParsePushToTalkHotkeySafely(string? configuredHotkey)
+    {
+        if (PushToTalkHotkey.TryParse(configuredHotkey, out var parsedHotkey))
+        {
+            return parsedHotkey;
+        }
+
+        startupWarnings.Add($"Push-to-talk hotkey '{configuredHotkey ?? ""}' is invalid. Using F6.");
+        return PushToTalkHotkey.Default;
+    }
+
     private void ToggleVoiceInputMute()
     {
         voiceInputService.SetInputMuted(!voiceInputService.InputMuted);
@@ -772,6 +827,30 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public void EndPushToTalk()
     {
         voiceInputService.EndPushToTalk();
+        RaiseVoiceProperties();
+    }
+
+    private void OnVoiceDiagnosticRaised(object? sender, SpeechRecognitionDiagnosticEventArgs e)
+    {
+        if (Application.Current?.Dispatcher is { } dispatcher)
+        {
+            dispatcher.Invoke(() => AppendVoiceDiagnostic(e));
+        }
+        else
+        {
+            AppendVoiceDiagnostic(e);
+        }
+    }
+
+    private void AppendVoiceDiagnostic(SpeechRecognitionDiagnosticEventArgs e)
+    {
+        var detail = string.IsNullOrWhiteSpace(e.Detail) ? e.Message : $"{e.Message} — {e.Detail}";
+        ChatMessages.Add($"Voice diag [{e.Stage}]: {detail}");
+        if (e.Stage.Equals("No speech timeout", StringComparison.OrdinalIgnoreCase))
+        {
+            ChatMessages.Add($"Coach: {e.Message} {e.Detail}".Trim());
+        }
+
         RaiseVoiceProperties();
     }
 

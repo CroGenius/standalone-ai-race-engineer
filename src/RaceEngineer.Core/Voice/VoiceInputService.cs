@@ -5,6 +5,7 @@ public sealed class VoiceInputOptions
     public TimeSpan QueryCooldown { get; init; } = TimeSpan.FromSeconds(3);
     public bool ConfirmationsEnabled { get; init; } = true;
     public float MinimumConfidence { get; init; } = 0.35f;
+    public TimeSpan PttResultGracePeriod { get; init; } = TimeSpan.FromSeconds(2);
 }
 
 public sealed class VoiceInputQueryEventArgs(string Text, float Confidence) : EventArgs
@@ -19,6 +20,13 @@ public sealed class VoiceInputService : IDisposable
     private VoiceInputOptions options = new();
     private DateTimeOffset? lastQueryAt;
     private bool disposed;
+    private CancellationTokenSource? pttGraceCts;
+    private bool acceptingPttResults;
+    private bool pttSpeechReceived;
+    private bool recognitionRejected;
+    private bool recognitionCompleted;
+    private bool speechDetected;
+    private string? lastDiagnosticDetail;
 
     public VoiceInputService(ISpeechRecognitionProvider provider, VoiceInputOptions? options = null)
     {
@@ -30,12 +38,14 @@ public sealed class VoiceInputService : IDisposable
 
         this.provider.SpeechRecognized += OnSpeechRecognized;
         this.provider.StatusChanged += OnProviderStatusChanged;
+        this.provider.DiagnosticRaised += OnProviderDiagnostic;
         ProviderStatus = provider.IsAvailable
             ? provider.AvailabilityDetail
             : $"Unavailable: {provider.AvailabilityDetail}";
     }
 
     public event EventHandler<VoiceInputQueryEventArgs>? QueryRecognized;
+    public event EventHandler<SpeechRecognitionDiagnosticEventArgs>? DiagnosticRaised;
     public event EventHandler? StateChanged;
 
     public bool VoiceInputEnabled { get; private set; }
@@ -97,33 +107,85 @@ public sealed class VoiceInputService : IDisposable
 
     public void BeginPushToTalk()
     {
-        if (!VoiceInputEnabled || InputMuted || !provider.IsAvailable || PushToTalkActive)
+        if (!VoiceInputEnabled)
+        {
+            RaiseDiagnostic("PTT ignored", "Voice input is disabled.");
+            return;
+        }
+
+        if (InputMuted)
+        {
+            RaiseDiagnostic("PTT ignored", "Microphone is muted.");
+            return;
+        }
+
+        if (!provider.IsAvailable)
+        {
+            RaiseDiagnostic("PTT ignored", "Speech provider is unavailable.");
+            return;
+        }
+
+        if (PushToTalkActive)
         {
             return;
         }
 
+        CancelPttGraceTimer();
+        ResetPttSessionFlags();
         PushToTalkActive = true;
+        acceptingPttResults = false;
         StatusText = "Listening for speech...";
-        provider.StartListening();
-        IsListening = true;
+        RaiseDiagnostic("PTT start", "Push-to-talk started.");
+
+        try
+        {
+            provider.StartListening();
+            IsListening = provider.IsListening || provider.IsAvailable;
+            if (!IsListening)
+            {
+                PushToTalkActive = false;
+                StatusText = "Voice input unavailable";
+                RaiseDiagnostic("Recognition failed", "Recognizer did not enter listening state.");
+            }
+            else
+            {
+                RaiseDiagnostic("Recognition started", "Recognizer listening requested.");
+            }
+        }
+        catch (Exception exception)
+        {
+            PushToTalkActive = false;
+            IsListening = false;
+            StatusText = "Voice input unavailable";
+            ProviderStatus = "Speech recognition failed to start.";
+            RaiseDiagnostic("Exception", "Speech recognition failed to start.", exception.Message);
+        }
+
         RaiseStateChanged();
     }
 
     public void EndPushToTalk()
     {
-        if (!PushToTalkActive && !IsListening)
+        if (!PushToTalkActive && !IsListening && !acceptingPttResults)
         {
             return;
         }
 
         PushToTalkActive = false;
-        provider.StopListening();
-        IsListening = false;
-        if (VoiceInputEnabled && !InputMuted && provider.IsAvailable)
+        acceptingPttResults = true;
+        RaiseDiagnostic("PTT release", "Push-to-talk released; waiting for recognition result.");
+
+        try
         {
-            StatusText = "Voice input ready";
+            provider.StopListening();
+        }
+        catch (Exception exception)
+        {
+            RaiseDiagnostic("Exception", "Speech recognition failed to stop gracefully.", exception.Message);
         }
 
+        IsListening = provider.IsListening;
+        StartPttGraceTimer();
         RaiseStateChanged();
     }
 
@@ -171,22 +233,42 @@ public sealed class VoiceInputService : IDisposable
         }
 
         disposed = true;
+        CancelPttGraceTimer();
         provider.SpeechRecognized -= OnSpeechRecognized;
         provider.StatusChanged -= OnProviderStatusChanged;
+        provider.DiagnosticRaised -= OnProviderDiagnostic;
         EndPushToTalk();
         provider.Dispose();
     }
 
     private void OnSpeechRecognized(object? sender, SpeechRecognizedResult result)
     {
-        if (!VoiceInputEnabled || InputMuted || !PushToTalkActive)
+        if (!VoiceInputEnabled || InputMuted)
         {
             return;
         }
 
+        if (!PushToTalkActive && !acceptingPttResults)
+        {
+            RaiseDiagnostic(
+                "Recognition dropped",
+                "Speech result arrived outside the active PTT session.",
+                result.Text);
+            return;
+        }
+
+        RaiseDiagnostic(
+            "Recognition completed",
+            "Speech recognized.",
+            $"Text='{result.Text}' Confidence={result.Confidence:0.00}");
+
         if (result.Confidence < options.MinimumConfidence)
         {
             StatusText = "Speech confidence too low.";
+            RaiseDiagnostic(
+                "Recognition rejected",
+                "Speech confidence was below threshold.",
+                $"Confidence={result.Confidence:0.00} Minimum={options.MinimumConfidence:0.00}");
             RaiseStateChanged();
             return;
         }
@@ -194,13 +276,20 @@ public sealed class VoiceInputService : IDisposable
         var normalized = NormalizeQuery(result.Text);
         if (normalized.Length == 0)
         {
+            RaiseDiagnostic("Recognition rejected", "Recognized speech was empty.");
             return;
         }
 
+        pttSpeechReceived = true;
+        CancelPttGraceTimer();
+        acceptingPttResults = false;
+        IsListening = false;
         LastRecognizedText = normalized;
+
         if (!TryConsumeCooldown(out var rejectionReason))
         {
             StatusText = rejectionReason ?? "Voice query cooldown active.";
+            RaiseDiagnostic("Recognition rejected", StatusText, rejectionReason);
             RaiseStateChanged();
             return;
         }
@@ -214,6 +303,93 @@ public sealed class VoiceInputService : IDisposable
     {
         ProviderStatus = string.IsNullOrWhiteSpace(e.Detail) ? e.State : $"{e.State} — {e.Detail}";
         RaiseStateChanged();
+    }
+
+    private void OnProviderDiagnostic(object? sender, SpeechRecognitionDiagnosticEventArgs e)
+    {
+        if (e.Stage.Equals("Speech detected", StringComparison.OrdinalIgnoreCase))
+        {
+            speechDetected = true;
+        }
+        else if (e.Stage.Equals("Recognition rejected", StringComparison.OrdinalIgnoreCase))
+        {
+            recognitionRejected = true;
+        }
+        else if (e.Stage.Equals("Recognition completed", StringComparison.OrdinalIgnoreCase))
+        {
+            recognitionCompleted = true;
+        }
+        else if (e.Stage.Equals("Speech hypothesis", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(e.Message))
+        {
+            LastRecognizedText = e.Message;
+        }
+
+        lastDiagnosticDetail = e.Detail ?? e.Message;
+        RaiseDiagnostic(e.Stage, e.Message, e.Detail);
+    }
+
+    private void StartPttGraceTimer()
+    {
+        CancelPttGraceTimer();
+        pttGraceCts = new CancellationTokenSource();
+        var token = pttGraceCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(options.PttResultGracePeriod, token);
+                if (token.IsCancellationRequested || pttSpeechReceived)
+                {
+                    return;
+                }
+
+                acceptingPttResults = false;
+                IsListening = false;
+                StatusText = "No speech recognized";
+                var reason = BuildNoSpeechReason();
+                RaiseDiagnostic("No speech timeout", "No speech recognized.", reason);
+                RaiseStateChanged();
+            }
+            catch (TaskCanceledException)
+            {
+            }
+        }, token);
+    }
+
+    private string BuildNoSpeechReason()
+    {
+        if (recognitionRejected)
+        {
+            return "Recognizer rejected the utterance or confidence was too low.";
+        }
+
+        if (!speechDetected)
+        {
+            return "No speech was detected on the microphone during this PTT hold.";
+        }
+
+        if (recognitionCompleted && !pttSpeechReceived)
+        {
+            return "Recognition completed without a usable phrase match.";
+        }
+
+        return lastDiagnosticDetail ?? "Recognizer did not return a final phrase before the grace timeout.";
+    }
+
+    private void ResetPttSessionFlags()
+    {
+        pttSpeechReceived = false;
+        recognitionRejected = false;
+        recognitionCompleted = false;
+        speechDetected = false;
+        lastDiagnosticDetail = null;
+    }
+
+    private void CancelPttGraceTimer()
+    {
+        pttGraceCts?.Cancel();
+        pttGraceCts = null;
     }
 
     private bool TryConsumeCooldown(out string? rejectionReason)
@@ -240,6 +416,11 @@ public sealed class VoiceInputService : IDisposable
     private static string NormalizeQuery(string text)
     {
         return text.ReplaceLineEndings(" ").Trim();
+    }
+
+    private void RaiseDiagnostic(string stage, string message, string? detail = null)
+    {
+        DiagnosticRaised?.Invoke(this, new SpeechRecognitionDiagnosticEventArgs(stage, message, detail));
     }
 
     private void RaiseStateChanged() => StateChanged?.Invoke(this, EventArgs.Empty);

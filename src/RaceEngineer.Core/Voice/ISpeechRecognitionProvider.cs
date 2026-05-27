@@ -12,9 +12,11 @@ public interface ISpeechRecognitionProvider : IDisposable
 {
     string ProviderName { get; }
     bool IsAvailable { get; }
+    bool IsListening { get; }
     string AvailabilityDetail { get; }
     event EventHandler<SpeechRecognizedResult>? SpeechRecognized;
     event EventHandler<SpeechRecognitionStatusChangedEventArgs>? StatusChanged;
+    event EventHandler<SpeechRecognitionDiagnosticEventArgs>? DiagnosticRaised;
     void StartListening();
     void StopListening();
 }

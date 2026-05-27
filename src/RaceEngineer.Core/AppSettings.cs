@@ -11,7 +11,10 @@ public sealed record AppSettings(
     string ReplayFolder,
     string PushToTalkHotkey = "F6",
     bool VoiceInputConfirmationsEnabled = true,
-    int VoiceInputCooldownSeconds = 3)
+    int VoiceInputCooldownSeconds = 3,
+    string SpeechRecognitionCulture = "",
+    string SpeechRecognitionProvider = "auto",
+    string WhisperModelPath = "")
 {
     public static AppSettings Default => new(
         "127.0.0.1",
@@ -22,7 +25,10 @@ public sealed record AppSettings(
         @"%LOCALAPPDATA%\RaceEngineer\Replays",
         "F6",
         true,
-        3);
+        3,
+        "",
+        "auto",
+        "");
 
     public static AppSettingsLoadResult Load(string path)
     {
@@ -118,8 +124,33 @@ public sealed record AppSettings(
             PushToTalkHotkey = string.IsNullOrWhiteSpace(settings.PushToTalkHotkey) ? Default.PushToTalkHotkey : settings.PushToTalkHotkey.Trim(),
             VoiceInputCooldownSeconds = settings.VoiceInputCooldownSeconds is < 0 or > 120
                 ? Default.VoiceInputCooldownSeconds
-                : settings.VoiceInputCooldownSeconds
+                : settings.VoiceInputCooldownSeconds,
+            SpeechRecognitionCulture = string.IsNullOrWhiteSpace(settings.SpeechRecognitionCulture)
+                ? Default.SpeechRecognitionCulture
+                : settings.SpeechRecognitionCulture.Trim(),
+            SpeechRecognitionProvider = NormalizeSpeechRecognitionProvider(settings.SpeechRecognitionProvider),
+            WhisperModelPath = string.IsNullOrWhiteSpace(settings.WhisperModelPath)
+                ? Default.WhisperModelPath
+                : settings.WhisperModelPath.Trim()
         };
+    }
+
+    private static string NormalizeSpeechRecognitionProvider(string? configuredProvider)
+    {
+        if (string.IsNullOrWhiteSpace(configuredProvider))
+        {
+            return Default.SpeechRecognitionProvider;
+        }
+
+        var normalized = configuredProvider.Trim();
+        if (normalized.Equals("auto", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals("windows", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals("whisper", StringComparison.OrdinalIgnoreCase))
+        {
+            return normalized.ToLowerInvariant();
+        }
+
+        return Default.SpeechRecognitionProvider;
     }
 }
 

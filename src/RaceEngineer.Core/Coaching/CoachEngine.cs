@@ -39,22 +39,22 @@ public sealed class CoachEngine
         var latest = session.LatestSnapshot;
         var recentEvents = session.RecentEvents.TakeLast(10).ToArray();
 
-        if (ContainsAny(text, "where am i losing time", "losing time", "lose time", "where am i losing"))
+        if (ContainsAny(text, CoachQueryPhrases.LosingTime))
         {
             return AnswerFromEvidence("Focus on the sector with the largest loss versus your best lap.", "No sector delta or delta trace evidence is available.", evidence, CoachEvidenceTopic.LosingTime);
         }
 
-        if (ContainsAny(text, "how is my braking", "my braking"))
+        if (ContainsAny(text, CoachQueryPhrases.Braking))
         {
             return AttachEvidence(BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
         }
 
-        if (ContainsAny(text, "how is my throttle", "my throttle", "throttle application"))
+        if (ContainsAny(text, CoachQueryPhrases.Throttle))
         {
             return AnswerFromEvidence("Work on smoother exit throttle and reduce hesitation.", "No throttle smoothness or trace evidence is available.", evidence, CoachEvidenceTopic.Throttle);
         }
 
-        if (ContainsAny(text, "what should i improve", "what should i work on", "what to improve"))
+        if (ContainsAny(text, CoachQueryPhrases.Improvement))
         {
             return AnswerFromEvidence("Address the highest-priority weakness first.", "No improvement evidence is available.", evidence, CoachEvidenceTopic.Improvement);
         }
@@ -64,12 +64,12 @@ public sealed class CoachEngine
             return AnswerFromEvidence("Use the best lap as the reference and close the largest gap.", "No lap comparison evidence is available.", evidence, CoachEvidenceTopic.LapComparison);
         }
 
-        if (ContainsAny(text, "race pace", "stint pace"))
+        if (ContainsAny(text, CoachQueryPhrases.RacePace))
         {
             return AnswerFromEvidence("Protect race pace by managing tyre, fuel, and repeat incidents.", "No race pace evidence is available.", evidence, CoachEvidenceTopic.RacePace);
         }
 
-        if (ContainsAny(text, "incident", "incidents"))
+        if (ContainsAny(text, CoachQueryPhrases.Incidents))
         {
             return AttachEvidence(RecentMistakesAnswer(recentEvents), evidence, CoachEvidenceTopic.Incidents);
         }
@@ -94,7 +94,7 @@ public sealed class CoachEngine
             return PrepFieldAnswer("Tyre plan", context?.RacePrepPlan?.TyrePlan);
         }
 
-        if (text.Contains("fuel", StringComparison.Ordinal))
+        if (ContainsAny(text, CoachQueryPhrases.Fuel) || text.Contains("goriv", StringComparison.Ordinal))
         {
             return AttachEvidence(FuelAnswer(session, recentEvents), evidence, CoachEvidenceTopic.Fuel);
         }
