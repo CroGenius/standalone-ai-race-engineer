@@ -33,6 +33,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly TelemetryAnalyticsService analyticsService = new();
     private readonly LapIntelligenceService lapIntelligenceService = new();
     private readonly TelemetryTraceBuilder traceBuilder = new();
+    private readonly CoachEvidenceBuilder evidenceBuilder = new();
     private readonly VoiceService voiceService;
     private readonly CalloutManager calloutManager = new();
     private readonly StorageService storageService;
@@ -92,6 +93,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string lapIntelligenceWeaknesses = "-";
     private TelemetryTimeline traceTimeline = TelemetryTimeline.Empty;
     private double timelineCursorProgress;
+    private SessionTelemetryAnalytics sessionAnalytics = SessionTelemetryAnalytics.Empty;
+    private SessionLapIntelligence sessionLapIntelligence = SessionLapIntelligence.Empty;
 
     public MainWindowViewModel()
     {
@@ -527,9 +530,35 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         ChatInput = "";
         ChatMessages.Add(isReviewMode ? $"You (review): {message}" : $"You: {message}");
-        var answer = coachEngine.Answer(ActiveSession, message, CurrentCoachContext());
+        var evidence = BuildCoachEvidence();
+        var answer = coachEngine.Answer(ActiveSession, message, CurrentCoachContext(), evidence);
+        AppendCoachChatLines(answer);
+    }
+
+    private CoachEvidenceBundle BuildCoachEvidence()
+    {
+        return evidenceBuilder.Build(new CoachEvidenceInput(
+            ActiveSession,
+            ActiveTraceSnapshots,
+            ActiveSession.Events,
+            sessionAnalytics,
+            sessionLapIntelligence,
+            traceTimeline,
+            KnowledgeSources.Select(item => item.Source).ToArray()));
+    }
+
+    private void AppendCoachChatLines(CoachMessage answer)
+    {
+        var prefix = isReviewMode ? "Coach (review):" : "Coach:";
         var uncertainty = string.IsNullOrWhiteSpace(answer.Uncertainty) ? "" : $" ({answer.Uncertainty})";
-        ChatMessages.Add(isReviewMode ? $"Coach (review): {answer.Content}{uncertainty}" : $"Coach: {answer.Content}{uncertainty}");
+        ChatMessages.Add($"{prefix} {answer.Content}{uncertainty}");
+        if (answer.EvidencePackets.Count > 0)
+        {
+            var bullets = string.Join(
+                Environment.NewLine,
+                answer.EvidencePackets.Select(packet => $"- {packet.Summary}: {packet.Explanation}"));
+            ChatMessages.Add($"{prefix}{Environment.NewLine}Evidence:{Environment.NewLine}{bullets}");
+        }
     }
 
     private async Task SavePrepAsync()
@@ -706,8 +735,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             var query = ChatInput.Trim();
             ChatInput = "";
             ChatMessages.Add($"You voice: {query}");
-            var result = voiceService.HandleSpokenQuery(ActiveSession, query, coachEngine, CurrentCoachContext());
-            ChatMessages.Add(isReviewMode ? $"Coach (review): {result.WrittenResponse.Content}" : $"Coach: {result.WrittenResponse.Content}");
+            var result = voiceService.HandleSpokenQuery(ActiveSession, query, coachEngine, CurrentCoachContext(), BuildCoachEvidence());
+            AppendCoachChatLines(result.WrittenResponse);
             LastCallout = result.SpokenResponse;
         }
 
@@ -891,9 +920,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private void RefreshAnalytics()
     {
         analyticsPanelTitle = isReviewMode ? "Analytics (Review Session)" : "Analytics (Live Session)";
-        var metrics = analyticsService.Analyze(new SessionAnalyticsInput(
+        sessionAnalytics = analyticsService.Analyze(new SessionAnalyticsInput(
             ActiveSession,
-            isReviewMode ? reviewSnapshots : null));
+            ActiveTraceSnapshots.Count >= 2 ? ActiveTraceSnapshots : null));
+        var metrics = sessionAnalytics;
 
         analyticsLapConsistency = metrics.LapConsistency.Score0To100 is { } consistency
             ? $"{consistency:0} / 100 (σ {metrics.LapConsistency.StandardDeviationSeconds:0.000}s, n={metrics.LapConsistency.SampleCount})"
@@ -928,9 +958,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             : $"Strengths: {FormatProfileItems(metrics.DriverProfile.Strengths)} | Weaknesses: {FormatProfileItems(metrics.DriverProfile.Weaknesses)}";
 
         lapIntelligenceTitle = isReviewMode ? "Lap Intelligence (Review Session)" : "Lap Intelligence (Live Session)";
-        var intelligence = lapIntelligenceService.Analyze(new LapIntelligenceInput(
+        sessionLapIntelligence = lapIntelligenceService.Analyze(new LapIntelligenceInput(
             ActiveSession,
-            isReviewMode ? reviewSnapshots : null));
+            ActiveTraceSnapshots.Count >= 2 ? ActiveTraceSnapshots : null));
+        var intelligence = sessionLapIntelligence;
 
         lapIntelligenceBestLap = intelligence.LapComparison.BestLapSeconds is { } intelBest
             ? $"Lap {intelligence.LapComparison.BestLapNumber}: {intelBest:0.000}s vs selected lap {intelligence.LapComparison.SelectedLapNumber}: {intelligence.LapComparison.SelectedLapSeconds:0.000}s (Δ {intelligence.LapComparison.DeltaSeconds:+0.000;-0.000;0.000}s)"

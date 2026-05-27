@@ -62,6 +62,7 @@ ReplayDoesNotRequireUdpSocket();
 await StoragePersistsSessionFactsAndExports();
 AnalyticsComputesDeterministicMetrics();
 LapIntelligenceComputesDeterministicInsights();
+CoachEvidenceBuilderCreatesDeterministicPackets();
 TelemetryTraceBuilderCreatesDeterministicTimeline();
 await ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint();
 
@@ -739,6 +740,22 @@ static IReadOnlyList<TelemetrySnapshot> BuildLapIntelligenceSnapshots(SessionSta
     }
 
     return snapshots;
+}
+
+static void CoachEvidenceBuilderCreatesDeterministicPackets()
+{
+    var (session, _) = SessionWithFuelEstimate();
+    var snapshots = BuildLapIntelligenceSnapshots(session);
+    var builder = new CoachEvidenceBuilder();
+    var input = new CoachEvidenceInput(session, snapshots, session.Events);
+    var first = builder.Build(input);
+    var second = builder.Build(input);
+
+    Assert(first.Packets.Count == second.Packets.Count, "Evidence packets should be deterministic.");
+    Assert(first.Packets.Count > 0, "Evidence builder should produce packets.");
+    Assert(first.Select(CoachEvidenceTopic.Fuel).Count > 0, "Fuel topic evidence should be available.");
+    var answer = new CoachEngine().Answer(session, "where am I losing time?", null, first);
+    Assert(answer.EvidencePackets.Count > 0, "Coach answer should attach structured evidence packets.");
 }
 
 static void TelemetryTraceBuilderCreatesDeterministicTimeline()

@@ -10,7 +10,8 @@ public sealed record CoachMessage(
     string Role,
     string Content,
     IReadOnlyList<Guid> GroundedEventIds,
-    string? Uncertainty);
+    string? Uncertainty,
+    IReadOnlyList<CoachEvidencePacket> EvidencePackets);
 
 public sealed record CoachContext(
     IReadOnlyList<string>? RacePrepNotes = null,
@@ -29,14 +30,49 @@ public sealed class CoachEngine
         }
 
         var chosen = events.OrderBy(Priority).First();
-        return new CoachMessage("coach", chosen.SuggestedAction, [chosen.Id], null);
+        return new CoachMessage("coach", chosen.SuggestedAction, [chosen.Id], null, []);
     }
 
-    public CoachMessage Answer(SessionState session, string userMessage, CoachContext? context = null)
+    public CoachMessage Answer(SessionState session, string userMessage, CoachContext? context = null, CoachEvidenceBundle? evidence = null)
     {
         var text = userMessage.ToLowerInvariant();
         var latest = session.LatestSnapshot;
         var recentEvents = session.RecentEvents.TakeLast(10).ToArray();
+
+        if (ContainsAny(text, "where am i losing time", "losing time", "lose time", "where am i losing"))
+        {
+            return AnswerFromEvidence("Focus on the sector with the largest loss versus your best lap.", "No sector delta or delta trace evidence is available.", evidence, CoachEvidenceTopic.LosingTime);
+        }
+
+        if (ContainsAny(text, "how is my braking", "my braking"))
+        {
+            return AttachEvidence(BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
+        }
+
+        if (ContainsAny(text, "how is my throttle", "my throttle", "throttle application"))
+        {
+            return AnswerFromEvidence("Work on smoother exit throttle and reduce hesitation.", "No throttle smoothness or trace evidence is available.", evidence, CoachEvidenceTopic.Throttle);
+        }
+
+        if (ContainsAny(text, "what should i improve", "what should i work on", "what to improve"))
+        {
+            return AnswerFromEvidence("Address the highest-priority weakness first.", "No improvement evidence is available.", evidence, CoachEvidenceTopic.Improvement);
+        }
+
+        if (ContainsAny(text, "compare my laps", "compare laps", "lap comparison"))
+        {
+            return AnswerFromEvidence("Use the best lap as the reference and close the largest gap.", "No lap comparison evidence is available.", evidence, CoachEvidenceTopic.LapComparison);
+        }
+
+        if (ContainsAny(text, "race pace", "stint pace"))
+        {
+            return AnswerFromEvidence("Protect race pace by managing tyre, fuel, and repeat incidents.", "No race pace evidence is available.", evidence, CoachEvidenceTopic.RacePace);
+        }
+
+        if (ContainsAny(text, "incident", "incidents"))
+        {
+            return AttachEvidence(RecentMistakesAnswer(recentEvents), evidence, CoachEvidenceTopic.Incidents);
+        }
 
         if (ContainsAny(text, "tyre", "tire"))
         {
@@ -45,7 +81,7 @@ public sealed class CoachEngine
 
         if (text.Contains("brake", StringComparison.Ordinal))
         {
-            return BrakeAnswer(latest, recentEvents);
+            return AttachEvidence(BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
         }
 
         if (ContainsAny(text, "fuel plan", "fuel strategy"))
@@ -60,7 +96,7 @@ public sealed class CoachEngine
 
         if (text.Contains("fuel", StringComparison.Ordinal))
         {
-            return FuelAnswer(session, recentEvents);
+            return AttachEvidence(FuelAnswer(session, recentEvents), evidence, CoachEvidenceTopic.Fuel);
         }
 
         if (ContainsAny(text, "last lap", "previous lap"))
@@ -95,7 +131,10 @@ public sealed class CoachEngine
 
         if (ContainsAny(text, "setup notes", "setup guide"))
         {
-            return KnowledgeAnswer("Setup notes", context, source => MatchesKnowledge(source, context, "setup"), "No stored setup notes are loaded. External research is unavailable in offline mode.");
+            return AttachEvidence(
+                KnowledgeAnswer("Setup notes", context, source => MatchesKnowledge(source, context, "setup"), "No stored setup notes are loaded. External research is unavailable in offline mode."),
+                evidence,
+                CoachEvidenceTopic.SetupNotes);
         }
 
         if (ContainsAny(text, "strategy notes", "strategy guide"))
@@ -395,7 +434,7 @@ public sealed class CoachEngine
         var sources = context?.KnowledgeSources?.Where(filter).Take(5).ToArray() ?? [];
         if (sources.Length == 0)
         {
-            return new CoachMessage("coach", $"{label} are unavailable.{Environment.NewLine}{Environment.NewLine}External research:{Environment.NewLine}- {unavailableReason}", [], unavailableReason);
+            return new CoachMessage("coach", $"{label} are unavailable.{Environment.NewLine}{Environment.NewLine}External research:{Environment.NewLine}- {unavailableReason}", [], unavailableReason, []);
         }
 
         var stored = sources
@@ -414,7 +453,7 @@ public sealed class CoachEngine
         }
 
         parts.Add($"{Environment.NewLine}External research:{Environment.NewLine}{(web.Length > 0 ? string.Join(Environment.NewLine, web) : "- unavailable in offline mode")}");
-        return new CoachMessage("coach", string.Join(Environment.NewLine, parts), [], null);
+        return new CoachMessage("coach", string.Join(Environment.NewLine, parts), [], null, []);
     }
 
     private static CoachMessage CombinedTelemetryKnowledgeAnswer(SessionState session, IReadOnlyList<TelemetryEvent> events, CoachContext? context)
@@ -462,7 +501,7 @@ public sealed class CoachEngine
         External research:
         {(context?.ExternalResearchAvailable == true ? "- available from loaded web sources only" : "- unavailable in offline mode")}
         """;
-        return new CoachMessage("coach", content, issueEvents.Select(item => item.Id).ToArray(), stored.Length == 0 ? "No matching stored knowledge sources are loaded." : null);
+        return new CoachMessage("coach", content, issueEvents.Select(item => item.Id).ToArray(), stored.Length == 0 ? "No matching stored knowledge sources are loaded." : null, []);
     }
 
     private static bool MatchesKnowledge(KnowledgeSource source, CoachContext? context, string category)
@@ -478,18 +517,48 @@ public sealed class CoachEngine
         return categoryMatches && carMatches && trackMatches;
     }
 
-    private static CoachMessage Message(string action, IEnumerable<string> evidence, IEnumerable<Guid> eventIds)
+    private static CoachMessage AnswerFromEvidence(
+        string action,
+        string unavailableReason,
+        CoachEvidenceBundle? evidence,
+        CoachEvidenceTopic topic)
+    {
+        var packets = evidence?.Select(topic) ?? [];
+        if (packets.Count == 0)
+        {
+            return Unavailable(action, unavailableReason, []);
+        }
+
+        var lead = packets[0];
+        var content = string.Equals(lead.Category, "Sector", StringComparison.Ordinal)
+            ? $"Focus on {lead.Summary}: {lead.Explanation}"
+            : lead.Explanation;
+        return new CoachMessage(
+            "coach",
+            content,
+            packets.SelectMany(item => item.RelatedEventIds).Distinct().ToArray(),
+            null,
+            packets);
+    }
+
+    private static CoachMessage AttachEvidence(CoachMessage answer, CoachEvidenceBundle? evidence, CoachEvidenceTopic topic)
+    {
+        var packets = evidence?.Select(topic) ?? [];
+        return packets.Count == 0 ? answer : answer with { EvidencePackets = packets };
+    }
+
+    private static CoachMessage Message(string action, IEnumerable<string> evidence, IEnumerable<Guid> eventIds, IReadOnlyList<CoachEvidencePacket>? packets = null)
     {
         var evidenceLines = evidence.Select(item => $"- {item}").ToArray();
         var content = evidenceLines.Length == 0
             ? action
             : $"{action}{Environment.NewLine}{Environment.NewLine}Evidence:{Environment.NewLine}{string.Join(Environment.NewLine, evidenceLines)}";
-        return new CoachMessage("coach", content, eventIds.ToArray(), null);
+        return new CoachMessage("coach", content, eventIds.ToArray(), null, packets ?? []);
     }
 
-    private static CoachMessage Unavailable(string action, string evidence)
+    private static CoachMessage Unavailable(string action, string evidence, IReadOnlyList<CoachEvidencePacket>? packets = null)
     {
-        return new CoachMessage("coach", $"{action}{Environment.NewLine}{Environment.NewLine}Evidence:{Environment.NewLine}- {evidence}", [], evidence);
+        return new CoachMessage("coach", $"{action}{Environment.NewLine}{Environment.NewLine}Evidence:{Environment.NewLine}- {evidence}", [], evidence, packets ?? []);
     }
 
     private static bool ContainsAny(string text, params string[] needles)

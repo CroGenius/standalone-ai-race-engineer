@@ -61,9 +61,9 @@ public sealed class VoiceService
         return true;
     }
 
-    public VoiceQueryResult HandleSpokenQuery(SessionState session, string query, CoachEngine coachEngine, CoachContext? context = null)
+    public VoiceQueryResult HandleSpokenQuery(SessionState session, string query, CoachEngine coachEngine, CoachContext? context = null, CoachEvidenceBundle? evidence = null)
     {
-        var written = coachEngine.Answer(session, query, context);
+        var written = coachEngine.Answer(session, query, context, evidence);
         var spoken = ShortenForSpeech(written.Content);
         Speak(spoken);
         return new VoiceQueryResult(written, spoken);
