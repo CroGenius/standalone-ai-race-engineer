@@ -315,35 +315,45 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private void OnPacketProcessed(object? sender, TelemetryPacketResult packet)
     {
-        Application.Current.Dispatcher.Invoke(() =>
+        Application.Current.Dispatcher.Invoke(() => ProcessPacketResult(packet, recordCapture: true));
+    }
+
+    private void ProcessPacketResult(TelemetryPacketResult packet, bool recordCapture)
+    {
+        packetsReceivedCount++;
+        lastPacketTimestamp = packet.Timestamp;
+        diagnostics.Record(packet);
+        if (recordCapture)
         {
-            packetsReceivedCount++;
-            lastPacketTimestamp = packet.Timestamp;
-            diagnostics.Record(packet);
             rawPacketCapture.Record(packet);
+        }
 
-            if (packet.IsValid)
-            {
-                validPacketsCount++;
-            }
-            else
-            {
-                invalidPacketsCount++;
-                lastParserWarning = packet.Warning ?? "Packet rejected.";
-                EventLog.Insert(0, EventLogItem.ParserWarning(lastParserWarning));
-            }
+        if (packet.IsValid)
+        {
+            validPacketsCount++;
+        }
+        else
+        {
+            invalidPacketsCount++;
+            lastParserWarning = packet.Warning ?? "Packet rejected.";
+            EventLog.Insert(0, EventLogItem.ParserWarning(lastParserWarning));
+        }
 
-            while (EventLog.Count > 100)
-            {
-                EventLog.RemoveAt(EventLog.Count - 1);
-            }
+        while (EventLog.Count > 100)
+        {
+            EventLog.RemoveAt(EventLog.Count - 1);
+        }
 
-            RaisePacketDebugProperties();
-            RaiseDiagnosticsProperties();
-        });
+        RaisePacketDebugProperties();
+        RaiseDiagnosticsProperties();
     }
 
     private void OnSnapshotReceived(object? sender, TelemetrySnapshot snapshot)
+    {
+        ProcessReceivedSnapshot(snapshot);
+    }
+
+    private int ProcessReceivedSnapshot(TelemetrySnapshot snapshot)
     {
         var events = eventEngine.Process(snapshot);
         var completedLapsBefore = session.CompletedLaps.Count;
@@ -398,6 +408,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             RaiseTelemetryProperties();
             RaiseVoiceProperties();
         });
+
+        return events.Count;
     }
 
     private void SendChat()
@@ -554,8 +566,24 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             return;
         }
 
-        var result = replayTool.Replay(rawPacketCapture.FilePath);
-        ChatMessages.Add($"Replay: {result.PacketsRead} packets, {result.ValidPackets} valid, {result.InvalidPackets} invalid, {result.EventsProduced} events.");
+        var replayEvents = 0;
+        var result = replayTool.Replay(
+            rawPacketCapture.FilePath,
+            onPacketProcessed: packet => RunOnUiThread(() => ProcessPacketResult(packet, recordCapture: false)),
+            onSnapshotReceived: snapshot => replayEvents += ProcessReceivedSnapshot(snapshot));
+        ChatMessages.Add($"Replay: {result.PacketsRead} packets, {result.ValidPackets} valid, {result.InvalidPackets} invalid, {replayEvents} events.");
+    }
+
+    private static void RunOnUiThread(Action action)
+    {
+        if (Application.Current.Dispatcher.CheckAccess())
+        {
+            action();
+        }
+        else
+        {
+            Application.Current.Dispatcher.Invoke(action);
+        }
     }
 
     private async Task SaveKnowledgeAsync()

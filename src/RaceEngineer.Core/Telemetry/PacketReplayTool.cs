@@ -14,7 +14,12 @@ public sealed record PacketReplayResult(
 
 public sealed class PacketReplayTool
 {
-    public PacketReplayResult Replay(string jsonlPath, EventEngine? eventEngine = null, SessionState? session = null)
+    public PacketReplayResult Replay(
+        string jsonlPath,
+        EventEngine? eventEngine = null,
+        SessionState? session = null,
+        Action<TelemetryPacketResult>? onPacketProcessed = null,
+        Action<TelemetrySnapshot>? onSnapshotReceived = null)
     {
         eventEngine ??= new EventEngine();
         session ??= new SessionState();
@@ -31,23 +36,51 @@ public sealed class PacketReplayTool
             }
 
             packetsRead++;
+            var timestamp = ExtractTimestamp(line) ?? DateTimeOffset.UtcNow;
             var rawJson = ExtractRawJson(line);
             if (rawJson is null)
             {
                 invalidPackets++;
+                onPacketProcessed?.Invoke(new TelemetryPacketResult(timestamp, false, null, "Packet rejected."));
                 continue;
             }
 
-            if (!SimHubPacketParser.TryParse(rawJson, out var snapshot, out _))
+            var envelope = SimHubPacketParser.ReadEnvelope(rawJson);
+            if (SimHubPacketParser.TryParse(rawJson, out var snapshot, out var warning) && snapshot is not null)
+            {
+                validPackets++;
+                onPacketProcessed?.Invoke(new TelemetryPacketResult(
+                    timestamp,
+                    true,
+                    snapshot,
+                    null,
+                    rawJson,
+                    snapshot.Source.Schema,
+                    snapshot.Source.SchemaVersion));
+
+                if (onSnapshotReceived is not null)
+                {
+                    onSnapshotReceived(snapshot);
+                }
+                else
+                {
+                    var events = eventEngine.Process(snapshot);
+                    eventsProduced += events.Count;
+                    session.ApplySnapshot(snapshot, events);
+                }
+            }
+            else
             {
                 invalidPackets++;
-                continue;
+                onPacketProcessed?.Invoke(new TelemetryPacketResult(
+                    timestamp,
+                    false,
+                    null,
+                    warning ?? "Packet rejected.",
+                    rawJson,
+                    envelope.Schema,
+                    envelope.SchemaVersion));
             }
-
-            validPackets++;
-            var events = eventEngine.Process(snapshot!);
-            eventsProduced += events.Count;
-            session.ApplySnapshot(snapshot!, events);
         }
 
         return new PacketReplayResult(
@@ -76,6 +109,28 @@ public sealed class PacketReplayTool
         }
 
         return line.Trim();
+    }
+
+    private static DateTimeOffset? ExtractTimestamp(string line)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(line);
+            var root = document.RootElement;
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("timestamp", out var timestamp)
+                && timestamp.ValueKind == JsonValueKind.String
+                && DateTimeOffset.TryParse(timestamp.GetString(), out var parsed))
+            {
+                return parsed;
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return null;
     }
 }
 
