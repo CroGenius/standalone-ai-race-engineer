@@ -33,7 +33,8 @@ public static class SpeechRecognitionProviderFactory
 
         if (tryWhisper)
         {
-            var whisper = WhisperSpeechRecognitionProvider.TryCreate(modelPath);
+            var whisperOptions = WhisperSpeechOptions.FromSettings(settings);
+            var whisper = WhisperSpeechRecognitionProvider.TryCreate(modelPath, whisperOptions);
             if (whisper.IsAvailable)
             {
                 return whisper;

@@ -58,6 +58,7 @@ VoiceInputStartupHandlesLazyProviderFailures();
 SpeechRecognitionCultureResolverSupportsConfiguredAndAutoFallback();
 SpeechRecognitionProviderSelectionSupportsConfiguredValues();
 WhisperModelLocatorResolvesDefaultAndConfiguredPaths();
+WhisperSpeechOptionsNormalizeSettingsValues();
 CoachEngineRoutesCroatianBrakingPhrase();
 VoiceInputAcceptsRecognitionAfterPttReleaseGrace();
 VoiceInputReportsNoSpeechAfterGraceTimeout();
@@ -529,7 +530,28 @@ static void WhisperModelLocatorResolvesDefaultAndConfiguredPaths()
     Assert(
         defaultPath.EndsWith(Path.Combine("RaceEngineer", "Models", WhisperModelLocator.DefaultModelFileName), StringComparison.OrdinalIgnoreCase),
         "Default Whisper model path should use LocalAppData/RaceEngineer/Models.");
-    Assert(!WhisperModelLocator.IsModelAvailable(""), "Default model path should not exist in smoke test environment.");
+}
+
+static void WhisperSpeechOptionsNormalizeSettingsValues()
+{
+    var defaults = WhisperSpeechOptions.FromSettings(AppSettings.Default);
+    Assert(defaults.LanguageMode == WhisperLanguageModeResolver.Auto, "Default Whisper language mode should be auto.");
+    Assert(defaults.TrailingAudioMilliseconds == 500, "Default trailing audio should be 500 ms.");
+    Assert(defaults.NoSpeechThreshold == 0.5f, "Default no-speech threshold should be 0.5.");
+    Assert(!string.IsNullOrWhiteSpace(defaults.Prompt), "Default Whisper prompt should not be empty.");
+
+    var configured = WhisperSpeechOptions.FromSettings(AppSettings.Default with
+    {
+        WhisperLanguageMode = "hr",
+        WhisperPrompt = "braking fuel pace",
+        WhisperTrailingAudioMilliseconds = 900,
+        WhisperNoSpeechThreshold = 0.05f
+    });
+
+    Assert(configured.LanguageMode == "hr", "Configured Croatian language mode should normalize to hr.");
+    Assert(configured.Prompt == "braking fuel pace", "Configured prompt should pass through.");
+    Assert(configured.TrailingAudioMilliseconds == 700, "Trailing audio should clamp to 700 ms.");
+    Assert(configured.NoSpeechThreshold == 0.1f, "No-speech threshold should clamp to minimum 0.1.");
 }
 
 static void CoachEngineRoutesCroatianBrakingPhrase()

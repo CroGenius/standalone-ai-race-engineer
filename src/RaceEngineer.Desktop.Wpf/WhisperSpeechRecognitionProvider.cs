@@ -10,30 +10,37 @@ namespace RaceEngineer.Desktop.Wpf;
 public sealed class WhisperSpeechRecognitionProvider : ISpeechRecognitionProvider
 {
     private const int SampleRate = 16_000;
-    private const int MinimumAudioBytes = SampleRate / 2;
-    private const float DefaultConfidence = 0.85f;
+    private const int BytesPerSample = 2;
+    private const int MinimumAudioBytes = SampleRate * BytesPerSample / 4;
+    private const float SpeechDetectionRmsThreshold = 350f;
+    private const float MinimumLanguageDetectionConfidence = 0.25f;
 
     private readonly string modelPath;
+    private readonly WhisperSpeechOptions options;
     private readonly object sync = new();
     private readonly List<SpeechRecognitionDiagnosticEventArgs> initializationDiagnostics = [];
     private bool initializationDiagnosticsEmitted;
 
     private WhisperFactory? factory;
-    private WhisperProcessor? processor;
     private WaveInEvent? waveIn;
     private MemoryStream? pcmBuffer;
+    private CancellationTokenSource? trailingCaptureCts;
     private bool isRecording;
     private bool transcriptionPending;
+    private bool stopScheduled;
     private bool speechDetected;
+    private float capturePeakRms;
 
-    private WhisperSpeechRecognitionProvider(string modelPath)
+    private WhisperSpeechRecognitionProvider(string modelPath, WhisperSpeechOptions options)
     {
         this.modelPath = modelPath;
-        AvailabilityDetail = $"Whisper model {modelPath}. Language auto-detect (Croatian/English).";
+        this.options = options;
+        AvailabilityDetail =
+            $"Whisper model {modelPath}. Language mode {options.LanguageMode}. Trailing capture {options.TrailingAudioMilliseconds} ms.";
         initializationDiagnostics.Add(new SpeechRecognitionDiagnosticEventArgs(
             "Recognizer initialized",
             "Whisper provider configured.",
-            Path.GetFileName(modelPath)));
+            $"Model={Path.GetFileName(modelPath)} LanguageMode={options.LanguageMode} NoSpeechThreshold={options.NoSpeechThreshold:0.00}"));
     }
 
     public string ProviderName => "Whisper (local)";
@@ -45,14 +52,14 @@ public sealed class WhisperSpeechRecognitionProvider : ISpeechRecognitionProvide
     public event EventHandler<SpeechRecognitionStatusChangedEventArgs>? StatusChanged;
     public event EventHandler<SpeechRecognitionDiagnosticEventArgs>? DiagnosticRaised;
 
-    public static ISpeechRecognitionProvider TryCreate(string modelPath)
+    public static ISpeechRecognitionProvider TryCreate(string modelPath, WhisperSpeechOptions? speechOptions = null)
     {
         if (string.IsNullOrWhiteSpace(modelPath) || !File.Exists(modelPath))
         {
             return new UnavailableSpeechRecognitionProvider($"Whisper model not found at {modelPath}.");
         }
 
-        return new WhisperSpeechRecognitionProvider(modelPath);
+        return new WhisperSpeechRecognitionProvider(modelPath, speechOptions ?? WhisperSpeechOptions.Default);
     }
 
     public void StartListening()
@@ -67,9 +74,11 @@ public sealed class WhisperSpeechRecognitionProvider : ISpeechRecognitionProvide
                 return;
             }
 
+            CancelTrailingCapture();
+
             try
             {
-                EnsureWhisperLoaded();
+                EnsureFactoryLoaded();
             }
             catch (Exception exception)
             {
@@ -80,11 +89,13 @@ public sealed class WhisperSpeechRecognitionProvider : ISpeechRecognitionProvide
 
             pcmBuffer = new MemoryStream();
             speechDetected = false;
+            capturePeakRms = 0f;
+            stopScheduled = false;
 
             waveIn = new WaveInEvent
             {
                 WaveFormat = new WaveFormat(SampleRate, 16, 1),
-                BufferMilliseconds = 50
+                BufferMilliseconds = 20
             };
             waveIn.DataAvailable += OnDataAvailable;
             waveIn.RecordingStopped += OnRecordingStopped;
@@ -93,10 +104,13 @@ public sealed class WhisperSpeechRecognitionProvider : ISpeechRecognitionProvide
             {
                 waveIn.StartRecording();
                 isRecording = true;
-                RaiseDiagnostic("Recognition started", "Whisper microphone recording started.");
+                RaiseDiagnostic(
+                    "Recognition started",
+                    "Whisper microphone recording started.",
+                    $"Format=mono/{SampleRate}Hz/16-bit PromptLength={options.Prompt.Length}");
                 StatusChanged?.Invoke(this, new SpeechRecognitionStatusChangedEventArgs(
                     "Listening",
-                    "Whisper microphone active (auto language)."));
+                    $"Whisper microphone active ({options.LanguageMode})."));
             }
             catch (Exception exception)
             {
@@ -111,53 +125,94 @@ public sealed class WhisperSpeechRecognitionProvider : ISpeechRecognitionProvide
     {
         lock (sync)
         {
-            if (!isRecording || waveIn is null)
+            if (!isRecording || waveIn is null || stopScheduled)
             {
                 return;
             }
 
-            RaiseDiagnostic("PTT release", "Stopping Whisper recording and starting transcription.");
+            stopScheduled = true;
+            RaiseDiagnostic(
+                "PTT release",
+                $"Capturing trailing audio ({options.TrailingAudioMilliseconds} ms) before transcription.",
+                $"TrailingMs={options.TrailingAudioMilliseconds}");
+        }
+
+        trailingCaptureCts = new CancellationTokenSource();
+        var token = trailingCaptureCts.Token;
+        _ = Task.Run(async () =>
+        {
             try
             {
-                waveIn.StopRecording();
+                await Task.Delay(options.TrailingAudioMilliseconds, token);
+                lock (sync)
+                {
+                    if (token.IsCancellationRequested || waveIn is null || !isRecording)
+                    {
+                        return;
+                    }
+
+                    waveIn.StopRecording();
+                }
+            }
+            catch (TaskCanceledException)
+            {
             }
             catch (Exception exception)
             {
-                CleanupRecordingResources();
-                RaiseDiagnostic("Exception", "Whisper recording failed to stop.", exception.Message);
+                lock (sync)
+                {
+                    CleanupRecordingResources();
+                }
+
+                RaiseDiagnostic("Exception", "Whisper trailing capture failed.", exception.Message);
                 StatusChanged?.Invoke(this, new SpeechRecognitionStatusChangedEventArgs("Error", exception.Message));
             }
-        }
+        }, token);
     }
 
     public void Dispose()
     {
         lock (sync)
         {
+            CancelTrailingCapture();
             CleanupRecordingResources();
-            processor?.Dispose();
-            processor = null;
             factory?.Dispose();
             factory = null;
         }
     }
 
-    private void EnsureWhisperLoaded()
+    private void EnsureFactoryLoaded()
     {
-        if (factory is not null && processor is not null)
+        if (factory is not null)
         {
             return;
         }
 
         factory = WhisperFactory.FromPath(modelPath);
-        processor = factory.CreateBuilder()
-            .WithLanguage("auto")
-            .Build();
-
         initializationDiagnostics.Add(new SpeechRecognitionDiagnosticEventArgs(
             "Recognizer initialized",
-            "Whisper processor loaded.",
+            "Whisper factory loaded.",
             Path.GetFileName(modelPath)));
+    }
+
+    private WhisperProcessor CreateProcessor(string languageCode)
+    {
+        if (factory is null)
+        {
+            throw new InvalidOperationException("Whisper factory is unavailable.");
+        }
+
+        var builder = factory.CreateBuilder()
+            .WithLanguage(languageCode)
+            .WithProbabilities()
+            .WithNoSpeechThreshold(options.NoSpeechThreshold);
+
+        if (!string.IsNullOrWhiteSpace(options.Prompt))
+        {
+            builder = builder.WithPrompt(options.Prompt);
+        }
+
+        return builder.Build();
     }
 
     private void OnDataAvailable(object? sender, WaveInEventArgs e)
@@ -168,10 +223,16 @@ public sealed class WhisperSpeechRecognitionProvider : ISpeechRecognitionProvide
         }
 
         pcmBuffer.Write(e.Buffer, 0, e.BytesRecorded);
-        if (!speechDetected && e.BytesRecorded > 0)
+        var chunkRms = WhisperPcmAudio.ComputeRms16(e.Buffer, e.BytesRecorded);
+        capturePeakRms = Math.Max(capturePeakRms, chunkRms);
+
+        if (!speechDetected && chunkRms >= SpeechDetectionRmsThreshold)
         {
             speechDetected = true;
-            RaiseDiagnostic("Speech detected", "Audio captured for Whisper transcription.");
+            RaiseDiagnostic(
+                "Speech detected",
+                "Audio captured for Whisper transcription.",
+                $"ChunkRms={chunkRms:0}");
         }
     }
 
@@ -181,6 +242,8 @@ public sealed class WhisperSpeechRecognitionProvider : ISpeechRecognitionProvide
         lock (sync)
         {
             isRecording = false;
+            stopScheduled = false;
+            CancelTrailingCapture();
             pcm = pcmBuffer?.ToArray() ?? [];
             CleanupRecordingResources();
             transcriptionPending = true;
@@ -199,44 +262,77 @@ public sealed class WhisperSpeechRecognitionProvider : ISpeechRecognitionProvide
 
     private async Task TranscribeAsync(byte[] pcm)
     {
+        var startedAt = Environment.TickCount64;
         try
         {
+            var durationSeconds = pcm.Length / (double)(SampleRate * BytesPerSample);
             if (pcm.Length < MinimumAudioBytes)
             {
                 RaiseDiagnostic(
                     "Recognition rejected",
                     "Captured audio was too short for Whisper transcription.",
-                    $"{pcm.Length} bytes");
+                    $"Duration={durationSeconds:0.00}s Bytes={pcm.Length}");
                 StatusChanged?.Invoke(this, new SpeechRecognitionStatusChangedEventArgs(
                     "Rejected",
                     "Captured audio was too short."));
                 return;
             }
 
-            WhisperProcessor? activeProcessor;
-            lock (sync)
+            if (factory is null)
             {
-                activeProcessor = processor;
-            }
-
-            if (activeProcessor is null)
-            {
-                RaiseDiagnostic("Recognition failed", "Whisper processor is unavailable.");
+                RaiseDiagnostic("Recognition failed", "Whisper factory is unavailable.");
                 return;
             }
 
+            var audioMetrics = WhisperPcmAudio.NormalizePcm16(pcm);
+            RaiseDiagnostic(
+                "Audio captured",
+                "Whisper input prepared.",
+                $"Duration={durationSeconds:0.00}s PeakRms={audioMetrics.PeakRms:0} NormalizedRms={audioMetrics.NormalizedRms:0} Gain={audioMetrics.AppliedGain:0.00}x SpeechDetected={speechDetected}");
+
+            var samples = WhisperPcmAudio.Pcm16ToFloat(audioMetrics.Pcm);
+            var languageCode = ResolveTranscriptionLanguage(samples);
+            RaiseDiagnostic(
+                "Language detected",
+                $"Whisper will transcribe as '{languageCode}'.",
+                $"LanguageMode={options.LanguageMode}");
+
             RaiseDiagnostic("Recognition started", "Whisper transcription started.");
-            using var wavStream = WhisperPcmAudio.CreateWavStream(pcm, SampleRate);
+            using var processor = CreateProcessor(languageCode);
+            using var wavStream = WhisperPcmAudio.CreateWavStream(audioMetrics.Pcm, SampleRate);
+
             var transcript = new StringBuilder();
-            await foreach (var segment in activeProcessor.ProcessAsync(wavStream))
+            float lowestConfidence = 1f;
+            float highestNoSpeech = 0f;
+            string? detectedLanguage = null;
+            var segmentCount = 0;
+
+            await foreach (var segment in processor.ProcessAsync(wavStream))
             {
+                segmentCount++;
+                detectedLanguage ??= segment.Language;
+                highestNoSpeech = Math.Max(highestNoSpeech, segment.NoSpeechProbability);
+                lowestConfidence = Math.Min(lowestConfidence, segment.Probability);
+
                 var text = segment.Text.Trim();
                 if (text.Length == 0)
                 {
                     continue;
                 }
 
-                RaiseDiagnostic("Speech hypothesis", text);
+                if (segment.NoSpeechProbability > options.NoSpeechThreshold && segment.Probability < 0.35f)
+                {
+                    RaiseDiagnostic(
+                        "Recognition rejected",
+                        "Whisper segment looked like non-speech.",
+                        $"Text='{text}' NoSpeech={segment.NoSpeechProbability:0.00} Confidence={segment.Probability:0.00}");
+                    continue;
+                }
+
+                RaiseDiagnostic(
+                    "Speech hypothesis",
+                    text,
+                    $"Confidence={segment.Probability:0.00} NoSpeech={segment.NoSpeechProbability:0.00} Language={segment.Language}");
                 if (transcript.Length > 0 && !char.IsWhiteSpace(transcript[^1]))
                 {
                     transcript.Append(' ');
@@ -245,23 +341,46 @@ public sealed class WhisperSpeechRecognitionProvider : ISpeechRecognitionProvide
                 transcript.Append(text);
             }
 
+            var inferenceMs = Environment.TickCount64 - startedAt;
             var finalText = transcript.ToString().Trim();
+            var confidence = segmentCount > 0 ? lowestConfidence : 0f;
+
+            RaiseDiagnostic(
+                "Whisper metrics",
+                "Whisper inference completed.",
+                $"InferenceMs={inferenceMs} Segments={segmentCount} Language={detectedLanguage ?? languageCode} NoSpeechMax={highestNoSpeech:0.00} Confidence={confidence:0.00} RawTranscript='{finalText}'");
+
             RaiseDiagnostic("Recognition completed", "Whisper transcription completed.");
 
             if (finalText.Length == 0)
             {
-                RaiseDiagnostic("Recognition rejected", "Whisper returned an empty transcript.");
+                RaiseDiagnostic(
+                    "Recognition rejected",
+                    "Whisper returned an empty transcript.",
+                    $"NoSpeechMax={highestNoSpeech:0.00} Threshold={options.NoSpeechThreshold:0.00}");
                 StatusChanged?.Invoke(this, new SpeechRecognitionStatusChangedEventArgs(
                     "Rejected",
                     "Whisper returned an empty transcript."));
                 return;
             }
 
+            if (highestNoSpeech > options.NoSpeechThreshold && confidence < 0.35f)
+            {
+                RaiseDiagnostic(
+                    "Recognition rejected",
+                    "Whisper classified the utterance as non-speech.",
+                    $"NoSpeechMax={highestNoSpeech:0.00} Confidence={confidence:0.00}");
+                StatusChanged?.Invoke(this, new SpeechRecognitionStatusChangedEventArgs(
+                    "Rejected",
+                    "Whisper classified the utterance as non-speech."));
+                return;
+            }
+
             RaiseDiagnostic(
                 "Recognition completed",
                 "Final speech recognized.",
-                $"Text='{finalText}' Confidence={DefaultConfidence.ToString("0.00", CultureInfo.InvariantCulture)}");
-            SpeechRecognized?.Invoke(this, new SpeechRecognizedResult(finalText, DefaultConfidence));
+                $"Text='{finalText}' Confidence={confidence:0.00} Language={detectedLanguage ?? languageCode} NoSpeechMax={highestNoSpeech:0.00} InferenceMs={inferenceMs}");
+            SpeechRecognized?.Invoke(this, new SpeechRecognizedResult(finalText, confidence));
             StatusChanged?.Invoke(this, new SpeechRecognitionStatusChangedEventArgs("Idle", "Whisper microphone stopped."));
         }
         catch (Exception exception)
@@ -278,6 +397,37 @@ public sealed class WhisperSpeechRecognitionProvider : ISpeechRecognitionProvide
         }
     }
 
+    private string ResolveTranscriptionLanguage(ReadOnlySpan<float> samples)
+    {
+        var configured = WhisperLanguageModeResolver.ResolveWhisperLanguageCode(options.LanguageMode);
+        if (configured is not null)
+        {
+            return configured;
+        }
+
+        using var detector = CreateProcessor("auto");
+        var detection = detector.DetectLanguageWithProbability(samples);
+        var detected = detection.language?.Trim().ToLowerInvariant();
+        if ((detected == WhisperLanguageModeResolver.Croatian || detected == WhisperLanguageModeResolver.English)
+            && detection.probability >= MinimumLanguageDetectionConfidence)
+        {
+            RaiseDiagnostic(
+                "Language detected",
+                $"Auto-detected language '{detected}'.",
+                $"Probability={detection.probability:0.00}");
+            return detected;
+        }
+
+        var fallback = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == WhisperLanguageModeResolver.Croatian
+            ? WhisperLanguageModeResolver.Croatian
+            : WhisperLanguageModeResolver.English;
+        RaiseDiagnostic(
+            "Language detected",
+            $"Auto language uncertain; using fallback '{fallback}'.",
+            $"Detected='{detected ?? "unknown"}' Probability={detection.probability:0.00}");
+        return fallback;
+    }
+
     private void CleanupRecordingResources()
     {
         if (waveIn is not null)
@@ -291,6 +441,12 @@ public sealed class WhisperSpeechRecognitionProvider : ISpeechRecognitionProvide
         pcmBuffer?.Dispose();
         pcmBuffer = null;
         isRecording = false;
+    }
+
+    private void CancelTrailingCapture()
+    {
+        trailingCaptureCts?.Cancel();
+        trailingCaptureCts = null;
     }
 
     private void EmitPendingInitializationDiagnostics()
@@ -313,8 +469,70 @@ public sealed class WhisperSpeechRecognitionProvider : ISpeechRecognitionProvide
     }
 }
 
+internal sealed record WhisperAudioMetrics(byte[] Pcm, float PeakRms, float NormalizedRms, float AppliedGain);
+
 internal static class WhisperPcmAudio
 {
+    private const float TargetRms = 4500f;
+    private const float MaxGain = 10f;
+    private const float MinGain = 0.25f;
+
+    public static float ComputeRms16(byte[] buffer, int bytesRecorded)
+    {
+        if (bytesRecorded <= 0)
+        {
+            return 0f;
+        }
+
+        double sumSquares = 0d;
+        var sampleCount = bytesRecorded / 2;
+        for (var index = 0; index < sampleCount; index++)
+        {
+            var sample = BitConverter.ToInt16(buffer, index * 2);
+            sumSquares += sample * sample;
+        }
+
+        return (float)Math.Sqrt(sumSquares / sampleCount);
+    }
+
+    public static WhisperAudioMetrics NormalizePcm16(byte[] pcm)
+    {
+        if (pcm.Length < 2)
+        {
+            return new WhisperAudioMetrics(pcm, 0f, 0f, 1f);
+        }
+
+        var peakRms = ComputeRms16(pcm, pcm.Length);
+        var gain = peakRms <= 1f ? MaxGain : Math.Clamp(TargetRms / peakRms, MinGain, MaxGain);
+        if (Math.Abs(gain - 1f) < 0.05f)
+        {
+            return new WhisperAudioMetrics(pcm, peakRms, peakRms, 1f);
+        }
+
+        var normalized = new byte[pcm.Length];
+        for (var index = 0; index < pcm.Length; index += 2)
+        {
+            var sample = BitConverter.ToInt16(pcm, index);
+            var scaled = (int)Math.Round(sample * gain);
+            scaled = Math.Clamp(scaled, short.MinValue, short.MaxValue);
+            BitConverter.TryWriteBytes(normalized.AsSpan(index, 2), (short)scaled);
+        }
+
+        var normalizedRms = ComputeRms16(normalized, normalized.Length);
+        return new WhisperAudioMetrics(normalized, peakRms, normalizedRms, gain);
+    }
+
+    public static float[] Pcm16ToFloat(byte[] pcm)
+    {
+        var samples = new float[pcm.Length / 2];
+        for (var index = 0; index < samples.Length; index++)
+        {
+            samples[index] = BitConverter.ToInt16(pcm, index * 2) / 32768f;
+        }
+
+        return samples;
+    }
+
     public static MemoryStream CreateWavStream(byte[] pcm, int sampleRate)
     {
         const short channels = 1;

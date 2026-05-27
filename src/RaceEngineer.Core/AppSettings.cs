@@ -1,4 +1,5 @@
 using System.Text.Json;
+using RaceEngineer.Core.Voice;
 
 namespace RaceEngineer.Core;
 
@@ -14,7 +15,11 @@ public sealed record AppSettings(
     int VoiceInputCooldownSeconds = 3,
     string SpeechRecognitionCulture = "",
     string SpeechRecognitionProvider = "auto",
-    string WhisperModelPath = "")
+    string WhisperModelPath = "",
+    string WhisperLanguageMode = "auto",
+    string WhisperPrompt = "",
+    int WhisperTrailingAudioMilliseconds = 500,
+    float WhisperNoSpeechThreshold = 0.5f)
 {
     public static AppSettings Default => new(
         "127.0.0.1",
@@ -28,7 +33,11 @@ public sealed record AppSettings(
         3,
         "",
         "auto",
-        "");
+        "",
+        "auto",
+        "",
+        WhisperSpeechOptions.DefaultTrailingAudioMilliseconds,
+        WhisperSpeechOptions.DefaultNoSpeechThreshold);
 
     public static AppSettingsLoadResult Load(string path)
     {
@@ -131,7 +140,14 @@ public sealed record AppSettings(
             SpeechRecognitionProvider = NormalizeSpeechRecognitionProvider(settings.SpeechRecognitionProvider),
             WhisperModelPath = string.IsNullOrWhiteSpace(settings.WhisperModelPath)
                 ? Default.WhisperModelPath
-                : settings.WhisperModelPath.Trim()
+                : settings.WhisperModelPath.Trim(),
+            WhisperLanguageMode = WhisperLanguageModeResolver.Normalize(settings.WhisperLanguageMode),
+            WhisperPrompt = string.IsNullOrWhiteSpace(settings.WhisperPrompt)
+                ? Default.WhisperPrompt
+                : settings.WhisperPrompt.Trim(),
+            WhisperTrailingAudioMilliseconds = WhisperSpeechOptions.ClampTrailingAudioMilliseconds(
+                settings.WhisperTrailingAudioMilliseconds),
+            WhisperNoSpeechThreshold = WhisperSpeechOptions.ClampNoSpeechThreshold(settings.WhisperNoSpeechThreshold)
         };
     }
 

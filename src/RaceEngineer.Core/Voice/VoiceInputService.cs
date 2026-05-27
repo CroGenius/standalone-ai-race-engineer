@@ -324,9 +324,45 @@ public sealed class VoiceInputService : IDisposable
         {
             LastRecognizedText = e.Message;
         }
+        else if (acceptingPttResults && ShouldExtendPttGrace(e))
+        {
+            StartPttGraceTimer();
+        }
 
         lastDiagnosticDetail = e.Detail ?? e.Message;
         RaiseDiagnostic(e.Stage, e.Message, e.Detail);
+    }
+
+    private static bool ShouldExtendPttGrace(SpeechRecognitionDiagnosticEventArgs diagnostic)
+    {
+        if (diagnostic.Stage.Equals("Speech hypothesis", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (diagnostic.Stage.Equals("Audio captured", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (diagnostic.Stage.Equals("Whisper metrics", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (diagnostic.Stage.Equals("Language detected", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (diagnostic.Stage.Equals("PTT release", StringComparison.OrdinalIgnoreCase)
+            && diagnostic.Message.Contains("trailing audio", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return diagnostic.Stage.Equals("Recognition started", StringComparison.OrdinalIgnoreCase)
+            && diagnostic.Message.Contains("transcription", StringComparison.OrdinalIgnoreCase);
     }
 
     private void StartPttGraceTimer()
