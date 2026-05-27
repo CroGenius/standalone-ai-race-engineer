@@ -1,6 +1,7 @@
 <Window x:Class="RaceEngineer.Desktop.Wpf.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:RaceEngineer.Desktop.Wpf"
         Title="AI Race Engineer" Height="760" Width="1180" MinHeight="620" MinWidth="920"
         Background="#101214" Foreground="#EFF3F4">
     <Window.Resources>
@@ -130,9 +131,15 @@
             </Border>
 
             <Border Grid.Row="1" Grid.Column="0" Margin="0,0,14,0">
-                <StackPanel>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="0.55*" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="0.45*" />
+                    </Grid.RowDefinitions>
                     <TextBlock Text="Event Log" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
-                    <ListBox ItemsSource="{Binding EventLog}" Background="#15191D" Foreground="#EFF3F4" BorderBrush="#30383E">
+                    <ListBox Grid.Row="1" ItemsSource="{Binding EventLog}" Background="#15191D" Foreground="#EFF3F4" BorderBrush="#30383E">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <Expander Margin="4" Foreground="#EFF3F4" Background="#15191D">
@@ -155,7 +162,11 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                </StackPanel>
+                    <TextBlock Grid.Row="2" Text="Telemetry Traces" FontSize="17" FontWeight="SemiBold" Margin="0,12,0,12" />
+                    <local:TelemetryTimelineControl Grid.Row="3"
+                                                    Timeline="{Binding TraceTimeline}"
+                                                    CursorProgress="{Binding TimelineCursorProgress, Mode=TwoWay}" />
+                </Grid>
             </Border>
 
             <Border Grid.Row="1" Grid.Column="1">

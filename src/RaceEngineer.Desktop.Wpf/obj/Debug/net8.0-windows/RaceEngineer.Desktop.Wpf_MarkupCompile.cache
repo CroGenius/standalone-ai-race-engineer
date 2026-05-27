@@ -10,11 +10,11 @@ none
 false
 TRACE;DEBUG;NET;NET8_0;NETCOREAPP;WINDOWS;WINDOWS7_0;NET5_0_OR_GREATER;NET6_0_OR_GREATER;NET7_0_OR_GREATER;NET8_0_OR_GREATER;NETCOREAPP3_0_OR_GREATER;NETCOREAPP3_1_OR_GREATER;WINDOWS7_0_OR_GREATER
 c:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Desktop.Wpf\App.xaml
-11407045341
+2-369883268
 
-9-1250059001
+102008906453
 204-1949375000
-MainWindow.xaml;
+MainWindow.xaml;TelemetryTimelineControl.xaml;
 
 False
 

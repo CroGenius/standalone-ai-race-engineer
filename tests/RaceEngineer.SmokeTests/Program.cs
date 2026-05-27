@@ -10,6 +10,7 @@ using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.Storage;
 using RaceEngineer.Core.Telemetry;
+using RaceEngineer.Core.TelemetryVisualization;
 using RaceEngineer.Core.Voice;
 
 ValidPacketParsesCorrectly();
@@ -61,6 +62,7 @@ ReplayDoesNotRequireUdpSocket();
 await StoragePersistsSessionFactsAndExports();
 AnalyticsComputesDeterministicMetrics();
 LapIntelligenceComputesDeterministicInsights();
+TelemetryTraceBuilderCreatesDeterministicTimeline();
 await ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint();
 
 Console.WriteLine("C# smoke tests passed.");
@@ -737,6 +739,22 @@ static IReadOnlyList<TelemetrySnapshot> BuildLapIntelligenceSnapshots(SessionSta
     }
 
     return snapshots;
+}
+
+static void TelemetryTraceBuilderCreatesDeterministicTimeline()
+{
+    var (session, _) = SessionWithFuelEstimate();
+    var snapshots = BuildLapIntelligenceSnapshots(session);
+    var builder = new TelemetryTraceBuilder();
+    var input = new TelemetryTimelineInput(session, snapshots, session.Events, session.LastLap?.LapNumber, 0.5);
+    var first = builder.Build(input);
+    var second = builder.Build(input);
+
+    Assert(first.Rows.Count == second.Rows.Count, "Trace rows should be deterministic.");
+    Assert(first.Rows.Any(row => row.Name == "Throttle"), "Throttle trace should be generated.");
+    Assert(first.Rows.Any(row => row.Name == "Delta"), "Delta trace should be generated when best lap overlay exists.");
+    Assert(first.Markers.Any(marker => marker.Category == "Sector"), "Sector markers should be generated.");
+    Assert(first.Rows.Sum(row => row.Series.Count) > 0, "Timeline should contain trace series.");
 }
 
 

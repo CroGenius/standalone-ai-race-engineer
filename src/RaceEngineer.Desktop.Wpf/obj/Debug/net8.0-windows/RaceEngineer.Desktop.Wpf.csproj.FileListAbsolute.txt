@@ -52,3 +52,7 @@ C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-enginee
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Desktop.Wpf\bin\Debug\net8.0-windows\runtimes\win\lib\net8.0\System.Speech.dll
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Desktop.Wpf\bin\Debug\net8.0-windows\appsettings.json
 c:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Desktop.Wpf\obj\Debug\net8.0-windows\RaceEngineer.Desktop.Wpf.sourcelink.json
+c:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Desktop.Wpf\obj\Debug\net8.0-windows\TelemetryTimelineControl.baml
+c:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Desktop.Wpf\obj\Debug\net8.0-windows\TelemetryTimelineControl.g.cs
+c:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Desktop.Wpf\obj\Debug\net8.0-windows\GeneratedInternalTypeHelper.g.cs
+c:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Desktop.Wpf\obj\Debug\net8.0-windows\RaceEngineer.Desktop.Wpf_MarkupCompile.lref

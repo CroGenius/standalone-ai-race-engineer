@@ -15,6 +15,7 @@ using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.Storage;
 using RaceEngineer.Core.Telemetry;
+using RaceEngineer.Core.TelemetryVisualization;
 using RaceEngineer.Core.Voice;
 
 namespace RaceEngineer.Desktop.Wpf;
@@ -22,6 +23,7 @@ namespace RaceEngineer.Desktop.Wpf;
 public sealed class MainWindowViewModel : INotifyPropertyChanged
 {
     private const int SnapshotSampleSeconds = 1;
+    private const int MaxLiveTraceSnapshots = 1200;
     private readonly TelemetryReceiver receiver;
     private readonly TelemetryDiagnostics diagnostics;
     private readonly RawPacketCapture rawPacketCapture;
@@ -30,6 +32,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly CoachEngine coachEngine = new();
     private readonly TelemetryAnalyticsService analyticsService = new();
     private readonly LapIntelligenceService lapIntelligenceService = new();
+    private readonly TelemetryTraceBuilder traceBuilder = new();
     private readonly VoiceService voiceService;
     private readonly CalloutManager calloutManager = new();
     private readonly StorageService storageService;
@@ -37,6 +40,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly SessionState session = new();
     private SessionState? reviewSession;
     private IReadOnlyList<TelemetrySnapshot> reviewSnapshots = [];
+    private readonly List<TelemetrySnapshot> liveTraceSnapshots = [];
     private bool isReviewMode;
     private IReadOnlyList<string> reviewSessionNotes = [];
     private string sessionLabel;
@@ -86,6 +90,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string lapIntelligenceSectorGainLoss = "-";
     private string lapIntelligenceStrengths = "-";
     private string lapIntelligenceWeaknesses = "-";
+    private TelemetryTimeline traceTimeline = TelemetryTimeline.Empty;
+    private double timelineCursorProgress;
 
     public MainWindowViewModel()
     {
@@ -162,6 +168,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string LapIntelligenceSectorGainLoss => lapIntelligenceSectorGainLoss;
     public string LapIntelligenceStrengths => lapIntelligenceStrengths;
     public string LapIntelligenceWeaknesses => lapIntelligenceWeaknesses;
+
+    public TelemetryTimeline TraceTimeline => traceTimeline;
+
+    public double TimelineCursorProgress
+    {
+        get => timelineCursorProgress;
+        set => SetField(ref timelineCursorProgress, Math.Clamp(value, 0, 1));
+    }
 
     public ICommand ExitReviewModeCommand { get; }
     public ICommand SendChatCommand { get; }
@@ -441,6 +455,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             _ = storageService.SaveCompletedLapAsync(session.SessionId, completedLap);
         }
 
+        if (!isReviewMode)
+        {
+            liveTraceSnapshots.Add(snapshot);
+            while (liveTraceSnapshots.Count > MaxLiveTraceSnapshots)
+            {
+                liveTraceSnapshots.RemoveAt(0);
+            }
+        }
+
         Application.Current.Dispatcher.Invoke(() =>
         {
             if (!isReviewMode)
@@ -475,6 +498,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 if (!spoken && callout is not null)
                 {
                     LastCallout = callout.Content;
+                }
+
+                if (snapshot.Lap.LapProgress is { } progress)
+                {
+                    timelineCursorProgress = progress > 1.0 && progress <= 100.0
+                        ? progress / 100.0
+                        : Math.Clamp(progress, 0, 1);
+                    OnPropertyChanged(nameof(TimelineCursorProgress));
                 }
 
                 RaiseTelemetryProperties();
@@ -840,6 +871,21 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(EstimatedLapsRemaining));
         OnPropertyChanged(nameof(VoiceSuppressionState));
         RefreshAnalytics();
+        RefreshTraceTimeline();
+    }
+
+    private IReadOnlyList<TelemetrySnapshot> ActiveTraceSnapshots =>
+        isReviewMode ? reviewSnapshots : liveTraceSnapshots;
+
+    private void RefreshTraceTimeline()
+    {
+        traceTimeline = traceBuilder.Build(new TelemetryTimelineInput(
+            ActiveSession,
+            ActiveTraceSnapshots,
+            ActiveSession.Events,
+            isReviewMode ? reviewSession?.LastLap?.LapNumber : session.LastLap?.LapNumber,
+            timelineCursorProgress));
+        OnPropertyChanged(nameof(TraceTimeline));
     }
 
     private void RefreshAnalytics()
