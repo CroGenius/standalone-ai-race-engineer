@@ -8,7 +8,10 @@ public sealed record AppSettings(
     string DatabasePath,
     bool VoiceEnabledDefault,
     string CaptureFolder,
-    string ReplayFolder)
+    string ReplayFolder,
+    string PushToTalkHotkey = "F6",
+    bool VoiceInputConfirmationsEnabled = true,
+    int VoiceInputCooldownSeconds = 3)
 {
     public static AppSettings Default => new(
         "127.0.0.1",
@@ -16,7 +19,10 @@ public sealed record AppSettings(
         @"%LOCALAPPDATA%\RaceEngineer\race_engineer.sqlite3",
         false,
         @"%LOCALAPPDATA%\RaceEngineer\Debug",
-        @"%LOCALAPPDATA%\RaceEngineer\Replays");
+        @"%LOCALAPPDATA%\RaceEngineer\Replays",
+        "F6",
+        true,
+        3);
 
     public static AppSettingsLoadResult Load(string path)
     {
@@ -24,7 +30,7 @@ public sealed record AppSettings(
         {
             if (!File.Exists(path))
             {
-                return new AppSettingsLoadResult(Default.ResolvePaths(), [$"Settings file not found. Using defaults: {path}"]);
+                return new AppSettingsLoadResult(NormalizeVoiceInput(Default.ResolvePaths()), [$"Settings file not found. Using defaults: {path}"]);
             }
 
             var json = File.ReadAllText(path);
@@ -35,11 +41,12 @@ public sealed record AppSettings(
             }
 
             var warnings = Validate(settings);
-            return new AppSettingsLoadResult((warnings.Count == 0 ? settings : Default).ResolvePaths(), warnings);
+            var resolved = (warnings.Count == 0 ? settings : Default).ResolvePaths();
+            return new AppSettingsLoadResult(NormalizeVoiceInput(resolved), warnings);
         }
         catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
         {
-            return new AppSettingsLoadResult(Default.ResolvePaths(), [$"Settings file could not be loaded. Using defaults. {exception.Message}"]);
+            return new AppSettingsLoadResult(NormalizeVoiceInput(Default.ResolvePaths()), [$"Settings file could not be loaded. Using defaults. {exception.Message}"]);
         }
     }
 
@@ -81,6 +88,16 @@ public sealed record AppSettings(
             warnings.Add("Replay folder is missing.");
         }
 
+        if (settings.VoiceInputCooldownSeconds is < 0 or > 120)
+        {
+            warnings.Add("Voice input cooldown is outside the valid range.");
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.PushToTalkHotkey))
+        {
+            warnings.Add("Push-to-talk hotkey is missing.");
+        }
+
         if (warnings.Count > 0)
         {
             warnings.Add("Invalid settings file. Using defaults.");
@@ -92,6 +109,17 @@ public sealed record AppSettings(
     private static string ExpandPath(string path)
     {
         return Environment.ExpandEnvironmentVariables(path);
+    }
+
+    private static AppSettings NormalizeVoiceInput(AppSettings settings)
+    {
+        return settings with
+        {
+            PushToTalkHotkey = string.IsNullOrWhiteSpace(settings.PushToTalkHotkey) ? Default.PushToTalkHotkey : settings.PushToTalkHotkey.Trim(),
+            VoiceInputCooldownSeconds = settings.VoiceInputCooldownSeconds is < 0 or > 120
+                ? Default.VoiceInputCooldownSeconds
+                : settings.VoiceInputCooldownSeconds
+        };
     }
 }
 

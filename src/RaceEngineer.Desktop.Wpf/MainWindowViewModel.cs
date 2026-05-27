@@ -35,7 +35,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly TelemetryTraceBuilder traceBuilder = new();
     private readonly CoachEvidenceBuilder evidenceBuilder = new();
     private readonly VoiceService voiceService;
+    private readonly VoiceInputService voiceInputService;
     private readonly CalloutManager calloutManager = new();
+    private readonly PushToTalkHotkey pushToTalkHotkey;
     private readonly StorageService storageService;
     private readonly StoredResearchService researchService;
     private readonly SessionState session = new();
@@ -109,6 +111,20 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         rawPacketCapture = new RawPacketCapture(Path.Combine(settings.CaptureFolder, "raw-packets.jsonl"));
         voiceService = new VoiceService(WindowsSpeechOutput.CreateOrFallback(startupWarnings.Add));
         voiceService.SetVoiceEnabled(settings.VoiceEnabledDefault);
+        var speechProvider = WindowsSpeechRecognitionProvider.CreateOrFallback(startupWarnings.Add);
+        voiceInputService = new VoiceInputService(
+            speechProvider,
+            new VoiceInputOptions
+            {
+                ConfirmationsEnabled = settings.VoiceInputConfirmationsEnabled,
+                QueryCooldown = TimeSpan.FromSeconds(settings.VoiceInputCooldownSeconds)
+            });
+        voiceInputService.SetEnabled(settings.VoiceEnabledDefault);
+        voiceInputService.QueryRecognized += OnVoiceQueryRecognized;
+        voiceInputService.StateChanged += (_, _) => RaiseVoiceProperties();
+        pushToTalkHotkey = PushToTalkHotkey.TryParse(settings.PushToTalkHotkey, out var parsedHotkey)
+            ? parsedHotkey
+            : PushToTalkHotkey.Default;
         storageService = new StorageService(settings.DatabasePath);
         researchService = new StoredResearchService(storageService);
         sessionLabel = $"Session {session.SessionId}";
@@ -121,7 +137,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         ExitReviewModeCommand = new RelayCommand(ExitReviewMode, () => IsReviewMode);
         ExportSessionJsonCommand = new RelayCommand(() => _ = ExportSelectedSessionJsonAsync(), () => SelectedSession is not null);
         ExportCoachingMarkdownCommand = new RelayCommand(() => _ = ExportSelectedSessionMarkdownAsync(), () => SelectedSession is not null);
-        TogglePushToTalkCommand = new RelayCommand(TogglePushToTalk);
+        TogglePushToTalkCommand = new RelayCommand(ToggleVoiceInputMute);
         ToggleTtsCommand = new RelayCommand(ToggleTts);
         ToggleVoiceCommand = new RelayCommand(ToggleVoice);
         TestVoiceCommand = new RelayCommand(TestVoice);
@@ -233,7 +249,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string Position => ActiveSession.LatestSnapshot?.Race.Position?.ToString(CultureInfo.InvariantCulture) ?? "-";
     public string VoiceLabel => voiceService.VoiceEnabled ? "Voice On" : "Voice Off";
     public string TtsLabel => voiceService.EngineerMuted ? "Engineer Muted" : "Engineer Audible";
+    public string VoiceInputMuteLabel => voiceInputService.InputMuted ? "Mic Muted" : "Mic Live";
     public string VoiceState => $"{voiceService.StateText} / {voiceService.MuteText}";
+    public string VoiceInputState => voiceInputService.StatusText;
+    public string PushToTalkIndicator => voiceInputService.PushToTalkIndicator;
+    public string ListeningIndicator => voiceInputService.ListeningIndicator;
+    public string RecognizedSpeechPreview => voiceInputService.RecognizedSpeechPreview;
+    public string PushToTalkHotkeyLabel => $"Hold {pushToTalkHotkey.DisplayName} or Hold to Talk";
     public string VoiceSuppressionState => calloutManager.LastSuppressionState;
     public string CurrentLap => ActiveSession.CurrentLap.ToString(CultureInfo.InvariantCulture);
     public string LastLapTime => FormatDuration(ActiveSession.LastLap?.Duration);
@@ -602,6 +624,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         receiver.Stop();
         diagnostics.SetReceiverRunning(false);
+        voiceInputService.Dispose();
         var summaryMarkdown = coachEngine.GeneratePostSessionReport(session, CurrentPrepPlan());
         await storageService.SavePostSessionReportAsync(session.SessionId, summaryMarkdown);
         await storageService.SavePostSessionSummaryAsync(session.SessionId, summaryMarkdown, CurrentSessionSummaryObject());
@@ -727,19 +750,48 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         LoadedSessionSummary = $"Exported coaching Markdown:\n{path}";
     }
 
-    private void TogglePushToTalk()
+    private void ToggleVoiceInputMute()
     {
-        voiceService.SetPushToTalk(!voiceService.PushToTalkEnabled);
-        if (voiceService.PushToTalkEnabled && !string.IsNullOrWhiteSpace(ChatInput))
+        voiceInputService.SetInputMuted(!voiceInputService.InputMuted);
+        RaiseVoiceProperties();
+    }
+
+    public bool MatchesPushToTalkHotkey(KeyEventArgs args) => pushToTalkHotkey.Matches(args);
+
+    public void BeginPushToTalk()
+    {
+        if (!voiceService.VoiceEnabled)
         {
-            var query = ChatInput.Trim();
-            ChatInput = "";
-            ChatMessages.Add($"You voice: {query}");
-            var result = voiceService.HandleSpokenQuery(ActiveSession, query, coachEngine, CurrentCoachContext(), BuildCoachEvidence());
-            AppendCoachChatLines(result.WrittenResponse);
-            LastCallout = result.SpokenResponse;
+            return;
         }
 
+        voiceInputService.BeginPushToTalk();
+        RaiseVoiceProperties();
+    }
+
+    public void EndPushToTalk()
+    {
+        voiceInputService.EndPushToTalk();
+        RaiseVoiceProperties();
+    }
+
+    private void OnVoiceQueryRecognized(object? sender, VoiceInputQueryEventArgs e)
+    {
+        Application.Current.Dispatcher.Invoke(() => HandleVoiceQuery(e.Text));
+    }
+
+    private void HandleVoiceQuery(string query)
+    {
+        ChatMessages.Add(isReviewMode ? $"You voice (review): {query}" : $"You voice: {query}");
+        var result = voiceService.HandleSpokenQuery(
+            ActiveSession,
+            query,
+            coachEngine,
+            CurrentCoachContext(),
+            BuildCoachEvidence(),
+            confirmQuery: voiceInputService.ConfirmationsEnabled);
+        AppendCoachChatLines(result.WrittenResponse);
+        LastCallout = result.SpokenResponse;
         RaiseVoiceProperties();
     }
 
@@ -751,7 +803,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private void ToggleVoice()
     {
-        voiceService.SetVoiceEnabled(!voiceService.VoiceEnabled);
+        var enabled = !voiceService.VoiceEnabled;
+        voiceService.SetVoiceEnabled(enabled);
+        voiceInputService.SetEnabled(enabled);
         RaiseVoiceProperties();
     }
 
@@ -1027,7 +1081,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         OnPropertyChanged(nameof(VoiceLabel));
         OnPropertyChanged(nameof(TtsLabel));
+        OnPropertyChanged(nameof(VoiceInputMuteLabel));
         OnPropertyChanged(nameof(VoiceState));
+        OnPropertyChanged(nameof(VoiceInputState));
+        OnPropertyChanged(nameof(PushToTalkIndicator));
+        OnPropertyChanged(nameof(ListeningIndicator));
+        OnPropertyChanged(nameof(RecognizedSpeechPreview));
+        OnPropertyChanged(nameof(PushToTalkHotkeyLabel));
         OnPropertyChanged(nameof(VoiceSuppressionState));
     }
 

@@ -61,10 +61,21 @@ public sealed class VoiceService
         return true;
     }
 
-    public VoiceQueryResult HandleSpokenQuery(SessionState session, string query, CoachEngine coachEngine, CoachContext? context = null, CoachEvidenceBundle? evidence = null)
+    public VoiceQueryResult HandleSpokenQuery(
+        SessionState session,
+        string query,
+        CoachEngine coachEngine,
+        CoachContext? context = null,
+        CoachEvidenceBundle? evidence = null,
+        bool confirmQuery = false)
     {
         var written = coachEngine.Answer(session, query, context, evidence);
         var spoken = ShortenForSpeech(written.Content);
+        if (confirmQuery && spoken.Length > 0)
+        {
+            spoken = $"Copy. {spoken}";
+        }
+
         Speak(spoken);
         return new VoiceQueryResult(written, spoken);
     }

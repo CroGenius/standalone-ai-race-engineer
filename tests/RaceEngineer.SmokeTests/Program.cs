@@ -51,6 +51,9 @@ CriticalEventProducesVoiceCallout();
 LowPriorityRepeatedVoiceEventIsSuppressed();
 MutedVoiceProducesNoSpokenOutput();
 SpokenQueryRoutesThroughCoachEngine();
+VoiceInputServiceRoutesRecognizedSpeech();
+VoiceInputServiceEnforcesQueryCooldown();
+VoiceInputConfirmationPrefixesSpokenResponse();
 VoiceCalloutContainsNoFakeTelemetryValues();
 DefaultSettingsLoad();
 InvalidSettingsFallBackSafely();
@@ -413,6 +416,53 @@ static void SpokenQueryRoutesThroughCoachEngine()
     Assert(result.WrittenResponse.Content.Contains("latest fuel: 5.0", StringComparison.Ordinal), "Spoken query should route through deterministic CoachEngine.");
     Assert(output.SpokenTexts.Count == 1, "Spoken query should produce one spoken response when unmuted.");
     Assert(!output.SpokenTexts[0].Contains("Evidence:", StringComparison.Ordinal), "Spoken response should be shorter than written chat response.");
+}
+
+static void VoiceInputServiceRoutesRecognizedSpeech()
+{
+    var provider = new RecordingSpeechRecognitionProvider();
+    var service = new VoiceInputService(provider);
+    service.SetEnabled(true);
+    string? query = null;
+    service.QueryRecognized += (_, args) => query = args.Text;
+
+    service.BeginPushToTalk();
+    provider.SimulateRecognition("fuel status");
+    service.EndPushToTalk();
+
+    Assert(query == "fuel status", "Voice input should route recognized speech into query events.");
+}
+
+static void VoiceInputServiceEnforcesQueryCooldown()
+{
+    var provider = new RecordingSpeechRecognitionProvider();
+    var service = new VoiceInputService(provider, new VoiceInputOptions { QueryCooldown = TimeSpan.FromSeconds(30) });
+    service.SetEnabled(true);
+    var queries = new List<string>();
+    service.QueryRecognized += (_, args) => queries.Add(args.Text);
+
+    service.BeginPushToTalk();
+    provider.SimulateRecognition("fuel status");
+    provider.SimulateRecognition("tyre status");
+    service.EndPushToTalk();
+
+    Assert(queries.Count == 1, "Voice input cooldown should suppress rapid repeat queries.");
+    Assert(queries[0] == "fuel status", "First recognized query should still be accepted.");
+}
+
+static void VoiceInputConfirmationPrefixesSpokenResponse()
+{
+    var output = new RecordingVoiceOutput();
+    var voice = new VoiceService(output);
+    voice.SetVoiceEnabled(true);
+    voice.SetMuted(false);
+    var coach = new CoachEngine();
+    var (session, _) = SessionWithFuelEstimate();
+
+    _ = voice.HandleSpokenQuery(session, "fuel status", coach, confirmQuery: true);
+
+    Assert(output.SpokenTexts.Count == 1, "Confirmation mode should still produce one spoken response.");
+    Assert(output.SpokenTexts[0].StartsWith("Copy.", StringComparison.Ordinal), "Confirmation mode should prefix the spoken response.");
 }
 
 static void VoiceCalloutContainsNoFakeTelemetryValues()
