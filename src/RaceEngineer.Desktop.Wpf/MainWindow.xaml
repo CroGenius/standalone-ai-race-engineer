@@ -184,6 +184,16 @@
                         <TextBlock Text="Driver profile" /><TextBlock Text="{Binding AnalyticsDriverProfile}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
                     </UniformGrid>
 
+                    <TextBlock Text="{Binding LapIntelligenceTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <UniformGrid Columns="2" Rows="6" Margin="0,0,0,18">
+                        <TextBlock Text="Best lap" /><TextBlock Text="{Binding LapIntelligenceBestLap}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Theoretical best" /><TextBlock Text="{Binding LapIntelligenceTheoreticalBest}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Pace trend" /><TextBlock Text="{Binding LapIntelligencePaceTrend}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Sector gain/loss" /><TextBlock Text="{Binding LapIntelligenceSectorGainLoss}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Strengths" /><TextBlock Text="{Binding LapIntelligenceStrengths}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Weaknesses" /><TextBlock Text="{Binding LapIntelligenceWeaknesses}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
+
                     <TextBlock Text="Race Prep" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2">
                         <TextBlock Text="Car" /><TextBox Text="{Binding PrepCar, UpdateSourceTrigger=PropertyChanged}" />

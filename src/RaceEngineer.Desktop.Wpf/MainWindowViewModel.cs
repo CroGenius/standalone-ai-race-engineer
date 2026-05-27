@@ -29,6 +29,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly EventEngine eventEngine = new();
     private readonly CoachEngine coachEngine = new();
     private readonly TelemetryAnalyticsService analyticsService = new();
+    private readonly LapIntelligenceService lapIntelligenceService = new();
     private readonly VoiceService voiceService;
     private readonly CalloutManager calloutManager = new();
     private readonly StorageService storageService;
@@ -78,6 +79,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string analyticsIncidents = "-";
     private string analyticsBestVsAverage = "-";
     private string analyticsDriverProfile = "-";
+    private string lapIntelligenceTitle = "Lap Intelligence (Live Session)";
+    private string lapIntelligenceBestLap = "-";
+    private string lapIntelligenceTheoreticalBest = "-";
+    private string lapIntelligencePaceTrend = "-";
+    private string lapIntelligenceSectorGainLoss = "-";
+    private string lapIntelligenceStrengths = "-";
+    private string lapIntelligenceWeaknesses = "-";
 
     public MainWindowViewModel()
     {
@@ -146,6 +154,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string AnalyticsIncidents => analyticsIncidents;
     public string AnalyticsBestVsAverage => analyticsBestVsAverage;
     public string AnalyticsDriverProfile => analyticsDriverProfile;
+
+    public string LapIntelligenceTitle => lapIntelligenceTitle;
+    public string LapIntelligenceBestLap => lapIntelligenceBestLap;
+    public string LapIntelligenceTheoreticalBest => lapIntelligenceTheoreticalBest;
+    public string LapIntelligencePaceTrend => lapIntelligencePaceTrend;
+    public string LapIntelligenceSectorGainLoss => lapIntelligenceSectorGainLoss;
+    public string LapIntelligenceStrengths => lapIntelligenceStrengths;
+    public string LapIntelligenceWeaknesses => lapIntelligenceWeaknesses;
 
     public ICommand ExitReviewModeCommand { get; }
     public ICommand SendChatCommand { get; }
@@ -865,6 +881,36 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             ? "Collect more laps for strengths/weaknesses."
             : $"Strengths: {FormatProfileItems(metrics.DriverProfile.Strengths)} | Weaknesses: {FormatProfileItems(metrics.DriverProfile.Weaknesses)}";
 
+        lapIntelligenceTitle = isReviewMode ? "Lap Intelligence (Review Session)" : "Lap Intelligence (Live Session)";
+        var intelligence = lapIntelligenceService.Analyze(new LapIntelligenceInput(
+            ActiveSession,
+            isReviewMode ? reviewSnapshots : null));
+
+        lapIntelligenceBestLap = intelligence.LapComparison.BestLapSeconds is { } intelBest
+            ? $"Lap {intelligence.LapComparison.BestLapNumber}: {intelBest:0.000}s vs selected lap {intelligence.LapComparison.SelectedLapNumber}: {intelligence.LapComparison.SelectedLapSeconds:0.000}s (Δ {intelligence.LapComparison.DeltaSeconds:+0.000;-0.000;0.000}s)"
+            : intelligence.LapComparison.Availability;
+
+        lapIntelligenceTheoreticalBest = intelligence.TheoreticalBest.TheoreticalSeconds is { } theoretical
+            ? $"Theoretical {theoretical:0.000}s vs actual best {intelligence.TheoreticalBest.ActualBestSeconds:0.000}s (gap {intelligence.TheoreticalBest.DeltaSeconds:0.000}s)"
+            : intelligence.TheoreticalBest.Availability;
+
+        lapIntelligencePaceTrend = intelligence.PaceDecay.FirstHalfAverageSeconds is { } firstHalf && intelligence.PaceDecay.SecondHalfAverageSeconds is { } secondHalf
+            ? $"{intelligence.PaceDecay.TrendLabel} stint ({firstHalf:0.000}s → {secondHalf:0.000}s, Δ {intelligence.PaceDecay.DeltaSeconds:+0.000;-0.000;0.000}s)"
+            : intelligence.PaceDecay.Availability;
+
+        lapIntelligenceSectorGainLoss = intelligence.SectorDeltas.Sectors.Count == 0
+            ? intelligence.SectorDeltas.Availability
+            : string.Join(" | ", intelligence.SectorDeltas.Sectors.Select(sector =>
+                $"{sector.SectorName}: {sector.GainLossLabel} ({sector.DeltaSeconds:+0.000;-0.000;0.000}s)"));
+
+        lapIntelligenceStrengths = intelligence.Strengths.Count == 0
+            ? "No strengths identified yet."
+            : string.Join(" ", intelligence.Strengths);
+
+        lapIntelligenceWeaknesses = intelligence.Weaknesses.Count == 0
+            ? "No weaknesses identified yet."
+            : string.Join(" ", intelligence.Weaknesses);
+
         RaiseAnalyticsProperties();
     }
 
@@ -891,6 +937,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(AnalyticsIncidents));
         OnPropertyChanged(nameof(AnalyticsBestVsAverage));
         OnPropertyChanged(nameof(AnalyticsDriverProfile));
+        OnPropertyChanged(nameof(LapIntelligenceTitle));
+        OnPropertyChanged(nameof(LapIntelligenceBestLap));
+        OnPropertyChanged(nameof(LapIntelligenceTheoreticalBest));
+        OnPropertyChanged(nameof(LapIntelligencePaceTrend));
+        OnPropertyChanged(nameof(LapIntelligenceSectorGainLoss));
+        OnPropertyChanged(nameof(LapIntelligenceStrengths));
+        OnPropertyChanged(nameof(LapIntelligenceWeaknesses));
     }
 
     private void RaiseVoiceProperties()

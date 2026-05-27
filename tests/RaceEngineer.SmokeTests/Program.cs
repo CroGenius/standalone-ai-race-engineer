@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -59,6 +60,7 @@ RawCaptureStoresParseResult();
 ReplayDoesNotRequireUdpSocket();
 await StoragePersistsSessionFactsAndExports();
 AnalyticsComputesDeterministicMetrics();
+LapIntelligenceComputesDeterministicInsights();
 await ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint();
 
 Console.WriteLine("C# smoke tests passed.");
@@ -695,6 +697,46 @@ static void AnalyticsComputesDeterministicMetrics()
     Assert(first.BestVsAverage.AverageLapSeconds == 89.5, "Average lap should match completed lap average.");
     Assert(first.FuelTrend.FuelPerLap is > 0, "Fuel per lap should be computed.");
     Assert(first.DriverProfile.Strengths.Count + first.DriverProfile.Weaknesses.Count > 0, "Driver profile should classify metrics.");
+}
+
+static void LapIntelligenceComputesDeterministicInsights()
+{
+    var (session, _) = SessionWithFuelEstimate();
+    var snapshots = BuildLapIntelligenceSnapshots(session);
+    var service = new LapIntelligenceService();
+    var input = new LapIntelligenceInput(session, snapshots);
+    var first = service.Analyze(input);
+    var second = service.Analyze(input);
+
+    Assert(first.LapComparison.BestLapSeconds == second.LapComparison.BestLapSeconds, "Lap comparison should be deterministic.");
+    Assert(first.LapComparison.BestLapSeconds == 89.0, "Best lap should be the fastest completed lap.");
+    Assert(first.PaceDecay.Availability == "Available", "Pace decay should be computed from completed laps.");
+    Assert(first.TheoreticalBest.TheoreticalSeconds is { } theoretical && first.TheoreticalBest.ActualBestSeconds is { } actualBest && theoretical <= actualBest, "Theoretical best should not exceed actual best.");
+    Assert(first.ConsistencyHeatmap.Cells.Count > 0, "Heatmap cells should be generated from sector timing.");
+    Assert(first.CoachingInsights.Count > 0, "Coaching insights should be generated.");
+}
+
+static IReadOnlyList<TelemetrySnapshot> BuildLapIntelligenceSnapshots(SessionState session)
+{
+    var snapshots = new List<TelemetrySnapshot>();
+    var baseTime = session.StartedAt;
+    foreach (var lap in session.CompletedLaps.OrderBy(item => item.LapNumber))
+    {
+        var progressPoints = new[] { 0.05, 0.20, 0.40, 0.55, 0.70, 0.90 };
+        for (var index = 0; index < progressPoints.Length; index++)
+        {
+            var elapsed = (lap.StartedAt - baseTime).TotalSeconds + (progressPoints[index] * (lap.Duration?.TotalSeconds ?? 90));
+            var snapshot = Packet(
+                $$"""{"lap_progress":{{progressPoints[index].ToString(CultureInfo.InvariantCulture)}},"fuel":{{(8.0 - lap.LapNumber).ToString(CultureInfo.InvariantCulture)}},"brake":{{(progressPoints[index] < 0.25 ? 0.6 : 0.05).ToString(CultureInfo.InvariantCulture)}},"throttle":{{(progressPoints[index] > 0.65 ? 0.7 : 0.2).ToString(CultureInfo.InvariantCulture)}}}""");
+            snapshots.Add(snapshot with
+            {
+                Timestamp = baseTime.AddSeconds(elapsed),
+                Lap = snapshot.Lap with { LapNumber = lap.LapNumber, LapProgress = progressPoints[index] }
+            });
+        }
+    }
+
+    return snapshots;
 }
 
 
