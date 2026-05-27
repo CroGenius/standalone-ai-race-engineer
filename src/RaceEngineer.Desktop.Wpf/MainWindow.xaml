@@ -224,6 +224,29 @@
                     <TextBlock Text="Strategy summary" Margin="0,0,0,2" />
                     <TextBlock Text="{Binding StrategySummary}" TextWrapping="Wrap" Foreground="#9AA6AC" Margin="0,0,0,18" />
 
+                    <TextBlock Text="Preferences" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <UniformGrid Columns="2" Rows="8" Margin="0,0,0,8">
+                        <TextBlock Text="Driver name" VerticalAlignment="Center" /><TextBox Text="{Binding PrefDriverName, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="Language" VerticalAlignment="Center" /><TextBox Text="{Binding PrefPreferredLanguage, UpdateSourceTrigger=PropertyChanged}" ToolTip="auto / hr-HR / en-US" />
+                        <TextBlock Text="Units" VerticalAlignment="Center" /><TextBox Text="{Binding PrefPreferredUnits, UpdateSourceTrigger=PropertyChanged}" ToolTip="metric / imperial" />
+                        <TextBlock Text="Experience" VerticalAlignment="Center" /><TextBox Text="{Binding PrefExperienceLevel, UpdateSourceTrigger=PropertyChanged}" ToolTip="beginner / intermediate / advanced" />
+                        <TextBlock Text="Driving style" VerticalAlignment="Center" /><TextBox Text="{Binding PrefDrivingStyle, UpdateSourceTrigger=PropertyChanged}" ToolTip="conservative / balanced / aggressive" />
+                        <TextBlock Text="Response length" VerticalAlignment="Center" /><TextBox Text="{Binding PrefResponseLength, UpdateSourceTrigger=PropertyChanged}" ToolTip="short / normal / detailed" />
+                        <TextBlock Text="Callout aggressiveness" VerticalAlignment="Center" /><TextBox Text="{Binding PrefCalloutAggressiveness, UpdateSourceTrigger=PropertyChanged}" ToolTip="low / normal / high" />
+                        <TextBlock Text="Speech provider" VerticalAlignment="Center" /><TextBox Text="{Binding PrefSpeechRecognitionProvider, UpdateSourceTrigger=PropertyChanged}" ToolTip="auto / windows / whisper" />
+                        <TextBlock Text="Push-to-talk key" VerticalAlignment="Center" /><TextBox Text="{Binding PrefPushToTalkHotkey, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="Fuel safety margin (laps)" VerticalAlignment="Center" /><TextBox Text="{Binding PrefFuelSafetyMarginLaps, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="Pit aggressiveness" VerticalAlignment="Center" /><TextBox Text="{Binding PrefPitAggressiveness, UpdateSourceTrigger=PropertyChanged}" ToolTip="conservative / normal / aggressive" />
+                        <TextBlock Text="Tyre risk sensitivity" VerticalAlignment="Center" /><TextBox Text="{Binding PrefTyreRiskSensitivity, UpdateSourceTrigger=PropertyChanged}" ToolTip="low / normal / high" />
+                        <TextBlock Text="Pit strategy preference" VerticalAlignment="Center" /><TextBox Text="{Binding PrefPitStrategyPreference, UpdateSourceTrigger=PropertyChanged}" ToolTip="undercut / balanced / overcut" />
+                    </UniformGrid>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <CheckBox Content="Voice enabled default" IsChecked="{Binding PrefVoiceEnabledDefault}" Margin="0,0,16,0" />
+                        <CheckBox Content="Confirmation prefix" IsChecked="{Binding PrefVoiceInputConfirmationsEnabled}" Margin="0,0,16,0" />
+                        <CheckBox Content="Evidence bullets" IsChecked="{Binding PrefEvidenceBulletsEnabled}" />
+                    </StackPanel>
+                    <Button Content="Save preferences" Command="{Binding SavePreferencesCommand}" HorizontalAlignment="Left" Margin="0,0,0,18" Padding="12,6" />
+
                     <TextBlock Text="{Binding LapIntelligenceTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2" Rows="6" Margin="0,0,0,18">
                         <TextBlock Text="Best lap" /><TextBlock Text="{Binding LapIntelligenceBestLap}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />

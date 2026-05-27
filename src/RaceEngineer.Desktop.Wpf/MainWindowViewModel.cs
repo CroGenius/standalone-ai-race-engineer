@@ -12,6 +12,7 @@ using RaceEngineer.Core.Analytics;
 using RaceEngineer.Core.Coaching;
 using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
+using RaceEngineer.Core.Profile;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.Storage;
 using RaceEngineer.Core.Strategy;
@@ -40,7 +41,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly CalloutManager calloutManager = new();
     private readonly StrategyEngine strategyEngine = new();
     private readonly StrategyCalloutManager strategyCalloutManager = new();
-    private readonly PushToTalkHotkey pushToTalkHotkey;
+    private PushToTalkHotkey pushToTalkHotkey;
     private readonly StorageService storageService;
     private readonly StoredResearchService researchService;
     private readonly SessionState session = new();
@@ -107,12 +108,32 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private SessionTelemetryAnalytics sessionAnalytics = SessionTelemetryAnalytics.Empty;
     private SessionLapIntelligence sessionLapIntelligence = SessionLapIntelligence.Empty;
     private SessionStrategy sessionStrategy = SessionStrategy.Empty;
+    private AppSettings appSettings = AppSettings.Default;
+    private ProfilePreferencesService profilePreferencesService;
+    private UserPreferencesBundle userPreferences = UserPreferencesBundle.FromAppSettings(AppSettings.Default);
+    private string prefDriverName = "";
+    private string prefPreferredLanguage = "auto";
+    private string prefPreferredUnits = "metric";
+    private string prefExperienceLevel = "intermediate";
+    private string prefDrivingStyle = "balanced";
+    private string prefResponseLength = "normal";
+    private string prefCalloutAggressiveness = "normal";
+    private bool prefVoiceEnabledDefault;
+    private string prefSpeechRecognitionProvider = "auto";
+    private string prefPushToTalkHotkey = "F6";
+    private bool prefVoiceInputConfirmationsEnabled = true;
+    private bool prefEvidenceBulletsEnabled = true;
+    private string prefFuelSafetyMarginLaps = "1.0";
+    private string prefPitAggressiveness = "normal";
+    private string prefTyreRiskSensitivity = "normal";
+    private string prefPitStrategyPreference = "balanced";
 
     public MainWindowViewModel()
     {
         var settingsResult = AppSettings.Load(Path.Combine(AppContext.BaseDirectory, "appsettings.json"));
         startupWarnings.AddRange(settingsResult.Warnings);
-        var settings = settingsResult.Settings;
+        appSettings = settingsResult.Settings;
+        var settings = appSettings;
         Directory.CreateDirectory(settings.CaptureFolder);
         Directory.CreateDirectory(settings.ReplayFolder);
 
@@ -127,11 +148,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         voiceInputService.StateChanged += (_, _) => RaiseVoiceProperties();
         pushToTalkHotkey = ParsePushToTalkHotkeySafely(settings.PushToTalkHotkey);
         storageService = new StorageService(settings.DatabasePath);
+        profilePreferencesService = new ProfilePreferencesService(storageService);
         researchService = new StoredResearchService(storageService);
         sessionLabel = $"Session {session.SessionId}";
         SendChatCommand = new RelayCommand(SendChat, () => !string.IsNullOrWhiteSpace(ChatInput));
         SavePrepCommand = new RelayCommand(() => _ = SavePrepAsync());
         LoadPrepCommand = new RelayCommand(() => _ = LoadPrepAsync());
+        SavePreferencesCommand = new RelayCommand(() => _ = SavePreferencesAsync());
         SavePostSessionNoteCommand = new RelayCommand(SavePostSessionNote, () => !string.IsNullOrWhiteSpace(PostSessionNote));
         RefreshSessionsCommand = new RelayCommand(() => _ = RefreshSessionsAsync());
         LoadSelectedSessionCommand = new RelayCommand(() => _ = LoadSelectedSessionAsync(), () => SelectedSession is not null);
@@ -196,6 +219,102 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string StrategyTyreRisk => strategyTyreRisk;
     public string StrategySummary => strategySummary;
 
+    public string PrefDriverName
+    {
+        get => prefDriverName;
+        set => SetField(ref prefDriverName, value);
+    }
+
+    public string PrefPreferredLanguage
+    {
+        get => prefPreferredLanguage;
+        set => SetField(ref prefPreferredLanguage, value);
+    }
+
+    public string PrefPreferredUnits
+    {
+        get => prefPreferredUnits;
+        set => SetField(ref prefPreferredUnits, value);
+    }
+
+    public string PrefExperienceLevel
+    {
+        get => prefExperienceLevel;
+        set => SetField(ref prefExperienceLevel, value);
+    }
+
+    public string PrefDrivingStyle
+    {
+        get => prefDrivingStyle;
+        set => SetField(ref prefDrivingStyle, value);
+    }
+
+    public string PrefResponseLength
+    {
+        get => prefResponseLength;
+        set => SetField(ref prefResponseLength, value);
+    }
+
+    public string PrefCalloutAggressiveness
+    {
+        get => prefCalloutAggressiveness;
+        set => SetField(ref prefCalloutAggressiveness, value);
+    }
+
+    public bool PrefVoiceEnabledDefault
+    {
+        get => prefVoiceEnabledDefault;
+        set => SetField(ref prefVoiceEnabledDefault, value);
+    }
+
+    public string PrefSpeechRecognitionProvider
+    {
+        get => prefSpeechRecognitionProvider;
+        set => SetField(ref prefSpeechRecognitionProvider, value);
+    }
+
+    public string PrefPushToTalkHotkey
+    {
+        get => prefPushToTalkHotkey;
+        set => SetField(ref prefPushToTalkHotkey, value);
+    }
+
+    public bool PrefVoiceInputConfirmationsEnabled
+    {
+        get => prefVoiceInputConfirmationsEnabled;
+        set => SetField(ref prefVoiceInputConfirmationsEnabled, value);
+    }
+
+    public bool PrefEvidenceBulletsEnabled
+    {
+        get => prefEvidenceBulletsEnabled;
+        set => SetField(ref prefEvidenceBulletsEnabled, value);
+    }
+
+    public string PrefFuelSafetyMarginLaps
+    {
+        get => prefFuelSafetyMarginLaps;
+        set => SetField(ref prefFuelSafetyMarginLaps, value);
+    }
+
+    public string PrefPitAggressiveness
+    {
+        get => prefPitAggressiveness;
+        set => SetField(ref prefPitAggressiveness, value);
+    }
+
+    public string PrefTyreRiskSensitivity
+    {
+        get => prefTyreRiskSensitivity;
+        set => SetField(ref prefTyreRiskSensitivity, value);
+    }
+
+    public string PrefPitStrategyPreference
+    {
+        get => prefPitStrategyPreference;
+        set => SetField(ref prefPitStrategyPreference, value);
+    }
+
     public TelemetryTimeline TraceTimeline => traceTimeline;
 
     public double TimelineCursorProgress
@@ -208,6 +327,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public ICommand SendChatCommand { get; }
     public ICommand SavePrepCommand { get; }
     public ICommand LoadPrepCommand { get; }
+    public ICommand SavePreferencesCommand { get; }
     public ICommand SavePostSessionNoteCommand { get; }
     public ICommand RefreshSessionsCommand { get; }
     public ICommand LoadSelectedSessionCommand { get; }
@@ -400,6 +520,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         try
         {
             await storageService.InitializeAsync();
+            userPreferences = await profilePreferencesService.LoadAsync(appSettings);
+            BindPreferencesToView(userPreferences);
+            ApplyUserPreferences();
             await storageService.CreateSessionAsync(session.SessionId, session.StartedAt);
             await RefreshSessionsAsync();
             await RefreshKnowledgeAsync();
@@ -585,13 +708,87 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         var prefix = isReviewMode ? "Coach (review):" : "Coach:";
         var uncertainty = string.IsNullOrWhiteSpace(answer.Uncertainty) ? "" : $" ({answer.Uncertainty})";
         ChatMessages.Add($"{prefix} {answer.Content}{uncertainty}");
-        if (answer.EvidencePackets.Count > 0)
+        if (answer.EvidencePackets.Count > 0 && userPreferences.Coach.EvidenceBulletsEnabled)
         {
             var bullets = string.Join(
                 Environment.NewLine,
                 answer.EvidencePackets.Select(packet => $"- {packet.Summary}: {packet.Explanation}"));
             ChatMessages.Add($"{prefix}{Environment.NewLine}Evidence:{Environment.NewLine}{bullets}");
         }
+    }
+
+    private async Task SavePreferencesAsync()
+    {
+        userPreferences = CollectPreferencesFromView();
+        await profilePreferencesService.SaveAsync(userPreferences);
+        ApplyUserPreferences();
+        RefreshAnalytics();
+        ChatMessages.Add("Coach: Driver profile and preferences saved.");
+    }
+
+    private void BindPreferencesToView(UserPreferencesBundle preferences)
+    {
+        userPreferences = preferences;
+        PrefDriverName = preferences.Driver.DriverName ?? "";
+        PrefPreferredLanguage = preferences.Driver.PreferredLanguage;
+        PrefPreferredUnits = preferences.Driver.PreferredUnits;
+        PrefExperienceLevel = preferences.Driver.ExperienceLevel;
+        PrefDrivingStyle = preferences.Driver.DrivingStyle;
+        PrefResponseLength = preferences.Coach.ResponseLength;
+        PrefCalloutAggressiveness = preferences.Coach.CalloutAggressiveness;
+        PrefVoiceEnabledDefault = preferences.Coach.VoiceEnabledDefault;
+        PrefSpeechRecognitionProvider = preferences.Coach.SpeechRecognitionProvider;
+        PrefPushToTalkHotkey = preferences.Coach.PushToTalkHotkey;
+        PrefVoiceInputConfirmationsEnabled = preferences.Coach.VoiceInputConfirmationsEnabled;
+        PrefEvidenceBulletsEnabled = preferences.Coach.EvidenceBulletsEnabled;
+        PrefFuelSafetyMarginLaps = preferences.Strategy.FuelSafetyMarginLaps.ToString("0.0", CultureInfo.InvariantCulture);
+        PrefPitAggressiveness = preferences.Strategy.PitRecommendationAggressiveness;
+        PrefTyreRiskSensitivity = preferences.Strategy.TyreRiskSensitivity;
+        PrefPitStrategyPreference = preferences.Strategy.PitStrategyPreference;
+    }
+
+    private UserPreferencesBundle CollectPreferencesFromView()
+    {
+        var fuelMargin = double.TryParse(PrefFuelSafetyMarginLaps, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedMargin)
+            ? parsedMargin
+            : StrategyPreferencesRecord.Default.FuelSafetyMarginLaps;
+        return new UserPreferencesBundle(
+            UserPreferencesNormalizer.NormalizeDriver(new DriverProfileRecord(
+                DriverName: PrefDriverName,
+                PreferredLanguage: PrefPreferredLanguage,
+                PreferredUnits: PrefPreferredUnits,
+                ExperienceLevel: PrefExperienceLevel,
+                DrivingStyle: PrefDrivingStyle)),
+            UserPreferencesNormalizer.NormalizeCoach(new CoachPreferencesRecord(
+                ResponseLength: PrefResponseLength,
+                CalloutAggressiveness: PrefCalloutAggressiveness,
+                VoiceEnabledDefault: PrefVoiceEnabledDefault,
+                SpeechRecognitionProvider: PrefSpeechRecognitionProvider,
+                PushToTalkHotkey: PrefPushToTalkHotkey,
+                VoiceInputConfirmationsEnabled: PrefVoiceInputConfirmationsEnabled,
+                EvidenceBulletsEnabled: PrefEvidenceBulletsEnabled,
+                VoiceInputCooldownSeconds: userPreferences.Coach.VoiceInputCooldownSeconds)),
+            UserPreferencesNormalizer.NormalizeStrategy(new StrategyPreferencesRecord(
+                FuelSafetyMarginLaps: fuelMargin,
+                PitRecommendationAggressiveness: PrefPitAggressiveness,
+                TyreRiskSensitivity: PrefTyreRiskSensitivity,
+                PitStrategyPreference: PrefPitStrategyPreference)));
+    }
+
+    private void ApplyUserPreferences()
+    {
+        calloutManager.ConfigureCalloutAggressiveness(userPreferences.Coach.CalloutAggressiveness);
+        strategyCalloutManager.ConfigureCooldown(
+            StrategyPreferencesMapper.CalloutCooldown(userPreferences.Strategy, userPreferences.Coach));
+        voiceService.SetVoiceEnabled(userPreferences.Coach.VoiceEnabledDefault);
+        voiceInputService.Configure(new VoiceInputOptions
+        {
+            ConfirmationsEnabled = userPreferences.Coach.VoiceInputConfirmationsEnabled,
+            QueryCooldown = TimeSpan.FromSeconds(userPreferences.Coach.VoiceInputCooldownSeconds)
+        });
+        voiceInputService.SetEnabled(userPreferences.Coach.VoiceEnabledDefault);
+        pushToTalkHotkey = ParsePushToTalkHotkeySafely(userPreferences.Coach.PushToTalkHotkey);
+        RaiseVoiceProperties();
     }
 
     private async Task SavePrepAsync()
@@ -886,7 +1083,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             coachEngine,
             CurrentCoachContext(),
             BuildCoachEvidence(),
-            confirmQuery: voiceInputService.ConfirmationsEnabled);
+            confirmQuery: voiceInputService.ConfirmationsEnabled,
+            preferences: userPreferences.Coach);
         AppendCoachChatLines(result.WrittenResponse);
         LastCallout = result.SpokenResponse;
         RaiseVoiceProperties();
@@ -1145,7 +1343,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             metrics,
             intelligence,
             CurrentPrepPlan(),
-            ActiveSession.Events));
+            ActiveSession.Events,
+            userPreferences.Strategy));
         var strategy = sessionStrategy;
         strategyFuelRisk = strategy.Fuel.RiskLevel.ToString();
         strategyLapsRemaining = strategy.Fuel.LapsRemaining?.ToString("0.0", CultureInfo.InvariantCulture)
@@ -1316,7 +1515,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             LoadedSessionSummary,
             CurrentPrepPlan(),
             KnowledgeSources.Select(item => item.Source).ToArray(),
-            false);
+            false,
+            userPreferences.Coach);
     }
 
     private void RaiseReviewModeProperties()

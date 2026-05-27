@@ -7,6 +7,7 @@ using RaceEngineer.Core.Analytics;
 using RaceEngineer.Core.Coaching;
 using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
+using RaceEngineer.Core.Profile;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.Storage;
 using RaceEngineer.Core.Strategy;
@@ -63,6 +64,8 @@ WhisperSpeechOptionsNormalizeSettingsValues();
 StrategyEngineComputesDeterministicFuelMetrics();
 StrategyCalloutManagerSpeaksOnlyOnStateChange();
 CoachEngineRoutesStrategyQuestions();
+await ProfilePreferencesPersistAndMergeAppSettings();
+CoachResponseFormatterRespectsResponseLength();
 CoachEngineRoutesCroatianBrakingPhrase();
 VoiceInputAcceptsRecognitionAfterPttReleaseGrace();
 VoiceInputReportsNoSpeechAfterGraceTimeout();
@@ -613,6 +616,74 @@ static void CoachEngineRoutesStrategyQuestions()
     Assert(
         english.EvidencePackets.Any(packet => packet.Summary == "Strategy summary"),
         "Strategy evidence should include a strategy summary packet.");
+}
+
+static async Task ProfilePreferencesPersistAndMergeAppSettings()
+{
+    var dbPath = Path.Combine(Path.GetTempPath(), $"race-engineer-profile-{Guid.NewGuid():N}.sqlite3");
+    var storage = new StorageService(dbPath);
+    await storage.InitializeAsync();
+    var service = new ProfilePreferencesService(storage);
+    var baseSettings = AppSettings.Default with { PushToTalkHotkey = "F7", SpeechRecognitionProvider = "windows" };
+    var bundle = new UserPreferencesBundle(
+        new DriverProfileRecord(DriverName: "Alex", PreferredLanguage: "hr-HR", DrivingStyle: "aggressive"),
+        new CoachPreferencesRecord(
+            ResponseLength: "detailed",
+            CalloutAggressiveness: "high",
+            VoiceEnabledDefault: true,
+            SpeechRecognitionProvider: "whisper",
+            PushToTalkHotkey: "F8",
+            VoiceInputConfirmationsEnabled: false,
+            EvidenceBulletsEnabled: true),
+        new StrategyPreferencesRecord(
+            FuelSafetyMarginLaps: 2.5,
+            PitRecommendationAggressiveness: "aggressive",
+            TyreRiskSensitivity: "high",
+            PitStrategyPreference: "undercut"));
+
+    await service.SaveAsync(bundle);
+    var loaded = await service.LoadAsync(baseSettings);
+
+    Assert(loaded.Driver.DriverName == "Alex", "Driver name should round-trip through SQLite.");
+    Assert(loaded.Driver.PreferredLanguage == "hr-HR", "Preferred language should round-trip.");
+    Assert(loaded.Driver.DrivingStyle == "aggressive", "Driving style should round-trip.");
+    Assert(loaded.Coach.ResponseLength == "detailed", "Coach response length should round-trip.");
+    Assert(loaded.Coach.PushToTalkHotkey == "F8", "Push-to-talk hotkey should round-trip.");
+    Assert(loaded.Strategy.FuelSafetyMarginLaps == 2.5, "Fuel safety margin should round-trip.");
+    Assert(loaded.Strategy.PitStrategyPreference == "undercut", "Pit strategy preference should round-trip.");
+
+    var merged = ProfilePreferencesService.MergeAppSettings(baseSettings, loaded);
+    Assert(merged.VoiceEnabledDefault, "Merged settings should use saved voice default.");
+    Assert(merged.PushToTalkHotkey == "F8", "Merged settings should use saved push-to-talk hotkey.");
+    Assert(merged.SpeechRecognitionProvider == "whisper", "Merged settings should use saved speech provider.");
+    Assert(merged.SpeechRecognitionCulture == "hr-HR", "Merged settings should derive speech culture from driver language.");
+}
+
+static void CoachResponseFormatterRespectsResponseLength()
+{
+    var content = "Plan an early pit stop on lap twelve because fuel is trending low. Keep tyre temps stable through sector two."
+        + Environment.NewLine + Environment.NewLine
+        + "Evidence:" + Environment.NewLine
+        + "- Fuel laps remaining is 3.2" + Environment.NewLine
+        + "- Pit window opens in 2 laps" + Environment.NewLine
+        + "- Tyre risk is moderate" + Environment.NewLine
+        + "- Undercut window is open";
+
+    var shortPrefs = new CoachPreferencesRecord(ResponseLength: "short", EvidenceBulletsEnabled: true);
+    var detailedPrefs = new CoachPreferencesRecord(ResponseLength: "detailed", EvidenceBulletsEnabled: true);
+    var shortContent = CoachResponseFormatter.FormatContent(content, shortPrefs);
+    var detailedContent = CoachResponseFormatter.FormatContent(content, detailedPrefs);
+
+    Assert(shortContent.Length < detailedContent.Length, "Short response length should produce shorter coach content.");
+    Assert(shortContent.Contains("Evidence:", StringComparison.Ordinal), "Short responses should still include evidence when enabled.");
+    Assert(
+        shortContent.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Count(line => line.StartsWith("- ", StringComparison.Ordinal)) <= 2,
+        "Short response length should cap evidence bullets.");
+    Assert(
+        detailedContent.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Count(line => line.StartsWith("- ", StringComparison.Ordinal)) >= 3,
+        "Detailed response length should retain more evidence bullets.");
 }
 
 static void CoachEngineRoutesCroatianBrakingPhrase()

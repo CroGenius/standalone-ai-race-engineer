@@ -70,7 +70,8 @@ public sealed record StrategyInput(
     Analytics.SessionTelemetryAnalytics? Analytics = null,
     Analytics.SessionLapIntelligence? LapIntelligence = null,
     Coaching.RacePrepPlan? PrepPlan = null,
-    IReadOnlyList<Events.TelemetryEvent>? Events = null);
+    IReadOnlyList<Events.TelemetryEvent>? Events = null,
+    Profile.StrategyPreferencesRecord? Preferences = null);
 
 public sealed class StrategyEngineOptions
 {
@@ -84,4 +85,5 @@ public sealed class StrategyEngineOptions
     public double TyreRiskModerateScore { get; init; } = 25;
     public double TyreRiskHighScore { get; init; } = 50;
     public double TyreRiskCriticalScore { get; init; } = 70;
+    public int PitWindowShiftLaps { get; init; }
 }

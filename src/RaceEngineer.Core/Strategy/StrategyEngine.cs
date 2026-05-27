@@ -18,6 +18,9 @@ public sealed class StrategyEngine
 
     public SessionStrategy Analyze(StrategyInput input)
     {
+        var activeOptions = input.Preferences is not null
+            ? Profile.StrategyPreferencesMapper.ToEngineOptions(input.Preferences)
+            : options;
         var session = input.Session;
         var analytics = input.Analytics ?? SessionTelemetryAnalytics.Empty;
         var lapIntelligence = input.LapIntelligence ?? SessionLapIntelligence.Empty;
@@ -26,12 +29,12 @@ public sealed class StrategyEngine
         var fuelPerLap = session.FuelUsedPerLap ?? analytics.FuelTrend.FuelPerLap;
         var lapsRemaining = session.EstimatedLapsRemaining ?? analytics.FuelTrend.EstimatedLapsRemaining;
         var latestFuel = session.LatestFuelLevel;
-        var targetStintLaps = ParseTargetStintLaps(input.PrepPlan?.TargetStintLength) ?? options.DefaultTargetStintLaps;
+        var targetStintLaps = ParseTargetStintLaps(input.PrepPlan?.TargetStintLength) ?? activeOptions.DefaultTargetStintLaps;
         var completedLaps = session.CompletedLaps.Count;
         var lapsLeftInStint = Math.Max(0, targetStintLaps - completedLaps);
 
-        var fuel = BuildFuelPrediction(latestFuel, fuelPerLap, lapsRemaining, lapsLeftInStint, events);
-        var tyreRisk = BuildTyreRisk(analytics, lapIntelligence, events);
+        var fuel = BuildFuelPrediction(latestFuel, fuelPerLap, lapsRemaining, lapsLeftInStint, events, activeOptions);
+        var tyreRisk = BuildTyreRisk(analytics, lapIntelligence, events, activeOptions);
         var pit = BuildPitStrategy(
             fuel,
             tyreRisk,
@@ -39,7 +42,8 @@ public sealed class StrategyEngine
             targetStintLaps,
             lapsLeftInStint,
             fuelPerLap,
-            latestFuel);
+            latestFuel,
+            activeOptions);
         var summary = BuildSummary(fuel, pit, tyreRisk, completedLaps, targetStintLaps);
         var callout = BuildCalloutSignal(fuel, pit, tyreRisk);
 
@@ -51,7 +55,8 @@ public sealed class StrategyEngine
         double? fuelPerLap,
         double? lapsRemaining,
         int lapsLeftInStint,
-        IReadOnlyList<TelemetryEvent> events)
+        IReadOnlyList<TelemetryEvent> events,
+        StrategyEngineOptions activeOptions)
     {
         if (latestFuel is null)
         {
@@ -70,7 +75,7 @@ public sealed class StrategyEngine
 
         var estimatedFinishFuel = latestFuel.Value - (fuelPerLap.Value * lapsLeftInStint);
         var lowFuelActive = events.Any(item => item.Type == EventType.LowFuel);
-        var risk = ClassifyFuelRisk(latestFuel.Value, lapsRemaining, lowFuelActive);
+        var risk = ClassifyFuelRisk(latestFuel.Value, lapsRemaining, lowFuelActive, activeOptions);
 
         return new FuelPredictionMetric(
             fuelPerLap,
@@ -80,25 +85,29 @@ public sealed class StrategyEngine
             "Available");
     }
 
-    private FuelRiskLevel ClassifyFuelRisk(double latestFuel, double? lapsRemaining, bool lowFuelActive)
+    private FuelRiskLevel ClassifyFuelRisk(
+        double latestFuel,
+        double? lapsRemaining,
+        bool lowFuelActive,
+        StrategyEngineOptions activeOptions)
     {
-        if (lowFuelActive || latestFuel <= options.FuelCriticalLevel)
+        if (lowFuelActive || latestFuel <= activeOptions.FuelCriticalLevel)
         {
             return FuelRiskLevel.Critical;
         }
 
-        if (latestFuel <= options.FuelHighLevel
-            || (lapsRemaining.HasValue && lapsRemaining.Value <= options.FuelCriticalLapsRemaining))
+        if (latestFuel <= activeOptions.FuelHighLevel
+            || (lapsRemaining.HasValue && lapsRemaining.Value <= activeOptions.FuelCriticalLapsRemaining))
         {
             return FuelRiskLevel.High;
         }
 
-        if (lapsRemaining.HasValue && lapsRemaining.Value <= options.FuelHighLapsRemaining)
+        if (lapsRemaining.HasValue && lapsRemaining.Value <= activeOptions.FuelHighLapsRemaining)
         {
             return FuelRiskLevel.High;
         }
 
-        if (lapsRemaining.HasValue && lapsRemaining.Value <= options.FuelModerateLapsRemaining)
+        if (lapsRemaining.HasValue && lapsRemaining.Value <= activeOptions.FuelModerateLapsRemaining)
         {
             return FuelRiskLevel.Moderate;
         }
@@ -113,7 +122,8 @@ public sealed class StrategyEngine
         int targetStintLaps,
         int lapsLeftInStint,
         double? fuelPerLap,
-        double? latestFuel)
+        double? latestFuel,
+        StrategyEngineOptions activeOptions)
     {
         if (fuel.FuelUsedPerLap is null)
         {
@@ -127,8 +137,8 @@ public sealed class StrategyEngine
                 "Need fuel-per-lap data.");
         }
 
-        var windowStart = Math.Max(1, targetStintLaps - options.PitWindowLeadLaps);
-        var windowEnd = targetStintLaps;
+        var windowStart = Math.Max(1, targetStintLaps - activeOptions.PitWindowLeadLaps + activeOptions.PitWindowShiftLaps);
+        var windowEnd = Math.Max(windowStart, targetStintLaps + activeOptions.PitWindowShiftLaps);
         var stintEstimate = completedLaps + (int)Math.Floor(fuel.LapsRemaining ?? 0);
         var minimumFuelToFinish = fuelPerLap * lapsLeftInStint;
         var recommendation = ResolvePitRecommendation(
@@ -137,7 +147,8 @@ public sealed class StrategyEngine
             completedLaps,
             windowStart,
             windowEnd,
-            fuel.LapsRemaining);
+            fuel.LapsRemaining,
+            activeOptions);
         var reason = DescribePitRecommendation(recommendation, fuel, tyreRisk, completedLaps, windowStart, windowEnd);
 
         return new PitStrategyMetric(
@@ -156,10 +167,11 @@ public sealed class StrategyEngine
         int completedLaps,
         int windowStart,
         int windowEnd,
-        double? lapsRemaining)
+        double? lapsRemaining,
+        StrategyEngineOptions activeOptions)
     {
         if (fuelRisk == FuelRiskLevel.Critical
-            || (lapsRemaining.HasValue && lapsRemaining.Value <= options.FuelCriticalLapsRemaining))
+            || (lapsRemaining.HasValue && lapsRemaining.Value <= activeOptions.FuelCriticalLapsRemaining))
         {
             return PitRecommendation.PitNow;
         }
@@ -204,7 +216,8 @@ public sealed class StrategyEngine
     private TyreRiskMetric BuildTyreRisk(
         SessionTelemetryAnalytics analytics,
         SessionLapIntelligence lapIntelligence,
-        IReadOnlyList<TelemetryEvent> events)
+        IReadOnlyList<TelemetryEvent> events,
+        StrategyEngineOptions activeOptions)
     {
         if (lapIntelligence.PaceDecay.Availability != "Available"
             && analytics.BrakeStability.Score0To100 is null
@@ -259,11 +272,11 @@ public sealed class StrategyEngine
         }
 
         score = Math.Clamp(score, 0, 100);
-        var risk = score >= options.TyreRiskCriticalScore
+        var risk = score >= activeOptions.TyreRiskCriticalScore
             ? TyreRiskLevel.Critical
-            : score >= options.TyreRiskHighScore
+            : score >= activeOptions.TyreRiskHighScore
                 ? TyreRiskLevel.High
-                : score >= options.TyreRiskModerateScore
+                : score >= activeOptions.TyreRiskModerateScore
                     ? TyreRiskLevel.Moderate
                     : TyreRiskLevel.Low;
 

@@ -1,5 +1,6 @@
 using RaceEngineer.Core.Coaching;
 using RaceEngineer.Core.Events;
+using RaceEngineer.Core.Profile;
 using RaceEngineer.Core.Session;
 
 namespace RaceEngineer.Core.Voice;
@@ -67,10 +68,11 @@ public sealed class VoiceService
         CoachEngine coachEngine,
         CoachContext? context = null,
         CoachEvidenceBundle? evidence = null,
-        bool confirmQuery = false)
+        bool confirmQuery = false,
+        CoachPreferencesRecord? preferences = null)
     {
         var written = coachEngine.Answer(session, query, context, evidence);
-        var spoken = ShortenForSpeech(written.Content);
+        var spoken = ShortenForSpeech(written.Content, preferences ?? context?.Preferences);
         if (confirmQuery && spoken.Length > 0)
         {
             spoken = $"Copy. {spoken}";
@@ -80,13 +82,13 @@ public sealed class VoiceService
         return new VoiceQueryResult(written, spoken);
     }
 
-    private static string ShortenForSpeech(string content)
+    private static string ShortenForSpeech(string content, CoachPreferencesRecord? preferences = null)
     {
         var beforeEvidence = content.Split("Evidence:", StringSplitOptions.None)[0].Trim();
-        return RaceSafeText(beforeEvidence);
+        return RaceSafeText(beforeEvidence, CoachResponseFormatter.MaxSpeechWords(preferences));
     }
 
-    public static string RaceSafeText(string text)
+    public static string RaceSafeText(string text, int maxWords = 10)
     {
         var compact = text.ReplaceLineEndings(" ").Trim();
         var firstSentenceEnd = compact.IndexOfAny(['.', '!', '?']);
@@ -96,7 +98,7 @@ public sealed class VoiceService
         }
 
         var words = compact.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        return words.Length <= 10 ? compact : string.Join(' ', words.Take(10)) + ".";
+        return words.Length <= maxWords ? compact : string.Join(' ', words.Take(maxWords)) + ".";
     }
 }
 

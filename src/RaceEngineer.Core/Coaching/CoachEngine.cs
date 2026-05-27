@@ -1,6 +1,7 @@
 using System.Globalization;
 using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
+using RaceEngineer.Core.Profile;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.Telemetry;
 
@@ -18,7 +19,8 @@ public sealed record CoachContext(
     string? LoadedPreviousSessionSummary = null,
     RacePrepPlan? RacePrepPlan = null,
     IReadOnlyList<KnowledgeSource>? KnowledgeSources = null,
-    bool ExternalResearchAvailable = false);
+    bool ExternalResearchAvailable = false,
+    Profile.CoachPreferencesRecord? Preferences = null);
 
 public sealed class CoachEngine
 {
@@ -34,6 +36,13 @@ public sealed class CoachEngine
     }
 
     public CoachMessage Answer(SessionState session, string userMessage, CoachContext? context = null, CoachEvidenceBundle? evidence = null)
+    {
+        return CoachResponseFormatter.ApplyPreferences(
+            RouteAnswer(session, userMessage, context, evidence),
+            context?.Preferences);
+    }
+
+    private CoachMessage RouteAnswer(SessionState session, string userMessage, CoachContext? context, CoachEvidenceBundle? evidence)
     {
         var text = userMessage.ToLowerInvariant();
         var latest = session.LatestSnapshot;

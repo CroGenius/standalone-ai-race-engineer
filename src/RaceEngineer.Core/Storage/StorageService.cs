@@ -456,6 +456,18 @@ public sealed class StorageService
         return UpsertJsonAsync("driver_profile", "driver_id", driverId, "payload_json", profile, cancellationToken);
     }
 
+    public async Task<Profile.DriverProfileRecord?> LoadDriverProfileAsync(
+        string driverId = Profile.ProfilePreferencesService.DefaultDriverId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT payload_json FROM driver_profile WHERE driver_id = $driver_id LIMIT 1";
+        command.Parameters.AddWithValue("$driver_id", driverId);
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return value is string json ? JsonSerializer.Deserialize<Profile.DriverProfileRecord>(json, JsonOptions) : null;
+    }
+
     public Task SaveCarMetadataAsync(string id, string name, object metadata, CancellationToken cancellationToken = default)
     {
         return UpsertNamedJsonAsync("car_metadata", id, name, metadata, cancellationToken);
@@ -469,6 +481,30 @@ public sealed class StorageService
     public Task SaveCoachingPreferencesAsync(string id, object preferences, CancellationToken cancellationToken = default)
     {
         return UpsertJsonAsync("coaching_preferences", "id", id, "payload_json", preferences, cancellationToken);
+    }
+
+    public async Task<Profile.CoachingPreferencesPayload?> LoadCoachingPreferencesAsync(
+        string id = Profile.ProfilePreferencesService.DefaultPreferencesId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT payload_json FROM coaching_preferences WHERE id = $id LIMIT 1";
+        command.Parameters.AddWithValue("$id", id);
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        if (value is not string json)
+        {
+            return null;
+        }
+
+        var payload = JsonSerializer.Deserialize<Profile.CoachingPreferencesPayload>(json, JsonOptions);
+        if (payload is not null)
+        {
+            return payload;
+        }
+
+        var legacyCoach = JsonSerializer.Deserialize<Profile.CoachPreferencesRecord>(json, JsonOptions);
+        return legacyCoach is null ? null : new Profile.CoachingPreferencesPayload(legacyCoach, Profile.StrategyPreferencesRecord.Default);
     }
 
     public async Task SaveKnowledgeSourceAsync(KnowledgeSource source, CancellationToken cancellationToken = default)

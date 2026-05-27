@@ -2,11 +2,16 @@ namespace RaceEngineer.Core.Strategy;
 
 public sealed class StrategyCalloutManager
 {
-    private readonly TimeSpan cooldown = TimeSpan.FromSeconds(25);
+    private TimeSpan cooldown = TimeSpan.FromSeconds(25);
     private string? lastStateSignature;
     private DateTimeOffset lastSpokenAt;
 
     public string LastSuppressionState { get; private set; } = "No strategy callouts suppressed.";
+
+    public void ConfigureCooldown(TimeSpan configuredCooldown)
+    {
+        cooldown = configuredCooldown <= TimeSpan.Zero ? TimeSpan.FromSeconds(25) : configuredCooldown;
+    }
 
     public string? TryCreateCallout(SessionStrategy strategy, DateTimeOffset timestamp)
     {

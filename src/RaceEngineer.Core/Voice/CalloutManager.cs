@@ -6,8 +6,19 @@ public sealed class CalloutManager
 {
     private readonly Dictionary<EventType, DateTimeOffset> lastSpokenAt = [];
     private readonly Dictionary<EventType, int> suppressedCounts = [];
+    private double cooldownMultiplier = 1.0;
 
     public string LastSuppressionState { get; private set; } = "No callouts suppressed.";
+
+    public void ConfigureCalloutAggressiveness(string aggressiveness)
+    {
+        cooldownMultiplier = aggressiveness switch
+        {
+            "low" => 1.4,
+            "high" => 0.75,
+            _ => 1.0
+        };
+    }
 
     public string? TryCreateCallout(TelemetryEvent item)
     {
@@ -59,7 +70,7 @@ public sealed class CalloutManager
             return false;
         }
 
-        return timestamp - lastSpoken < CooldownFor(type);
+        return timestamp - lastSpoken < CooldownFor(type) * cooldownMultiplier;
     }
 
     private static TimeSpan CooldownFor(EventType type)
