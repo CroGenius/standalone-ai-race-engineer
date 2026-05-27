@@ -8,5 +8,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\RaceEngineer.Core\RaceEngineer.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="..\fixtures\sample-three-lap-run.jsonl" Link="fixtures\sample-three-lap-run.jsonl" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
 

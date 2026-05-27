@@ -12,6 +12,16 @@ using RaceEngineer.Core.Storage;
 using RaceEngineer.Core.Telemetry;
 using RaceEngineer.Core.TelemetryVisualization;
 using RaceEngineer.Core.Voice;
+using RaceEngineer.SmokeTests;
+
+if (args is ["--write-fixture", ..])
+{
+    var directory = args.Length > 1
+        ? args[1]
+        : Path.Combine(AppContext.BaseDirectory, "fixtures");
+    Console.WriteLine(SampleThreeLapFixture.WriteDefault(directory));
+    return;
+}
 
 ValidPacketParsesCorrectly();
 WrongSchemaIsRejected();
@@ -64,6 +74,7 @@ AnalyticsComputesDeterministicMetrics();
 LapIntelligenceComputesDeterministicInsights();
 CoachEvidenceBuilderCreatesDeterministicPackets();
 TelemetryTraceBuilderCreatesDeterministicTimeline();
+EndToEndFixtureReplayVerifiesPipeline();
 await ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint();
 
 Console.WriteLine("C# smoke tests passed.");
@@ -756,6 +767,14 @@ static void CoachEvidenceBuilderCreatesDeterministicPackets()
     Assert(first.Select(CoachEvidenceTopic.Fuel).Count > 0, "Fuel topic evidence should be available.");
     var answer = new CoachEngine().Answer(session, "where am I losing time?", null, first);
     Assert(answer.EvidencePackets.Count > 0, "Coach answer should attach structured evidence packets.");
+}
+
+static void EndToEndFixtureReplayVerifiesPipeline()
+{
+    var fixturePath = SampleThreeLapFixture.ResolvePath();
+    Assert(File.Exists(fixturePath), $"Committed fixture not found: {fixturePath}");
+    var result = LocalEndToEndReplay.Run(fixturePath);
+    LocalEndToEndReplay.AssertPipeline(result);
 }
 
 static void TelemetryTraceBuilderCreatesDeterministicTimeline()

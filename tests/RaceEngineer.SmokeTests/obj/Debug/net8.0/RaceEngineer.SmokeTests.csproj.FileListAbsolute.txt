@@ -44,3 +44,4 @@ C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-enginee
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\obj\Debug\net8.0\RaceEngineer.SmokeTests.genruntimeconfig.cache
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\obj\Debug\net8.0\ref\RaceEngineer.SmokeTests.dll
 c:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\obj\Debug\net8.0\RaceEngineer.SmokeTests.sourcelink.json
+c:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\bin\Debug\net8.0\fixtures\sample-three-lap-run.jsonl
