@@ -65,7 +65,28 @@ public static class CoachQueryPhrases
         "how are my tires",
         "kakve su gume",
         "stanje guma",
-        "kakvo je stanje guma"
+        "kakvo je stanje guma",
+        "are the tyres ready",
+        "are tires ready",
+        "tyres ready",
+        "tires ready",
+        "tyre readiness",
+        "can i push",
+        "can i push now",
+        "jesu li gume zagrijane",
+        "jesu li gume zagrete"
+    ];
+
+    public static readonly string[] Position =
+    [
+        "what is my position",
+        "my position",
+        "race position",
+        "what position am i",
+        "koja mi je pozicija",
+        "koja je pozicija",
+        "koji sam",
+        "pozicija"
     ];
 
     public static readonly string[] Fuel =
@@ -113,8 +134,12 @@ public static class CoachQueryPhrases
         "lap time",
         "my lap time",
         "current lap time",
+        "what is my lap time",
+        "what's my lap time",
         "vrijeme kruga",
         "vreme kruga",
+        "koliko mi je vrijeme kruga",
+        "koliko mi je vreme kruga",
         "last lap",
         "previous lap",
         "best lap"
@@ -180,6 +205,7 @@ public static class CoachQueryPhrases
             .Concat(Improvement)
             .Concat(RacePace)
             .Concat(Tyre)
+            .Concat(Position)
             .Concat(Fuel)
             .Concat(Strategy)
             .Concat(Pit)

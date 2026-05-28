@@ -334,6 +334,14 @@
                         <TextBlock Text="Weaknesses" /><TextBlock Text="{Binding LapIntelligenceWeaknesses}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
                     </UniformGrid>
 
+                    <TextBlock Text="{Binding TyreIntelligenceTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <UniformGrid Columns="2" Rows="4" Margin="0,0,0,18">
+                        <TextBlock Text="Grip confidence" /><TextBlock Text="{Binding TyreGripConfidence}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Warmup state" /><TextBlock Text="{Binding TyreWarmupState}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Tyre readiness" /><TextBlock Text="{Binding TyreReadiness}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Overheating risk" /><TextBlock Text="{Binding TyreOverheatingRisk}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
+
                     <TextBlock Text="Race Prep" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2">
                         <TextBlock Text="Car" /><TextBox Text="{Binding PrepCar, UpdateSourceTrigger=PropertyChanged}" />

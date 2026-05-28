@@ -10,6 +10,7 @@ public enum CoachEvidenceTopic
     RacePace,
     Fuel,
     Strategy,
+    Tyres,
     Incidents,
     SetupNotes
 }
@@ -52,6 +53,7 @@ public sealed record CoachEvidenceInput(
     IReadOnlyList<Events.TelemetryEvent>? Events = null,
     Analytics.SessionTelemetryAnalytics? Analytics = null,
     Analytics.SessionLapIntelligence? LapIntelligence = null,
+    Analytics.SessionTyreIntelligence? TyreIntelligence = null,
     Strategy.SessionStrategy? Strategy = null,
     TelemetryVisualization.TelemetryTimeline? Timeline = null,
     IReadOnlyList<Knowledge.KnowledgeSource>? KnowledgeSources = null);
@@ -68,6 +70,7 @@ public static class CoachEvidenceSelector
         [CoachEvidenceTopic.RacePace] = ["Pace", "Analytics", "LapIntelligence"],
         [CoachEvidenceTopic.Fuel] = ["Fuel", "Analytics", "Session"],
         [CoachEvidenceTopic.Strategy] = ["Strategy"],
+        [CoachEvidenceTopic.Tyres] = ["Tyre", "TyreIntelligence"],
         [CoachEvidenceTopic.Incidents] = ["Incident", "Event"],
         [CoachEvidenceTopic.SetupNotes] = ["Knowledge"]
     };

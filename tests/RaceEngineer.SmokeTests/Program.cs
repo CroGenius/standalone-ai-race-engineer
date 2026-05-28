@@ -58,6 +58,8 @@ SpokenQueryRoutesThroughCoachEngine();
 VoiceInputServiceRoutesRecognizedSpeech();
 VoiceInputServiceEnforcesQueryCooldown();
 VoiceInputConfirmationPrefixesSpokenResponse();
+SpokenSummaryConfirmationPreservesAnswerAfterCopyPrefix();
+SpokenSummaryGeneratorExtractsActionableSentence();
 VoiceInputStartupHandlesLazyProviderFailures();
 SpeechRecognitionCultureResolverSupportsConfiguredAndAutoFallback();
 SpeechRecognitionProviderSelectionSupportsConfiguredValues();
@@ -103,6 +105,13 @@ HybridCoachMockAnswersFromEvidence();
 HybridCoachFallsBackWhenNoEvidence();
 HybridCoachMockAnswersCroatianQuestions();
 HybridCoachFallsBackOnAiTimeout();
+StrictTopicRoutingTyreQuestionDoesNotReturnFuel();
+StrictTopicRoutingPositionQuestionDoesNotReturnFuel();
+StrictTopicRoutingLapTimeQuestionDoesNotReturnFuel();
+FuelQuestionStillReturnsFuel();
+CroatianInputProducesEnglishSpokenSummary();
+TyreIntelligenceCoachesColdTyreWarmup();
+TraceProgressSurvivesLapWrapBleed();
 TelemetryTraceBuilderCreatesDeterministicTimeline();
 EndToEndFixtureReplayVerifiesPipeline();
 await ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint();
@@ -329,8 +338,14 @@ static void CoachTyreStatusWithDataReturnsFacts()
 
     var answer = coach.Answer(session, "tyre status");
 
-    Assert(answer.Content.Contains("max tyre temp: 91.0 C", StringComparison.Ordinal), "Tyre answer should include factual max tyre temperature.");
-    Assert(answer.Content.Contains("Evidence:", StringComparison.Ordinal), "Tyre answer should include evidence bullets.");
+    Assert(
+        answer.Content.Contains("Tyres", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("tyre", StringComparison.OrdinalIgnoreCase),
+        "Tyre answer should include natural coaching language.");
+    Assert(
+        !answer.Content.Contains("max tyre temp:", StringComparison.Ordinal),
+        "Tyre answer should not be raw temperature only.");
+    Assert(answer.EvidencePackets.Count > 0, "Tyre answer should include structured evidence packets.");
 }
 
 static void CoachTyreStatusWithoutDataSaysUnavailable()
@@ -341,7 +356,10 @@ static void CoachTyreStatusWithoutDataSaysUnavailable()
 
     var answer = coach.Answer(session, "tyre status");
 
-    Assert(answer.Content.Contains("unavailable", StringComparison.OrdinalIgnoreCase), "Missing tyre data should be explicit.");
+    Assert(
+        answer.Content.Contains("not reliable", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("unavailable", StringComparison.OrdinalIgnoreCase),
+        "Missing tyre data should be explicit.");
     Assert(answer.Uncertainty is not null, "Missing tyre data should set uncertainty.");
 }
 
@@ -490,6 +508,61 @@ static void VoiceInputConfirmationPrefixesSpokenResponse()
 
     Assert(output.SpokenTexts.Count == 1, "Confirmation mode should still produce one spoken response.");
     Assert(output.SpokenTexts[0].StartsWith("Copy.", StringComparison.Ordinal), "Confirmation mode should prefix the spoken response.");
+    Assert(
+        output.SpokenTexts[0].Contains("fuel", StringComparison.OrdinalIgnoreCase),
+        "Confirmation mode should preserve the actionable answer after Copy.");
+    Assert(
+        output.SpokenTexts[0].Length > "Copy.".Length,
+        "Spoken confirmation must not collapse to only Copy.");
+}
+
+static void SpokenSummaryConfirmationPreservesAnswerAfterCopyPrefix()
+{
+    var output = new RecordingVoiceOutput();
+    var voice = new VoiceService(output);
+    voice.SetVoiceEnabled(true);
+    voice.SetMuted(false);
+    var hybrid = new HybridCoachEngine(
+        new MockEngineerAiProvider(),
+        new EngineerAiOptions(true, "mock", "", "", 40, 3));
+    var (session, _) = SessionWithFuelEstimate();
+    var evidence = BuildSampleCoachEvidence(session);
+
+    var result = voice.HandleSpokenQuery(
+        session,
+        "how much fuel do i have",
+        hybrid,
+        evidence: evidence,
+        confirmQuery: true);
+
+    Assert(result.Spoken, "Hybrid AI fuel answer should be spoken.");
+    Assert(result.FinalTtsPayload.StartsWith("Copy.", StringComparison.Ordinal), "Confirmation payload should include Copy prefix.");
+    Assert(
+        result.FinalTtsPayload.Contains("fuel", StringComparison.OrdinalIgnoreCase)
+            || result.FinalTtsPayload.Contains("goriv", StringComparison.OrdinalIgnoreCase)
+            || result.FinalTtsPayload.Contains("liters", StringComparison.OrdinalIgnoreCase),
+        "Confirmation payload should include fuel summary.");
+    Assert(!string.IsNullOrWhiteSpace(result.GeneratedSummary), "Spoken summary should be generated.");
+    Assert(!string.IsNullOrWhiteSpace(result.OriginalAnswer), "Original answer should be logged.");
+}
+
+static void SpokenSummaryGeneratorExtractsActionableSentence()
+{
+    var message = new CoachMessage(
+        "coach",
+        "Najveći gubitak vremena je u Sector delta (Lost 0.5s in sector 2); Lap comparison (Gap 0.8s).",
+        [],
+        "AI-assisted from structured telemetry evidence.",
+        []);
+    var summary = SpokenSummaryGenerator.GenerateSpokenSummary(message);
+
+    Assert(!string.IsNullOrWhiteSpace(summary.Summary), "AI-style answer should produce a spoken summary.");
+    Assert(summary.Summary.Contains("gubitak", StringComparison.OrdinalIgnoreCase)
+        || summary.Summary.Contains("Sector", StringComparison.OrdinalIgnoreCase),
+        "Spoken summary should preserve actionable losing-time content.");
+    var payload = SpokenSummaryGenerator.ComposeSpokenPayload(summary.Summary, confirmQuery: true, maxWords: 14);
+    Assert(payload.StartsWith("Copy.", StringComparison.Ordinal), "Composed payload should include Copy prefix.");
+    Assert(payload.Length > "Copy.".Length, "Composed payload should not collapse to Copy only.");
 }
 
 static void VoiceInputStartupHandlesLazyProviderFailures()
@@ -727,6 +800,7 @@ static void CoachEngineRoutesStrategyQuestions()
         null,
         session.Events,
         analytics,
+        null,
         null,
         strategy));
 
@@ -1229,6 +1303,7 @@ static CoachEvidenceBundle BuildSampleCoachEvidence(SessionState session)
         session.Events,
         analytics,
         lapIntelligence,
+        null,
         strategy));
 }
 
@@ -1318,6 +1393,168 @@ static void HybridCoachFallsBackOnAiTimeout()
     var actual = hybrid.Answer(session, "where am I losing time?", evidence: evidence);
 
     Assert(expected.Content == actual.Content, "Timed-out AI should fall back to deterministic CoachEngine.");
+}
+
+static void StrictTopicRoutingTyreQuestionDoesNotReturnFuel()
+{
+    var coach = new CoachEngine();
+    var hybrid = new HybridCoachEngine(
+        new MockEngineerAiProvider(),
+        new EngineerAiOptions(true, "mock", "", "", 40, 3));
+    var (session, _) = SessionWithFuelEstimate();
+    var evidence = BuildSampleCoachEvidence(session);
+
+    var deterministic = coach.Answer(session, "kakve su gume", evidence: evidence);
+    var hybridAnswer = hybrid.Answer(session, "kakve su gume", evidence: evidence);
+
+    Assert(!LooksLikeFuelAnswer(deterministic.Content), "Tyre question should not return a fuel-only deterministic answer.");
+    Assert(!LooksLikeFuelAnswer(hybridAnswer.Content), "Tyre question should not return a fuel-only hybrid answer.");
+}
+
+static void StrictTopicRoutingPositionQuestionDoesNotReturnFuel()
+{
+    var coach = new CoachEngine();
+    var (session, _) = SessionWithFuelEstimate();
+    var evidence = BuildSampleCoachEvidence(session);
+
+    var answer = coach.Answer(session, "koja mi je pozicija", evidence: evidence);
+
+    Assert(!LooksLikeFuelAnswer(answer.Content), "Position question should not return a fuel answer.");
+    Assert(
+        answer.Content.Contains("Position data is unavailable", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("You are P", StringComparison.OrdinalIgnoreCase),
+        "Position question should answer position or say unavailable.");
+}
+
+static void StrictTopicRoutingLapTimeQuestionDoesNotReturnFuel()
+{
+    var coach = new CoachEngine();
+    var hybrid = new HybridCoachEngine(
+        new MockEngineerAiProvider(),
+        new EngineerAiOptions(true, "mock", "", "", 40, 3));
+    var (session, _) = SessionWithFuelEstimate();
+    var evidence = BuildSampleCoachEvidence(session);
+
+    var deterministic = coach.Answer(session, "koliko mi je vrijeme kruga", evidence: evidence);
+    var hybridAnswer = hybrid.Answer(session, "koliko mi je vrijeme kruga", evidence: evidence);
+
+    Assert(!LooksLikeFuelAnswer(deterministic.Content), "Lap time question should not return a fuel answer.");
+    Assert(!LooksLikeFuelAnswer(hybridAnswer.Content), "Hybrid lap time question should not return a fuel answer.");
+    Assert(
+        deterministic.Content.Contains("lap", StringComparison.OrdinalIgnoreCase)
+            || deterministic.Content.Contains("No valid lap time yet", StringComparison.OrdinalIgnoreCase),
+        "Lap time question should reference lap time or unavailable state.");
+}
+
+static void FuelQuestionStillReturnsFuel()
+{
+    var coach = new CoachEngine();
+    var (session, _) = SessionWithFuelEstimate();
+    var evidence = BuildSampleCoachEvidence(session);
+
+    var english = coach.Answer(session, "how much fuel do i have", evidence: evidence);
+    var croatian = coach.Answer(session, "koliko goriva imam", evidence: evidence);
+
+    Assert(LooksLikeFuelAnswer(english.Content), "English fuel question should return fuel.");
+    Assert(LooksLikeFuelAnswer(croatian.Content), "Croatian fuel question should return fuel.");
+}
+
+static void CroatianInputProducesEnglishSpokenSummary()
+{
+    var output = new RecordingVoiceOutput();
+    var voice = new VoiceService(output);
+    voice.SetVoiceEnabled(true);
+    voice.SetMuted(false);
+    var hybrid = new HybridCoachEngine(
+        new MockEngineerAiProvider(),
+        new EngineerAiOptions(true, "mock", "", "", 40, 3));
+    var (session, _) = SessionWithFuelEstimate();
+    var evidence = BuildSampleCoachEvidence(session);
+    var preferences = new CoachPreferencesRecord(CoachResponseLanguage: "auto");
+
+    var result = voice.HandleSpokenQuery(
+        session,
+        "kakve su gume",
+        hybrid,
+        evidence: evidence,
+        preferences: preferences);
+
+    Assert(CoachSpokenLanguageResolver.UseEnglishSpokenOutput(preferences), "Auto coach response language should prefer English speech.");
+    Assert(result.Spoken, "Croatian tyre question should still produce spoken output.");
+    Assert(!result.GeneratedSummary.Contains("goriv", StringComparison.OrdinalIgnoreCase), "Spoken summary should not use Croatian fuel wording.");
+    Assert(
+        result.GeneratedSummary.Contains("Tyre", StringComparison.OrdinalIgnoreCase)
+            || result.GeneratedSummary.Contains("reliable", StringComparison.OrdinalIgnoreCase)
+            || result.GeneratedSummary.Contains("temp", StringComparison.OrdinalIgnoreCase),
+        "Spoken summary should use English tyre wording.");
+}
+
+static void TyreIntelligenceCoachesColdTyreWarmup()
+{
+    var coach = new CoachEngine();
+    var session = new SessionState();
+    session.ApplySnapshot(Packet("""{"lap_progress":0.12,"speed_kmh":95,"tyre_temp_c":[52,54,50,51]}"""), []);
+    var intelligence = new TyreIntelligenceService().Analyze(new TyreIntelligenceInput(
+        session,
+        [session.LatestSnapshot!],
+        [],
+        VehicleActivity.OutLap,
+        SessionPhase.Race));
+    var answer = coach.Answer(
+        session,
+        "kakve su gume",
+        new CoachContext(TyreIntelligence: intelligence));
+
+    Assert(intelligence.WarmupState == TyreWarmupState.Cold, "Cold tyre temps should classify as cold.");
+    Assert(
+        answer.Content.Contains("cold", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("half lap", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("corners", StringComparison.OrdinalIgnoreCase),
+        "Cold tyre question should explain warmup readiness.");
+    Assert(!LooksLikeFuelAnswer(answer.Content), "Tyre warmup answer must not mention fuel.");
+}
+
+static void TraceProgressSurvivesLapWrapBleed()
+{
+    var builder = new TelemetryTraceBuilder();
+    var session = new SessionState();
+    var snapshots = new List<TelemetrySnapshot>();
+    for (var progress = 0.88; progress <= 0.99; progress += 0.03)
+    {
+        snapshots.Add(StampTraceSnapshot(progress, 5));
+    }
+
+    snapshots.Add(StampTraceSnapshot(0.02, 6));
+    snapshots.Add(StampTraceSnapshot(0.08, 6));
+
+    var timeline = builder.Build(new TelemetryTimelineInput(session, snapshots, [], 6, 0.08));
+    var throttle = timeline.Rows.FirstOrDefault(row => row.Name == "Throttle");
+
+    Assert(throttle is not null, "Trace should remain available through lap wrap.");
+    Assert(
+        throttle!.Series.First().Points.Any(point => point.Progress >= 0.85),
+        "Trace should preserve late-lap progress before wrap.");
+    Assert(
+        throttle.Series.First().Points.Any(point => point.Progress <= 0.15),
+        "Trace should preserve early progress after wrap without clearing the lap.");
+}
+
+static TelemetrySnapshot StampTraceSnapshot(double progress, int lapNumber)
+{
+    return Packet($$$"""{"lap_progress":{{{progress.ToString(CultureInfo.InvariantCulture)}}},"speed_kmh":140,"throttle":0.6,"brake":0.1,"tyre_temp_c":[80,81,79,80]}""")
+        with
+        {
+            Timestamp = DateTimeOffset.UtcNow.AddSeconds(progress * 100),
+            Lap = Packet("""{"lap_progress":0.1}""").Lap with { LapNumber = lapNumber, LapProgress = progress }
+        };
+}
+
+static bool LooksLikeFuelAnswer(string content)
+{
+    return content.Contains(" L fuel", StringComparison.Ordinal)
+        || content.Contains("liters fuel", StringComparison.OrdinalIgnoreCase)
+        || content.Contains("goriv", StringComparison.OrdinalIgnoreCase)
+        || content.Contains("latest fuel:", StringComparison.OrdinalIgnoreCase);
 }
 
 static void EndToEndFixtureReplayVerifiesPipeline()

@@ -26,7 +26,10 @@ public sealed record VoiceQueryResult(
     CoachMessage WrittenResponse,
     string SpokenResponse,
     bool Spoken,
-    string SpeechDiagnostic);
+    string SpeechDiagnostic,
+    string OriginalAnswer = "",
+    string GeneratedSummary = "",
+    string FinalTtsPayload = "");
 
 public sealed class VoiceService
 {
@@ -69,7 +72,7 @@ public sealed class VoiceService
             return false;
         }
 
-        var result = SpeakInternal(callout, maxWords: 10);
+        var result = SpeakInternal(VoiceText.RaceSafeCallout(callout, maxWords: 10), skipFinalLimit: true);
         if (result.Spoken)
         {
             interactionGate.LogAutomaticCalloutSpoken(result.Diagnostic);
@@ -85,11 +88,16 @@ public sealed class VoiceService
     public SpeechAttemptResult SpeakDirectAnswer(string content, CoachPreferencesRecord? preferences = null)
     {
         interactionGate.BeginUserQuestionQuietWindow(DateTimeOffset.UtcNow);
-        var spoken = ShortenForSpeech(content, preferences);
-        var result = SpeakInternal(spoken, CoachResponseFormatter.MaxSpeechWords(preferences));
+        var message = new CoachMessage("coach", content, [], null, []);
+        var summaryResult = SpokenSummaryGenerator.GenerateSpokenSummary(message, preferences);
+        var payload = SpokenSummaryGenerator.ComposeSpokenPayload(
+            summaryResult.Summary,
+            confirmQuery: false,
+            SpokenSummaryGenerator.ResolveMaxWords(preferences));
+        var result = SpeakInternal(payload);
         if (result.Spoken)
         {
-            interactionGate.LogDirectAnswerSpoken(spoken);
+            interactionGate.LogDirectAnswerSpoken(payload);
         }
         else
         {
@@ -109,29 +117,93 @@ public sealed class VoiceService
         CoachPreferencesRecord? preferences = null)
     {
         interactionGate.BeginUserQuestionQuietWindow(DateTimeOffset.UtcNow);
+        var effectivePreferences = preferences ?? context?.Preferences;
         var written = coachEngine.Answer(session, query, context, evidence);
-        var spoken = ShortenForSpeech(written.Content, preferences ?? context?.Preferences);
-        if (confirmQuery && spoken.Length > 0)
+        var summaryResult = BuildSpokenSummary(
+            written,
+            coachEngine,
+            session,
+            query,
+            context,
+            evidence,
+            effectivePreferences);
+        var payload = SpokenSummaryGenerator.ComposeSpokenPayload(
+            summaryResult.Summary,
+            confirmQuery,
+            SpokenSummaryGenerator.ResolveMaxWords(effectivePreferences));
+
+        if (string.IsNullOrWhiteSpace(payload))
         {
-            spoken = $"Copy. {spoken}";
+            var diagnostic = $"summary empty: {summaryResult.Diagnostic}; original='{summaryResult.OriginalAnswer}'";
+            interactionGate.LogDirectAnswerNotSpoken(diagnostic);
+            return new VoiceQueryResult(
+                written,
+                "",
+                false,
+                diagnostic,
+                summaryResult.OriginalAnswer,
+                summaryResult.GeneratedSummary,
+                "");
         }
 
-        var speech = SpeakInternal(spoken, CoachResponseFormatter.MaxSpeechWords(preferences ?? context?.Preferences));
-        if (speech.Spoken)
+        var speech = SpeakInternal(payload);
+        var speechDiagnostic = SpokenSummaryGenerator.BuildDiagnostic(summaryResult, payload);
+        if (!speech.Spoken)
         {
-            interactionGate.LogDirectAnswerSpoken(spoken);
+            speechDiagnostic = $"{speech.Diagnostic}; {speechDiagnostic}";
+            interactionGate.LogDirectAnswerNotSpoken(speechDiagnostic);
         }
         else
         {
-            interactionGate.LogDirectAnswerNotSpoken(speech.Diagnostic);
+            interactionGate.LogDirectAnswerSpoken(payload);
         }
 
-        return new VoiceQueryResult(written, spoken, speech.Spoken, speech.Diagnostic);
+        return new VoiceQueryResult(
+            written,
+            payload,
+            speech.Spoken,
+            speechDiagnostic,
+            summaryResult.OriginalAnswer,
+            summaryResult.GeneratedSummary,
+            payload);
     }
 
-    private SpeechAttemptResult SpeakInternal(string text, int maxWords = 10)
+    private static SpokenSummaryResult BuildSpokenSummary(
+        CoachMessage written,
+        ICoachEngine coachEngine,
+        SessionState session,
+        string query,
+        CoachContext? context,
+        CoachEvidenceBundle? evidence,
+        CoachPreferencesRecord? preferences)
     {
-        var safe = RaceSafeText(text, maxWords);
+        var summaryResult = SpokenSummaryGenerator.GenerateSpokenSummary(written, preferences, query);
+        if (!string.IsNullOrWhiteSpace(summaryResult.Summary))
+        {
+            return summaryResult;
+        }
+
+        var deterministic = coachEngine.BuildDeterministicAnswer(session, query, context, evidence);
+        var fallback = SpokenSummaryGenerator.GenerateSpokenSummary(deterministic, preferences, query);
+        if (string.IsNullOrWhiteSpace(fallback.Summary))
+        {
+            return fallback with
+            {
+                Diagnostic = $"primary={summaryResult.Diagnostic}; fallback={fallback.Diagnostic}"
+            };
+        }
+
+        return fallback with
+        {
+            Diagnostic = $"deterministic fallback used; primary={summaryResult.Diagnostic}"
+        };
+    }
+
+    private SpeechAttemptResult SpeakInternal(string text, bool skipFinalLimit = false)
+    {
+        var safe = skipFinalLimit
+            ? text.Trim()
+            : VoiceText.LimitWords(text.Trim(), text.StartsWith("Copy.", StringComparison.Ordinal) ? 20 : 18);
         if (!VoiceEnabled)
         {
             return new SpeechAttemptResult(false, "voice disabled");
@@ -147,41 +219,24 @@ public sealed class VoiceService
             return new SpeechAttemptResult(false, "empty speech text after shortening");
         }
 
+        if (safe.Equals("Copy.", StringComparison.Ordinal))
+        {
+            return new SpeechAttemptResult(false, "spoken payload collapsed to confirmation prefix only");
+        }
+
         LastSpokenCallout = safe;
         output.Speak(safe);
         return new SpeechAttemptResult(true, safe);
     }
 
+    [Obsolete("Use SpokenSummaryGenerator.GenerateSpokenSummary instead.")]
     public static string ShortenForSpeech(string content, CoachPreferencesRecord? preferences = null)
     {
-        var action = content.Split("Evidence:", StringSplitOptions.None)[0].Trim();
-        if (string.IsNullOrWhiteSpace(action))
-        {
-            action = content.Trim();
-        }
-
-        return RaceSafeText(action, CoachResponseFormatter.MaxSpeechWords(preferences));
+        var message = new CoachMessage("coach", content, [], null, []);
+        return SpokenSummaryGenerator.GenerateSpokenSummary(message, preferences).Summary;
     }
 
-    public static string RaceSafeText(string text, int maxWords = 10)
-    {
-        var compact = text.ReplaceLineEndings(" ").Trim();
-        if (compact.Length == 0)
-        {
-            return "";
-        }
-
-        var firstSentenceEnd = compact.IndexOfAny(['.', '!', '?']);
-        var firstSentence = firstSentenceEnd >= 0
-            ? compact[..(firstSentenceEnd + 1)].Trim()
-            : compact;
-
-        var words = firstSentence.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length == 0)
-        {
-            words = compact.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        }
-
-        return words.Length <= maxWords ? string.Join(' ', words) : string.Join(' ', words.Take(maxWords)) + ".";
-    }
+    [Obsolete("Use VoiceText.LimitWords or VoiceText.RaceSafeCallout instead.")]
+    public static string RaceSafeText(string text, int maxWords = 10) =>
+        VoiceText.RaceSafeCallout(text, maxWords);
 }

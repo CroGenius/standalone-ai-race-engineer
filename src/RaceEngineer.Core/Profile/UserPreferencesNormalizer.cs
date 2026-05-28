@@ -29,7 +29,8 @@ public static class UserPreferencesNormalizer
                 ? CoachPreferencesRecord.Default.VoiceInputCooldownSeconds
                 : preferences.VoiceInputCooldownSeconds,
             SpeechRecognitionCulture = preferences.SpeechRecognitionCulture?.Trim() ?? "",
-            WhisperLanguageMode = Voice.WhisperLanguageModeResolver.Normalize(preferences.WhisperLanguageMode)
+            WhisperLanguageMode = Voice.WhisperLanguageModeResolver.Normalize(preferences.WhisperLanguageMode),
+            CoachResponseLanguage = NormalizeLanguage(preferences.CoachResponseLanguage)
         };
     }
 

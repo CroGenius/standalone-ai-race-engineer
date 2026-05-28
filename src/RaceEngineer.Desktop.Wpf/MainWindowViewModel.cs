@@ -36,6 +36,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private HybridCoachEngine coachEngine = HybridCoachEngine.FromSettings(AppSettings.Default);
     private readonly TelemetryAnalyticsService analyticsService = new();
     private readonly LapIntelligenceService lapIntelligenceService = new();
+    private readonly TyreIntelligenceService tyreIntelligenceService = new();
     private readonly TelemetryTraceBuilder traceBuilder = new();
     private readonly CoachEvidenceBuilder evidenceBuilder = new();
     private readonly VoiceService voiceService;
@@ -100,6 +101,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string lapIntelligenceSectorGainLoss = "-";
     private string lapIntelligenceStrengths = "-";
     private string lapIntelligenceWeaknesses = "-";
+    private string tyreIntelligenceTitle = "Tyre Intelligence (Live Session)";
+    private string tyreGripConfidence = "-";
+    private string tyreWarmupState = "-";
+    private string tyreReadiness = "-";
+    private string tyreOverheatingRisk = "-";
     private string strategyPanelTitle = "Strategy (Live Session)";
     private string strategyFuelRisk = "-";
     private string strategyLapsRemaining = "-";
@@ -110,6 +116,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private double timelineCursorProgress;
     private SessionTelemetryAnalytics sessionAnalytics = SessionTelemetryAnalytics.Empty;
     private SessionLapIntelligence sessionLapIntelligence = SessionLapIntelligence.Empty;
+    private SessionTyreIntelligence sessionTyreIntelligence = SessionTyreIntelligence.Unavailable("No tyre analysis yet.");
     private SessionStrategy sessionStrategy = SessionStrategy.Empty;
     private SessionContextAssessment sessionContextAssessment = SessionContextAssessment.InitialLive;
     private string sessionModeLabel = SessionContextAssessment.InitialLive.SessionModeLabel;
@@ -224,6 +231,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string LapIntelligenceSectorGainLoss => lapIntelligenceSectorGainLoss;
     public string LapIntelligenceStrengths => lapIntelligenceStrengths;
     public string LapIntelligenceWeaknesses => lapIntelligenceWeaknesses;
+
+    public string TyreIntelligenceTitle => tyreIntelligenceTitle;
+    public string TyreGripConfidence => tyreGripConfidence;
+    public string TyreWarmupState => tyreWarmupState;
+    public string TyreReadiness => tyreReadiness;
+    public string TyreOverheatingRisk => tyreOverheatingRisk;
 
     public string StrategyPanelTitle => strategyPanelTitle;
     public string StrategyFuelRisk => strategyFuelRisk;
@@ -651,7 +664,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         if (!isReviewMode)
         {
-            liveTraceSnapshots.Add(snapshot);
+            var stamped = snapshot.Lap.LapNumber is null
+                ? snapshot with { Lap = snapshot.Lap with { LapNumber = session.CurrentLap } }
+                : snapshot;
+            liveTraceSnapshots.Add(stamped);
             while (liveTraceSnapshots.Count > MaxLiveTraceSnapshots)
             {
                 liveTraceSnapshots.RemoveAt(0);
@@ -748,6 +764,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             ActiveSession.Events,
             sessionAnalytics,
             sessionLapIntelligence,
+            sessionTyreIntelligence,
             sessionStrategy,
             traceTimeline,
             KnowledgeSources.Select(item => item.Source).ToArray()));
@@ -1146,8 +1163,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             preferences: userPreferences.Coach);
         AppendCoachChatLines(result.WrittenResponse);
         ChatMessages.Add(result.Spoken
-            ? $"Voice diag: direct answer spoken — {result.SpokenResponse}"
-            : $"Voice diag: direct answer not spoken — {result.SpeechDiagnostic}");
+            ? $"Voice diag: spoken — original='{result.OriginalAnswer}' summary='{result.GeneratedSummary}' tts='{result.FinalTtsPayload}'"
+            : $"Voice diag: not spoken — {result.SpeechDiagnostic} original='{result.OriginalAnswer}' summary='{result.GeneratedSummary}'");
         LastCallout = result.Spoken ? result.SpokenResponse : voiceService.LastSpokenCallout;
         RaiseVoiceProperties();
     }
@@ -1323,7 +1340,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             ActiveSession,
             ActiveTraceSnapshots,
             ActiveSession.Events,
-            isReviewMode ? reviewSession?.LastLap?.LapNumber : session.LastLap?.LapNumber,
+            isReviewMode ? reviewSession?.LastLap?.LapNumber : session.CurrentLap,
             timelineCursorProgress));
         OnPropertyChanged(nameof(TraceTimeline));
     }
@@ -1399,6 +1416,28 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         lapIntelligenceWeaknesses = intelligence.Weaknesses.Count == 0
             ? "No weaknesses identified yet."
             : string.Join(" ", intelligence.Weaknesses);
+
+        tyreIntelligenceTitle = isReviewMode ? "Tyre Intelligence (Review Session)" : "Tyre Intelligence (Live Session)";
+        sessionTyreIntelligence = tyreIntelligenceService.Analyze(new TyreIntelligenceInput(
+            ActiveSession,
+            ActiveTraceSnapshots.Count >= 2 ? ActiveTraceSnapshots : null,
+            ActiveSession.Events,
+            sessionContextAssessment.Activity,
+            sessionContextAssessment.Phase,
+            metrics,
+            intelligence));
+        tyreGripConfidence = sessionTyreIntelligence.HasReliableData
+            ? $"{sessionTyreIntelligence.GripConfidenceLabel} — {sessionTyreIntelligence.CoachingMessage}"
+            : sessionTyreIntelligence.Availability;
+        tyreWarmupState = sessionTyreIntelligence.HasReliableData
+            ? sessionTyreIntelligence.WarmupState.ToString()
+            : "-";
+        tyreReadiness = sessionTyreIntelligence.HasReliableData
+            ? sessionTyreIntelligence.Readiness.ToString()
+            : "-";
+        tyreOverheatingRisk = sessionTyreIntelligence.HasReliableData
+            ? sessionTyreIntelligence.OverheatingRisk
+            : "-";
 
         strategyPanelTitle = isReviewMode ? "Strategy (Review Session)" : "Strategy (Live Session)";
         var rawStrategy = strategyEngine.Analyze(new StrategyInput(
@@ -1486,6 +1525,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(LapIntelligenceSectorGainLoss));
         OnPropertyChanged(nameof(LapIntelligenceStrengths));
         OnPropertyChanged(nameof(LapIntelligenceWeaknesses));
+        OnPropertyChanged(nameof(TyreIntelligenceTitle));
+        OnPropertyChanged(nameof(TyreGripConfidence));
+        OnPropertyChanged(nameof(TyreWarmupState));
+        OnPropertyChanged(nameof(TyreReadiness));
+        OnPropertyChanged(nameof(TyreOverheatingRisk));
         OnPropertyChanged(nameof(StrategyPanelTitle));
         OnPropertyChanged(nameof(StrategyFuelRisk));
         OnPropertyChanged(nameof(StrategyLapsRemaining));
@@ -1607,7 +1651,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             KnowledgeSources.Select(item => item.Source).ToArray(),
             false,
             userPreferences.Coach,
-            sessionContextAssessment);
+            sessionContextAssessment,
+            sessionTyreIntelligence);
     }
 
     private void RaiseReviewModeProperties()

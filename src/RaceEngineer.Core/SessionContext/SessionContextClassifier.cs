@@ -34,9 +34,9 @@ public sealed class SessionContextClassifier
             confidence.ToString(),
             hasStableLapSamples,
             AllowFuelRiskCallouts: onTrackRaceReady && activity is not VehicleActivity.Stationary and not VehicleActivity.PitLane,
-            AllowPitStrategyCallouts: onTrackRaceReady && confidence >= StrategyConfidenceLevel.Medium,
-            AllowTyreWarningCallouts: onTrackRaceReady,
-            AllowUnsolicitedStrategyCallouts: onTrackRaceReady && confidence >= StrategyConfidenceLevel.Medium,
+            AllowPitStrategyCallouts: onTrackRaceReady && confidence >= StrategyConfidenceLevel.Medium && activity is not VehicleActivity.OutLap,
+            AllowTyreWarningCallouts: onTrackRaceReady || activity == VehicleActivity.OutLap,
+            AllowUnsolicitedStrategyCallouts: onTrackRaceReady && confidence >= StrategyConfidenceLevel.Medium && activity is not VehicleActivity.OutLap,
             AllowLowFuelVoiceCallouts: onTrackRaceReady && activity is VehicleActivity.OnTrack or VehicleActivity.InLap,
             AllowDrivingCallouts: activity is VehicleActivity.OnTrack or VehicleActivity.OutLap or VehicleActivity.InLap,
             SuppressionNote: BuildSuppressionNote(phase, activity, hasStableLapSamples, confidence));

@@ -21,8 +21,9 @@ public static class EngineerAiContextBuilder
         CoachContext? context,
         CoachEvidenceBundle evidence)
     {
-        var topics = DetectTopics(question);
-        var packets = SelectPackets(evidence, topics, context?.SessionContext);
+        var primaryTopic = CoachQueryTopicClassifier.ClassifyPrimary(question);
+        var evidenceTopic = CoachQueryTopicClassifier.ToEvidenceTopic(primaryTopic);
+        var packets = SelectPackets(evidence, primaryTopic, evidenceTopic, context?.SessionContext);
         var facts = packets
             .Select(ToFact)
             .Take(MaxFacts)
@@ -37,39 +38,71 @@ public static class EngineerAiContextBuilder
             sessionContext.StrategyConfidenceLabel,
             sessionContext.AllowPitStrategyCallouts && sessionContext.StrategyConfidence != StrategyConfidenceLevel.Low,
             latest?.Lap.LapNumber ?? session.LastLap?.LapNumber,
-            latest?.Condition.Fuel,
+            primaryTopic is CoachQueryTopic.Fuel or CoachQueryTopic.Strategy or CoachQueryTopic.Pit
+                ? latest?.Condition.Fuel
+                : null,
             facts,
             Guardrails);
     }
 
     private static IReadOnlyList<CoachEvidencePacket> SelectPackets(
         CoachEvidenceBundle evidence,
-        IReadOnlyList<CoachEvidenceTopic> topics,
+        CoachQueryTopic primaryTopic,
+        CoachEvidenceTopic? evidenceTopic,
         SessionContextAssessment? sessionContext)
     {
-        if (topics.Count == 0)
+        if (primaryTopic is CoachQueryTopic.Position or CoachQueryTopic.Tyre or CoachQueryTopic.LapTime)
+        {
+            return FilterByPrimaryTopic(evidence.Packets, primaryTopic);
+        }
+
+        if (evidenceTopic is null)
         {
             return evidence.Packets
+                .Where(packet => !LooksLikeFuelPacket(packet))
                 .OrderByDescending(packet => packet.Confidence)
                 .ThenBy(packet => packet.Summary, StringComparer.Ordinal)
                 .Take(MaxFacts)
                 .ToArray();
         }
 
-        var selected = new List<CoachEvidencePacket>();
-        foreach (var topic in topics)
+        if (evidenceTopic == CoachEvidenceTopic.Strategy
+            && sessionContext is { AllowPitStrategyCallouts: false })
         {
-            if (topic == CoachEvidenceTopic.Strategy
-                && sessionContext is { AllowPitStrategyCallouts: false })
-            {
-                continue;
-            }
-
-            selected.AddRange(evidence.Select(topic));
+            return FilterByPrimaryTopic(evidence.Packets, CoachQueryTopic.Fuel);
         }
 
-        return selected
-            .DistinctBy(packet => $"{packet.Category}|{packet.Summary}|{packet.Explanation}")
+        var selected = evidence.Select(evidenceTopic.Value).ToArray();
+        if (selected.Length > 0)
+        {
+            return selected.Take(MaxFacts).ToArray();
+        }
+
+        return FilterByPrimaryTopic(evidence.Packets, primaryTopic);
+    }
+
+    private static IReadOnlyList<CoachEvidencePacket> FilterByPrimaryTopic(
+        IReadOnlyList<CoachEvidencePacket> packets,
+        CoachQueryTopic topic)
+    {
+        IEnumerable<CoachEvidencePacket> filtered = topic switch
+        {
+            CoachQueryTopic.Tyre => packets.Where(packet =>
+                LooksLikeTyrePacket(packet) || packet.Category.Contains("TyreIntelligence", StringComparison.Ordinal)),
+            CoachQueryTopic.LapTime => packets.Where(LooksLikeLapTimePacket),
+            CoachQueryTopic.Fuel => packets.Where(LooksLikeFuelPacket),
+            CoachQueryTopic.Strategy or CoachQueryTopic.Pit => packets.Where(p => LooksLikeStrategyPacket(p) || LooksLikeFuelPacket(p)),
+            CoachQueryTopic.Braking => packets.Where(LooksLikeBrakingPacket),
+            CoachQueryTopic.Throttle => packets.Where(LooksLikeThrottlePacket),
+            CoachQueryTopic.RacePace => packets.Where(LooksLikePacePacket),
+            CoachQueryTopic.LosingTime or CoachQueryTopic.LapComparison => packets.Where(LooksLikeLapComparisonPacket),
+            CoachQueryTopic.Improvement => packets.Where(LooksLikeImprovementPacket),
+            CoachQueryTopic.Incidents => packets.Where(LooksLikeIncidentPacket),
+            CoachQueryTopic.Position => [],
+            _ => packets.Where(packet => !LooksLikeFuelPacket(packet))
+        };
+
+        return filtered
             .OrderByDescending(packet => packet.Confidence)
             .ThenBy(packet => packet.Summary, StringComparer.Ordinal)
             .Take(MaxFacts)
@@ -85,69 +118,63 @@ public static class EngineerAiContextBuilder
             packet.SourceType.ToString(),
             packet.RelatedLapNumber);
 
-    private static IReadOnlyList<CoachEvidenceTopic> DetectTopics(string question)
+    private static bool LooksLikeFuelPacket(CoachEvidencePacket packet)
     {
-        var text = question.ToLowerInvariant();
-        var topics = new List<CoachEvidenceTopic>();
-
-        if (ContainsAny(text, CoachQueryPhrases.LosingTime))
-        {
-            topics.Add(CoachEvidenceTopic.LosingTime);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.Braking))
-        {
-            topics.Add(CoachEvidenceTopic.Braking);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.Throttle))
-        {
-            topics.Add(CoachEvidenceTopic.Throttle);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.Improvement))
-        {
-            topics.Add(CoachEvidenceTopic.Improvement);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.RacePace))
-        {
-            topics.Add(CoachEvidenceTopic.RacePace);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.Incidents))
-        {
-            topics.Add(CoachEvidenceTopic.Incidents);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.Fuel) || text.Contains("goriv", StringComparison.Ordinal))
-        {
-            topics.Add(CoachEvidenceTopic.Fuel);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.Strategy) || ContainsAny(text, CoachQueryPhrases.Pit))
-        {
-            topics.Add(CoachEvidenceTopic.Strategy);
-        }
-
-        if (ContainsAny(text, "compare my laps", "compare laps", "lap comparison"))
-        {
-            topics.Add(CoachEvidenceTopic.LapComparison);
-        }
-
-        return topics;
+        var key = $"{packet.Category} {packet.Summary} {packet.Explanation}".ToLowerInvariant();
+        return key.Contains("fuel") || key.Contains("goriv");
     }
 
-    private static bool ContainsAny(string text, params string[] phrases)
+    private static bool LooksLikeStrategyPacket(CoachEvidencePacket packet)
     {
-        foreach (var phrase in phrases)
-        {
-            if (text.Contains(phrase, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
+        var key = $"{packet.Category} {packet.Summary}".ToLowerInvariant();
+        return key.Contains("strategy") || key.Contains("pit");
+    }
 
-        return false;
+    private static bool LooksLikeTyrePacket(CoachEvidencePacket packet)
+    {
+        var key = $"{packet.Category} {packet.Summary} {packet.Explanation}".ToLowerInvariant();
+        return key.Contains("tyre") || key.Contains("tire") || key.Contains("gum");
+    }
+
+    private static bool LooksLikeLapTimePacket(CoachEvidencePacket packet)
+    {
+        var key = $"{packet.Category} {packet.Summary} {packet.Explanation}".ToLowerInvariant();
+        return key.Contains("lap") || key.Contains("time:");
+    }
+
+    private static bool LooksLikeBrakingPacket(CoachEvidencePacket packet)
+    {
+        var key = $"{packet.Category} {packet.Summary} {packet.Explanation}".ToLowerInvariant();
+        return key.Contains("brak");
+    }
+
+    private static bool LooksLikeThrottlePacket(CoachEvidencePacket packet)
+    {
+        var key = $"{packet.Category} {packet.Summary} {packet.Explanation}".ToLowerInvariant();
+        return key.Contains("throttle") || key.Contains("gas");
+    }
+
+    private static bool LooksLikePacePacket(CoachEvidencePacket packet)
+    {
+        var key = $"{packet.Category} {packet.Summary}".ToLowerInvariant();
+        return key.Contains("pace") || key.Contains("tempo");
+    }
+
+    private static bool LooksLikeLapComparisonPacket(CoachEvidencePacket packet)
+    {
+        var key = $"{packet.Category} {packet.Summary}".ToLowerInvariant();
+        return key.Contains("sector") || key.Contains("delta") || key.Contains("lap");
+    }
+
+    private static bool LooksLikeImprovementPacket(CoachEvidencePacket packet)
+    {
+        var key = $"{packet.Category} {packet.Summary}".ToLowerInvariant();
+        return key.Contains("improvement") || key.Contains("weakness");
+    }
+
+    private static bool LooksLikeIncidentPacket(CoachEvidencePacket packet)
+    {
+        var key = $"{packet.Category} {packet.Summary}".ToLowerInvariant();
+        return key.Contains("incident") || key.Contains("event");
     }
 }

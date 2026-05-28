@@ -20,6 +20,13 @@ public sealed class HybridCoachEngine : ICoachEngine
     public static HybridCoachEngine FromSettings(Core.AppSettings settings) =>
         new(EngineerAiProviderFactory.Create(settings), EngineerAiOptions.FromAppSettings(settings));
 
+    public CoachMessage BuildDeterministicAnswer(
+        SessionState session,
+        string userMessage,
+        CoachContext? context = null,
+        CoachEvidenceBundle? evidence = null) =>
+        deterministic.Answer(session, userMessage, context, evidence);
+
     public CoachMessage Answer(
         SessionState session,
         string userMessage,

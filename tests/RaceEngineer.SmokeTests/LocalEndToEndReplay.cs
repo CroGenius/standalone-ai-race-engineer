@@ -73,6 +73,7 @@ internal static class LocalEndToEndReplay
             session.Events,
             analytics,
             lapIntelligence,
+            null,
             strategy,
             timeline));
 

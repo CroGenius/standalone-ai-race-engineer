@@ -14,7 +14,8 @@ public sealed record CoachPreferencesRecord(
     string WhisperLanguageMode = "auto",
     int VoiceInputCooldownSeconds = 3,
     bool QuietModeEnabled = false,
-    bool MinimalEngineerEnabled = false)
+    bool MinimalEngineerEnabled = false,
+    string CoachResponseLanguage = "auto")
 {
     public static CoachPreferencesRecord Default { get; } = new();
 
@@ -27,6 +28,7 @@ public sealed record CoachPreferencesRecord(
             PushToTalkHotkey: settings.PushToTalkHotkey,
             VoiceInputConfirmationsEnabled: settings.VoiceInputConfirmationsEnabled,
             WhisperLanguageMode: settings.WhisperLanguageMode,
-            VoiceInputCooldownSeconds: settings.VoiceInputCooldownSeconds);
+            VoiceInputCooldownSeconds: settings.VoiceInputCooldownSeconds,
+            CoachResponseLanguage: settings.CoachResponseLanguage);
     }
 }

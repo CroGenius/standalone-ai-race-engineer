@@ -33,7 +33,7 @@ public sealed class TelemetryTraceBuilder
         var bestLapNumber = input.Session.BestLap?.LapNumber;
         var selectedLapNumber = ResolveSelectedLapNumber(validLaps, input.SelectedLapNumber);
         var currentLapNumber = input.Session.CurrentLap;
-        var grouped = GroupSnapshotsByLap(input.Snapshots, validLaps);
+        var grouped = GroupSnapshotsByLap(input.Snapshots, validLaps, currentLapNumber);
         if (grouped.Count == 0)
         {
             return TelemetryTimeline.Empty with { StatusText = "No lap-aligned snapshots available." };
@@ -312,28 +312,67 @@ public sealed class TelemetryTraceBuilder
             return ordered;
         }
 
-        var min = ordered[0].Lap.LapProgress!.Value;
-        var max = ordered[^1].Lap.LapProgress!.Value;
+        ordered = FilterWrapBleed(ordered);
+
+        var min = NormalizeProgress(ordered[0].Lap.LapProgress!.Value);
+        var max = NormalizeProgress(ordered[^1].Lap.LapProgress!.Value);
+        if (min <= 0.15 && max >= 0.75)
+        {
+            return ordered
+                .Select(item => item with
+                {
+                    Lap = item.Lap with { LapProgress = Clamp01(NormalizeProgress(item.Lap.LapProgress!.Value)) }
+                })
+                .ToList();
+        }
+
         var range = Math.Max(max - min, 0.0001);
         return ordered
             .Select(item => item with
             {
-                Lap = item.Lap with { LapProgress = Clamp01((item.Lap.LapProgress!.Value - min) / range) }
+                Lap = item.Lap with { LapProgress = Clamp01((NormalizeProgress(item.Lap.LapProgress!.Value) - min) / range) }
             })
+            .ToList();
+    }
+
+    private static List<TelemetrySnapshot> FilterWrapBleed(IReadOnlyList<TelemetrySnapshot> ordered)
+    {
+        var normalized = ordered
+            .Select(item => item with { Lap = item.Lap with { LapProgress = NormalizeProgress(item.Lap.LapProgress!.Value) } })
+            .ToList();
+        var hasNearFinish = normalized.Any(item => item.Lap.LapProgress >= 0.90);
+        if (!hasNearFinish)
+        {
+            return normalized;
+        }
+
+        return normalized
+            .Where(item => item.Lap.LapProgress > 0.10)
             .ToList();
     }
 
     private static Dictionary<int, IReadOnlyList<TelemetrySnapshot>> GroupSnapshotsByLap(
         IReadOnlyList<TelemetrySnapshot> snapshots,
-        IReadOnlyList<CompletedLap> validLaps)
+        IReadOnlyList<CompletedLap> validLaps,
+        int currentLapNumber)
     {
         var grouped = new Dictionary<int, List<TelemetrySnapshot>>();
+        var lastCompletedEnd = validLaps.LastOrDefault()?.EndedAt;
         foreach (var snapshot in snapshots.OrderBy(item => item.Timestamp))
         {
             var lapNumber = snapshot.Lap.LapNumber;
             if (lapNumber is null)
             {
                 lapNumber = validLaps.FirstOrDefault(lap => snapshot.Timestamp >= lap.StartedAt && snapshot.Timestamp <= lap.EndedAt)?.LapNumber;
+            }
+
+            if (lapNumber is null && lastCompletedEnd is null)
+            {
+                lapNumber = Math.Max(currentLapNumber, 1);
+            }
+            else if (lapNumber is null && snapshot.Timestamp >= lastCompletedEnd)
+            {
+                lapNumber = currentLapNumber;
             }
 
             if (lapNumber is null)

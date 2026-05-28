@@ -13,6 +13,7 @@ public sealed class CoachEvidenceBuilder
 {
     private readonly TelemetryAnalyticsService analyticsService = new();
     private readonly LapIntelligenceService lapIntelligenceService = new();
+    private readonly TyreIntelligenceService tyreIntelligenceService = new();
     private readonly TelemetryTraceBuilder traceBuilder = new();
 
     public CoachEvidenceBundle Build(CoachEvidenceInput input)
@@ -25,6 +26,10 @@ public sealed class CoachEvidenceBuilder
             input.Session,
             input.Snapshots,
             input.Session.LastLap?.LapNumber));
+        var tyreIntelligence = input.TyreIntelligence ?? tyreIntelligenceService.Analyze(new TyreIntelligenceInput(
+            input.Session,
+            input.Snapshots,
+            events));
         var timeline = input.Timeline ?? (input.Snapshots is { Count: >= 2 }
             ? traceBuilder.Build(new TelemetryTimelineInput(
                 input.Session,
@@ -38,6 +43,7 @@ public sealed class CoachEvidenceBuilder
         AddEventPackets(packets, events);
         AddAnalyticsPackets(packets, analytics);
         AddLapIntelligencePackets(packets, lapIntelligence);
+        AddTyreIntelligencePackets(packets, tyreIntelligence);
         var strategy = input.Strategy ?? new StrategyEngine().Analyze(new StrategyInput(
             input.Session,
             analytics,
@@ -277,6 +283,61 @@ public sealed class CoachEvidenceBuilder
                 [],
                 null,
                 insight.Message));
+        }
+    }
+
+    private static void AddTyreIntelligencePackets(List<CoachEvidencePacket> packets, SessionTyreIntelligence intelligence)
+    {
+        if (!intelligence.HasReliableData)
+        {
+            return;
+        }
+
+        packets.Add(new CoachEvidencePacket(
+            "TyreIntelligence",
+            "Tyre readiness",
+            intelligence.Readiness is TyreReadiness.NotReady or TyreReadiness.Overheated ? "Warning" : "Info",
+            intelligence.GripConfidence == GripConfidenceLevel.High ? 0.90 : 0.75,
+            CoachEvidenceSourceType.Analytics,
+            null,
+            [],
+            null,
+            intelligence.CoachingMessage));
+
+        packets.Add(new CoachEvidencePacket(
+            "TyreIntelligence",
+            "Warmup state",
+            intelligence.WarmupState is TyreWarmupState.Overheating or TyreWarmupState.Cold ? "Warning" : "Info",
+            0.85,
+            CoachEvidenceSourceType.Analytics,
+            null,
+            [],
+            null,
+            $"Warmup state is {intelligence.WarmupState}; grip confidence {intelligence.GripConfidenceLabel}."));
+
+        packets.Add(new CoachEvidencePacket(
+            "TyreIntelligence",
+            "Overheating risk",
+            intelligence.OverheatingRisk == "High" ? "Warning" : "Info",
+            0.80,
+            CoachEvidenceSourceType.Analytics,
+            null,
+            [],
+            null,
+            $"Overheating risk is {intelligence.OverheatingRisk}. {intelligence.PushGuidance}"));
+
+        foreach (var axle in intelligence.Axles)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "Tyre",
+                axle.Label,
+                axle.WarmupState is TyreWarmupState.Overheating or TyreWarmupState.Cold ? "Warning" : "Info",
+                0.85,
+                CoachEvidenceSourceType.Telemetry,
+                null,
+                [],
+                axle.AverageTempC,
+                axle.Summary));
         }
     }
 

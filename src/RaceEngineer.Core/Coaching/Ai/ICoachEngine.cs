@@ -13,6 +13,12 @@ public interface ICoachEngine
         CoachContext? context = null,
         CoachEvidenceBundle? evidence = null);
 
+    CoachMessage BuildDeterministicAnswer(
+        SessionState session,
+        string userMessage,
+        CoachContext? context = null,
+        CoachEvidenceBundle? evidence = null);
+
     CoachMessage? ChooseLiveCallout(
         IReadOnlyList<TelemetryEvent> events,
         SessionContextAssessment? context = null);

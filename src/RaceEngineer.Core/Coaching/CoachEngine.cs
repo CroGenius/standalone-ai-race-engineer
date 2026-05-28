@@ -1,4 +1,5 @@
 using System.Globalization;
+using RaceEngineer.Core.Analytics;
 using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Profile;
@@ -23,7 +24,8 @@ public sealed record CoachContext(
     IReadOnlyList<KnowledgeSource>? KnowledgeSources = null,
     bool ExternalResearchAvailable = false,
     Profile.CoachPreferencesRecord? Preferences = null,
-    SessionContext.SessionContextAssessment? SessionContext = null);
+    SessionContext.SessionContextAssessment? SessionContext = null,
+    Analytics.SessionTyreIntelligence? TyreIntelligence = null);
 
 public sealed class CoachEngine : ICoachEngine
 {
@@ -57,70 +59,19 @@ public sealed class CoachEngine : ICoachEngine
             context?.Preferences);
     }
 
+    public CoachMessage BuildDeterministicAnswer(
+        SessionState session,
+        string userMessage,
+        CoachContext? context = null,
+        CoachEvidenceBundle? evidence = null) =>
+        Answer(session, userMessage, context, evidence);
+
     private CoachMessage RouteAnswer(SessionState session, string userMessage, CoachContext? context, CoachEvidenceBundle? evidence)
     {
         var text = userMessage.ToLowerInvariant();
         var latest = session.LatestSnapshot;
         var recentEvents = session.RecentEvents.TakeLast(10).ToArray();
-
-        if (ContainsAny(text, CoachQueryPhrases.LosingTime))
-        {
-            return AnswerFromEvidence("Focus on the sector with the largest loss versus your best lap.", "No sector delta or delta trace evidence is available.", evidence, CoachEvidenceTopic.LosingTime);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.Braking))
-        {
-            return AttachEvidence(BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.Throttle))
-        {
-            return AnswerFromEvidence("Work on smoother exit throttle and reduce hesitation.", "No throttle smoothness or trace evidence is available.", evidence, CoachEvidenceTopic.Throttle);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.Improvement))
-        {
-            return AnswerFromEvidence("Address the highest-priority weakness first.", "No improvement evidence is available.", evidence, CoachEvidenceTopic.Improvement);
-        }
-
-        if (ContainsAny(text, "compare my laps", "compare laps", "lap comparison"))
-        {
-            return AnswerFromEvidence("Use the best lap as the reference and close the largest gap.", "No lap comparison evidence is available.", evidence, CoachEvidenceTopic.LapComparison);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.RacePace))
-        {
-            return AnswerFromEvidence("Protect race pace by managing tyre, fuel, and repeat incidents.", "No race pace evidence is available.", evidence, CoachEvidenceTopic.RacePace);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.Incidents))
-        {
-            return AttachEvidence(RecentMistakesAnswer(recentEvents), evidence, CoachEvidenceTopic.Incidents);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.Tyre))
-        {
-            return TyreAnswer(latest, recentEvents);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.Pit))
-        {
-            return AttachEvidence(StrategyAnswer(evidence, context?.SessionContext), evidence, CoachEvidenceTopic.Strategy);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.Strategy))
-        {
-            return AttachEvidence(StrategyAnswer(evidence, context?.SessionContext), evidence, CoachEvidenceTopic.Strategy);
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.LapTime))
-        {
-            return text.Contains("best lap", StringComparison.Ordinal)
-                ? BestLapAnswer(session)
-                : text.Contains("current lap", StringComparison.Ordinal)
-                    ? CurrentLapAnswer(session)
-                    : LastLapAnswer(session);
-        }
+        var primaryTopic = CoachQueryTopicClassifier.ClassifyPrimary(userMessage);
 
         if (ContainsAny(text, "fuel plan", "fuel strategy"))
         {
@@ -132,9 +83,33 @@ public sealed class CoachEngine : ICoachEngine
             return PrepFieldAnswer("Tyre plan", context?.RacePrepPlan?.TyrePlan);
         }
 
-        if (ContainsAny(text, CoachQueryPhrases.Fuel) || text.Contains("goriv", StringComparison.Ordinal))
+        switch (primaryTopic)
         {
-            return AttachEvidence(FuelAnswer(session, recentEvents, context?.SessionContext), evidence, CoachEvidenceTopic.Fuel);
+            case CoachQueryTopic.Position:
+                return PositionAnswer(session);
+            case CoachQueryTopic.Tyre:
+                return TyreAnswer(session, context, recentEvents, evidence);
+            case CoachQueryTopic.LapTime:
+                return RouteLapTimeAnswer(session, text);
+            case CoachQueryTopic.LosingTime:
+                return AnswerFromEvidence("Focus on the sector with the largest loss versus your best lap.", "No sector delta or delta trace evidence is available.", evidence, CoachEvidenceTopic.LosingTime);
+            case CoachQueryTopic.Braking:
+                return AttachEvidence(BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
+            case CoachQueryTopic.Throttle:
+                return AnswerFromEvidence("Work on smoother exit throttle and reduce hesitation.", "No throttle smoothness or trace evidence is available.", evidence, CoachEvidenceTopic.Throttle);
+            case CoachQueryTopic.Improvement:
+                return AnswerFromEvidence("Address the highest-priority weakness first.", "No improvement evidence is available.", evidence, CoachEvidenceTopic.Improvement);
+            case CoachQueryTopic.LapComparison:
+                return AnswerFromEvidence("Use the best lap as the reference and close the largest gap.", "No lap comparison evidence is available.", evidence, CoachEvidenceTopic.LapComparison);
+            case CoachQueryTopic.RacePace:
+                return AnswerFromEvidence("Protect race pace by managing tyre, fuel, and repeat incidents.", "No race pace evidence is available.", evidence, CoachEvidenceTopic.RacePace);
+            case CoachQueryTopic.Incidents:
+                return AttachEvidence(RecentMistakesAnswer(recentEvents), evidence, CoachEvidenceTopic.Incidents);
+            case CoachQueryTopic.Pit:
+            case CoachQueryTopic.Strategy:
+                return AttachEvidence(StrategyAnswer(evidence, context?.SessionContext), evidence, CoachEvidenceTopic.Strategy);
+            case CoachQueryTopic.Fuel:
+                return AttachEvidence(FuelAnswer(session, recentEvents, context?.SessionContext), evidence, CoachEvidenceTopic.Fuel);
         }
 
         if (text.Contains("brake", StringComparison.Ordinal))
@@ -212,35 +187,82 @@ public sealed class CoachEngine : ICoachEngine
             : Unavailable("I can answer once telemetry or stored session context is available.", "No latest snapshot, recent events, or stored notes matched the question.");
     }
 
-    private static CoachMessage TyreAnswer(TelemetrySnapshot? snapshot, IReadOnlyList<TelemetryEvent> events)
+    private static CoachMessage PositionAnswer(SessionState session)
     {
-        var temps = snapshot?.Condition.TyreTempC?.Where(value => value.HasValue).Select(value => value!.Value).ToArray();
-        var pressures = snapshot?.Condition.TyrePressure?.Where(value => value.HasValue).Select(value => value!.Value).ToArray();
-        var wear = snapshot?.Condition.TyreWear?.Where(value => value.HasValue).Select(value => value!.Value).ToArray();
-        if (temps is null or { Length: 0 })
+        var position = session.LatestSnapshot?.Race.Position;
+        return position is null
+            ? Unavailable("Position data is unavailable.", "Latest snapshot has no race position value.")
+            : Message($"You are P{position}.", [$"position: {position}"], []);
+    }
+
+    private static CoachMessage RouteLapTimeAnswer(SessionState session, string text)
+    {
+        if (text.Contains("best lap", StringComparison.Ordinal))
         {
-            return Unavailable("Tyre status is unavailable.", "Latest snapshot has no tyre temperature values.");
+            return BestLapAnswer(session);
+        }
+
+        if (text.Contains("current lap", StringComparison.Ordinal))
+        {
+            return CurrentLapAnswer(session);
+        }
+
+        if (session.LastLap is { Duration: var lastDuration })
+        {
+            return Message(
+                $"Last lap was {FormatDuration(lastDuration)}.",
+                [$"lap: {session.LastLap.LapNumber}", $"time: {FormatDuration(lastDuration)}", $"valid: {session.LastLap.IsValid}"],
+                []);
+        }
+
+        if (session.BestLap is { Duration: var bestDuration })
+        {
+            return Message(
+                $"Best lap is {FormatDuration(bestDuration)}.",
+                [$"lap: {session.BestLap.LapNumber}", $"time: {FormatDuration(bestDuration)}", $"valid: {session.BestLap.IsValid}"],
+                []);
+        }
+
+        return Unavailable("No valid lap time yet.", "No completed lap with a valid duration has been recorded.");
+    }
+
+    private static CoachMessage TyreAnswer(
+        SessionState session,
+        CoachContext? context,
+        IReadOnlyList<TelemetryEvent> events,
+        CoachEvidenceBundle? evidence)
+    {
+        var intelligence = context?.TyreIntelligence
+            ?? new TyreIntelligenceService().Analyze(new TyreIntelligenceInput(
+                session,
+                null,
+                events,
+                context?.SessionContext?.Activity ?? VehicleActivity.Unknown,
+                context?.SessionContext?.Phase ?? SessionPhase.Unknown));
+
+        if (!intelligence.HasReliableData)
+        {
+            return Unavailable(intelligence.CoachingMessage, intelligence.Availability);
         }
 
         var tyreEvents = events.Where(item => item.Type == EventType.TyreOverheating).ToArray();
-        var action = tyreEvents.Length > 0 ? "Reduce sliding and protect entry speed." : "Tyres look usable from the available temperature data.";
-        var evidence = new List<string>
-        {
-            $"max tyre temp: {FormatNumber(temps.Max(), "0.0")} C",
-            $"min tyre temp: {FormatNumber(temps.Min(), "0.0")} C"
-        };
-        if (pressures is { Length: > 0 })
-        {
-            evidence.Add($"pressure range: {FormatNumber(pressures.Min(), "0.0")}-{FormatNumber(pressures.Max(), "0.0")}");
-        }
+        var resolvedEvidence = evidence ?? new CoachEvidenceBuilder().Build(new CoachEvidenceInput(
+            session,
+            null,
+            events,
+            null,
+            null,
+            intelligence));
 
-        if (wear is { Length: > 0 })
-        {
-            evidence.Add($"max tyre wear: {FormatNumber(wear.Max(), "0.000")}");
-        }
-
-        evidence.Add($"recent tyre overheating events: {tyreEvents.Length}");
-        return Message(action, evidence, tyreEvents.Select(item => item.Id));
+        return AttachEvidence(
+            new CoachMessage(
+                "coach",
+                intelligence.CoachingMessage,
+                tyreEvents.Select(item => item.Id).ToArray(),
+                $"Grip confidence {intelligence.GripConfidenceLabel.ToLowerInvariant()}; {intelligence.PushGuidance}",
+                []),
+            resolvedEvidence,
+            CoachEvidenceTopic.Tyres);
     }
 
     private static CoachMessage BrakeAnswer(TelemetrySnapshot? snapshot, IReadOnlyList<TelemetryEvent> events)
@@ -370,7 +392,7 @@ public sealed class CoachEngine : ICoachEngine
     {
         var lap = session.LastLap;
         return lap is null
-            ? Unavailable("Last lap is unavailable.", "No completed laps have been recorded.")
+            ? Unavailable("No valid lap time yet.", "No completed laps have been recorded.")
             : Message("Use the last completed lap as the current baseline.", [$"lap: {lap.LapNumber}", $"time: {FormatDuration(lap.Duration)}", $"valid: {lap.IsValid}"], []);
     }
 
@@ -378,7 +400,7 @@ public sealed class CoachEngine : ICoachEngine
     {
         var lap = session.BestLap;
         return lap is null
-            ? Unavailable("Best lap is unavailable.", "No valid completed lap with a duration has been recorded.")
+            ? Unavailable("No valid lap time yet.", "No valid completed lap with a duration has been recorded.")
             : Message("Best lap is the reference for the next comparison.", [$"lap: {lap.LapNumber}", $"time: {FormatDuration(lap.Duration)}", $"valid: {lap.IsValid}"], []);
     }
 
