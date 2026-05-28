@@ -3,6 +3,7 @@ using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Profile;
 using RaceEngineer.Core.Session;
+using RaceEngineer.Core.SessionContext;
 using RaceEngineer.Core.Telemetry;
 
 namespace RaceEngineer.Core.Coaching;
@@ -20,19 +21,32 @@ public sealed record CoachContext(
     RacePrepPlan? RacePrepPlan = null,
     IReadOnlyList<KnowledgeSource>? KnowledgeSources = null,
     bool ExternalResearchAvailable = false,
-    Profile.CoachPreferencesRecord? Preferences = null);
+    Profile.CoachPreferencesRecord? Preferences = null,
+    SessionContext.SessionContextAssessment? SessionContext = null);
 
 public sealed class CoachEngine
 {
-    public CoachMessage? ChooseLiveCallout(IReadOnlyList<TelemetryEvent> events)
+    public CoachMessage? ChooseLiveCallout(
+        IReadOnlyList<TelemetryEvent> events,
+        SessionContextAssessment? context = null)
     {
         if (events.Count == 0)
         {
             return null;
         }
 
-        var chosen = events.OrderBy(Priority).First();
-        return new CoachMessage("coach", chosen.SuggestedAction, [chosen.Id], null, []);
+        if (context is { AllowDrivingCallouts: false })
+        {
+            return null;
+        }
+
+        var chosen = events
+            .Where(item => ShouldSurfaceLiveCallout(item, context))
+            .OrderBy(Priority)
+            .FirstOrDefault();
+        return chosen is null
+            ? null
+            : new CoachMessage("coach", chosen.SuggestedAction, [chosen.Id], null, []);
     }
 
     public CoachMessage Answer(SessionState session, string userMessage, CoachContext? context = null, CoachEvidenceBundle? evidence = null)
@@ -85,7 +99,7 @@ public sealed class CoachEngine
 
         if (ContainsAny(text, CoachQueryPhrases.Strategy))
         {
-            return AttachEvidence(StrategyAnswer(evidence), evidence, CoachEvidenceTopic.Strategy);
+            return AttachEvidence(StrategyAnswer(evidence, context?.SessionContext), evidence, CoachEvidenceTopic.Strategy);
         }
 
         if (ContainsAny(text, "tyre", "tire"))
@@ -110,7 +124,7 @@ public sealed class CoachEngine
 
         if (ContainsAny(text, CoachQueryPhrases.Fuel) || text.Contains("goriv", StringComparison.Ordinal))
         {
-            return AttachEvidence(FuelAnswer(session, recentEvents), evidence, CoachEvidenceTopic.Fuel);
+            return AttachEvidence(FuelAnswer(session, recentEvents, context?.SessionContext), evidence, CoachEvidenceTopic.Fuel);
         }
 
         if (ContainsAny(text, "last lap", "previous lap"))
@@ -256,29 +270,73 @@ public sealed class CoachEngine
         return Message(action, evidence, brakeEvents.Select(item => item.Id));
     }
 
-    private static CoachMessage FuelAnswer(SessionState session, IReadOnlyList<TelemetryEvent> events)
+    private static CoachMessage FuelAnswer(
+        SessionState session,
+        IReadOnlyList<TelemetryEvent> events,
+        SessionContextAssessment? context)
     {
         if (session.LatestFuelLevel is not { } fuel)
         {
             return Unavailable("Fuel status is unavailable.", "Latest snapshot has no fuel value.");
         }
 
-        var lowFuelEvents = events.Where(item => item.Type == EventType.LowFuel).ToArray();
-        var action = lowFuelEvents.Length > 0 ? "Fuel is tight; lift earlier into heavy braking zones." : "Fuel value is available; no recent low-fuel event is active.";
+        var action = $"You have {FormatNumber(fuel, "0.0")} L fuel.";
         var evidence = new List<string> { $"latest fuel: {FormatNumber(fuel, "0.0")}" };
-        evidence.Add(session.FuelUsedPerLap.HasValue ? $"fuel used per lap: {FormatNumber(session.FuelUsedPerLap.Value, "0.00")}" : "fuel used per lap: unavailable until enough valid laps are completed");
-        evidence.Add(session.EstimatedLapsRemaining.HasValue ? $"estimated laps remaining: {FormatNumber(session.EstimatedLapsRemaining.Value, "0.0")}" : "estimated laps remaining: unavailable");
+
+        if (context is { HasStableLapSamples: false })
+        {
+            action += " Not enough race data yet for finish projections.";
+            return Message(action, evidence, []);
+        }
+
+        if (context is { Activity: VehicleActivity.Stationary or VehicleActivity.PitLane })
+        {
+            action += " Stationary — waiting for stable on-track laps before race fuel estimates.";
+            return Message(action, evidence, []);
+        }
+
+        evidence.Add(session.FuelUsedPerLap.HasValue
+            ? $"fuel used per lap: {FormatNumber(session.FuelUsedPerLap.Value, "0.00")}"
+            : "fuel used per lap: unavailable until enough valid laps are completed");
+        evidence.Add(session.EstimatedLapsRemaining.HasValue
+            ? $"estimated laps remaining: {FormatNumber(session.EstimatedLapsRemaining.Value, "0.0")}"
+            : "estimated laps remaining: unavailable");
+
+        var lowFuelEvents = events.Where(item => item.Type == EventType.LowFuel).ToArray();
+        if (context?.AllowFuelRiskCallouts == true && lowFuelEvents.Length > 0)
+        {
+            action += " Fuel is tight for this stint.";
+        }
+        else if (session.EstimatedLapsRemaining.HasValue)
+        {
+            action += $" Estimated {FormatNumber(session.EstimatedLapsRemaining.Value, "0.0")} laps remaining on current fuel.";
+        }
+
         return Message(action, evidence, lowFuelEvents.Select(item => item.Id));
     }
 
-    private static CoachMessage StrategyAnswer(CoachEvidenceBundle? evidence)
+    private static CoachMessage StrategyAnswer(CoachEvidenceBundle? evidence, SessionContextAssessment? context)
     {
+        if (context is { HasStableLapSamples: false })
+        {
+            return Unavailable(
+                "Not enough race data yet.",
+                "Waiting for stable lap samples before pit strategy can be computed.");
+        }
+
         var packets = evidence?.Select(CoachEvidenceTopic.Strategy).ToArray() ?? [];
         if (packets.Length == 0)
         {
             return Unavailable(
                 "Strategy is unavailable.",
-                "Need fuel usage data and a few completed laps before pit strategy can be computed.");
+                context?.SuppressionNote ?? "Need fuel usage data and a few completed laps before pit strategy can be computed.");
+        }
+
+        if (context?.StrategyConfidence == StrategyConfidenceLevel.Low)
+        {
+            return Unavailable(
+                "Not enough race data yet.",
+                context.SuppressionNote);
         }
 
         var recommendation = packets.FirstOrDefault(packet => packet.Summary == "Pit recommendation");
@@ -291,6 +349,21 @@ public sealed class CoachEngine
             .Take(6)
             .ToArray();
         return Message(action, bullets, []);
+    }
+
+    private static bool ShouldSurfaceLiveCallout(TelemetryEvent item, SessionContextAssessment? context)
+    {
+        if (context is null)
+        {
+            return true;
+        }
+
+        if (item.Type == EventType.LowFuel && !context.AllowLowFuelVoiceCallouts)
+        {
+            return false;
+        }
+
+        return context.AllowDrivingCallouts || item.Severity == EventSeverity.Critical;
     }
 
     private static CoachMessage LastLapAnswer(SessionState session)

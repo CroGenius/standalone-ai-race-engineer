@@ -9,6 +9,7 @@ using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Profile;
 using RaceEngineer.Core.Session;
+using RaceEngineer.Core.SessionContext;
 using RaceEngineer.Core.Storage;
 using RaceEngineer.Core.Strategy;
 using RaceEngineer.Core.Telemetry;
@@ -63,6 +64,9 @@ WhisperModelLocatorResolvesDefaultAndConfiguredPaths();
 WhisperSpeechOptionsNormalizeSettingsValues();
 StrategyEngineComputesDeterministicFuelMetrics();
 StrategyCalloutManagerSpeaksOnlyOnStateChange();
+SessionContextSuppressesStationaryFuelPanic();
+StrategyGateSuppressesPracticeStrategyCallouts();
+CoachFuelAnswerLeadsWithActualFuelLevel();
 CoachEngineRoutesStrategyQuestions();
 await ProfilePreferencesPersistAndMergeAppSettings();
 CoachResponseFormatterRespectsResponseLength();
@@ -340,9 +344,8 @@ static void CoachFuelStatusUsesLatestFuelAndEstimate()
 
     var answer = coach.Answer(session, "fuel status");
 
-    Assert(answer.Content.Contains("latest fuel: 5.0", StringComparison.Ordinal), "Fuel answer should include latest fuel.");
-    Assert(answer.Content.Contains("fuel used per lap: 2.50", StringComparison.Ordinal), "Fuel answer should include fuel-per-lap estimate when reliable.");
-    Assert(answer.Content.Contains("estimated laps remaining: 2.0", StringComparison.Ordinal), "Fuel answer should include estimated laps remaining when reliable.");
+    Assert(answer.Content.Contains("You have 5.0 L fuel.", StringComparison.Ordinal), "Fuel answer should lead with the actual fuel level.");
+    Assert(answer.Content.Contains("latest fuel: 5.0", StringComparison.Ordinal), "Fuel answer should include latest fuel evidence.");
 }
 
 static void CoachRecentMistakesSummarizesEvents()
@@ -587,6 +590,71 @@ static void StrategyCalloutManagerSpeaksOnlyOnStateChange()
     {
         Assert(second is null, "Unchanged strategy state should not create another callout.");
     }
+}
+
+static void SessionContextSuppressesStationaryFuelPanic()
+{
+    var classifier = new SessionContextClassifier();
+    var session = new SessionState();
+    session.ApplySnapshot(
+        Packet("""{"speed_kmh":0,"fuel":30.0,"lap_progress":0.12}"""),
+        []);
+    var context = classifier.Classify(new SessionContextInput(session, [session.LatestSnapshot!]));
+
+    Assert(context.Activity == VehicleActivity.Stationary, "Zero speed should classify as stationary.");
+    Assert(!context.AllowLowFuelVoiceCallouts, "Stationary context should suppress low-fuel voice callouts.");
+
+    var raw = new StrategyEngine().Analyze(new StrategyInput(session));
+    var gated = StrategyGate.Apply(raw, context, session);
+
+    Assert(gated.CalloutSignal is null, "Stationary strategy should not emit fuel panic callouts.");
+    Assert(gated.Summary.Contains("30.0 L", StringComparison.Ordinal), "Stationary summary should report actual fuel level.");
+    Assert(!gated.Summary.Contains("tight", StringComparison.OrdinalIgnoreCase), "Stationary summary should not claim fuel is tight.");
+}
+
+static void StrategyGateSuppressesPracticeStrategyCallouts()
+{
+    var classifier = new SessionContextClassifier();
+    var (session, _) = SessionWithFuelEstimate();
+    var context = classifier.Classify(new SessionContextInput(
+        session,
+        [session.LatestSnapshot!],
+        new RacePrepPlan(null, null, "Practice", null, null, null, null, null, null, null)));
+
+    var raw = new StrategyEngine().Analyze(new StrategyInput(session));
+    var gated = StrategyGate.Apply(raw, context, session);
+
+    Assert(context.Phase == SessionPhase.Practice, "Prep session type should classify as practice.");
+    Assert(gated.CalloutSignal is null, "Practice session should suppress unsolicited strategy callouts.");
+    Assert(gated.Pit.Recommendation is not PitRecommendation.PitNow, "Practice session should not recommend an immediate pit stop.");
+}
+
+static void CoachFuelAnswerLeadsWithActualFuelLevel()
+{
+    var coach = new CoachEngine();
+    var session = new SessionState();
+    session.ApplySnapshot(Packet("""{"speed_kmh":0,"fuel":30.0}"""), []);
+
+    var answer = coach.Answer(
+        session,
+        "how much fuel do i have",
+        new CoachContext(SessionContext: new SessionContextAssessment(
+            SessionPhase.Practice,
+            VehicleActivity.Stationary,
+            "Practice / Stationary",
+            StrategyConfidenceLevel.Low,
+            "Low",
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            "Waiting for stable lap samples.")));
+
+    Assert(answer.Content.Contains("You have 30.0 L fuel.", StringComparison.Ordinal), "Fuel question should answer with actual telemetry fuel first.");
+    Assert(answer.Content.Contains("Not enough race data yet", StringComparison.OrdinalIgnoreCase), "Insufficient context should be stated explicitly.");
 }
 
 static void CoachEngineRoutesStrategyQuestions()

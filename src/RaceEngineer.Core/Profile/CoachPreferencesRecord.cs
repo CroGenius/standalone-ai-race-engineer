@@ -12,7 +12,9 @@ public sealed record CoachPreferencesRecord(
     bool VoiceInputConfirmationsEnabled = true,
     bool EvidenceBulletsEnabled = true,
     string WhisperLanguageMode = "auto",
-    int VoiceInputCooldownSeconds = 3)
+    int VoiceInputCooldownSeconds = 3,
+    bool QuietModeEnabled = false,
+    bool MinimalEngineerEnabled = false)
 {
     public static CoachPreferencesRecord Default { get; } = new();
 

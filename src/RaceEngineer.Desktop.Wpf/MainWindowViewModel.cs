@@ -14,6 +14,7 @@ using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Profile;
 using RaceEngineer.Core.Session;
+using RaceEngineer.Core.SessionContext;
 using RaceEngineer.Core.Storage;
 using RaceEngineer.Core.Strategy;
 using RaceEngineer.Core.Telemetry;
@@ -41,6 +42,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly CalloutManager calloutManager = new();
     private readonly StrategyEngine strategyEngine = new();
     private readonly StrategyCalloutManager strategyCalloutManager = new();
+    private readonly SessionContextClassifier sessionContextClassifier = new();
     private PushToTalkHotkey pushToTalkHotkey;
     private readonly StorageService storageService;
     private readonly StoredResearchService researchService;
@@ -108,6 +110,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private SessionTelemetryAnalytics sessionAnalytics = SessionTelemetryAnalytics.Empty;
     private SessionLapIntelligence sessionLapIntelligence = SessionLapIntelligence.Empty;
     private SessionStrategy sessionStrategy = SessionStrategy.Empty;
+    private SessionContextAssessment sessionContextAssessment = SessionContextAssessment.InitialLive;
+    private string sessionModeLabel = SessionContextAssessment.InitialLive.SessionModeLabel;
+    private string strategyConfidenceLabel = SessionContextAssessment.InitialLive.StrategyConfidenceLabel;
     private AppSettings appSettings = AppSettings.Default;
     private ProfilePreferencesService profilePreferencesService;
     private UserPreferencesBundle userPreferences = UserPreferencesBundle.FromAppSettings(AppSettings.Default);
@@ -123,6 +128,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string prefPushToTalkHotkey = "F6";
     private bool prefVoiceInputConfirmationsEnabled = true;
     private bool prefEvidenceBulletsEnabled = true;
+    private bool prefQuietModeEnabled;
+    private bool prefMinimalEngineerEnabled;
     private string prefFuelSafetyMarginLaps = "1.0";
     private string prefPitAggressiveness = "normal";
     private string prefTyreRiskSensitivity = "normal";
@@ -290,6 +297,28 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         get => prefEvidenceBulletsEnabled;
         set => SetField(ref prefEvidenceBulletsEnabled, value);
     }
+
+    public bool PrefQuietModeEnabled
+    {
+        get => prefQuietModeEnabled;
+        set => SetField(ref prefQuietModeEnabled, value);
+    }
+
+    public bool PrefMinimalEngineerEnabled
+    {
+        get => prefMinimalEngineerEnabled;
+        set => SetField(ref prefMinimalEngineerEnabled, value);
+    }
+
+    public string SessionModeLabel => sessionModeLabel;
+
+    public string StrategyConfidenceLabel => strategyConfidenceLabel;
+
+    public string EngineerModeLabel => userPreferences.Coach.MinimalEngineerEnabled
+        ? "Minimal"
+        : userPreferences.Coach.QuietModeEnabled
+            ? "Quiet"
+            : "Normal";
 
     public string PrefFuelSafetyMarginLaps
     {
@@ -626,6 +655,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             if (!isReviewMode)
             {
+                UpdateSessionContext();
+
                 foreach (var item in events)
                 {
                     EventLog.Insert(0, EventLogItem.FromEvent(item));
@@ -636,11 +667,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                     EventLog.RemoveAt(EventLog.Count - 1);
                 }
 
-                var callout = coachEngine.ChooseLiveCallout(events);
+                var callout = coachEngine.ChooseLiveCallout(events, sessionContextAssessment);
                 var spoken = false;
                 foreach (var item in events.OrderBy(VoicePriority))
                 {
-                    var voiceCallout = calloutManager.TryCreateCallout(item);
+                    var voiceCallout = calloutManager.TryCreateCallout(
+                        item,
+                        sessionContextAssessment,
+                        userPreferences.Coach);
                     if (voiceCallout is not null)
                     {
                         spoken = voiceService.Speak(voiceCallout);
@@ -741,6 +775,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         PrefPushToTalkHotkey = preferences.Coach.PushToTalkHotkey;
         PrefVoiceInputConfirmationsEnabled = preferences.Coach.VoiceInputConfirmationsEnabled;
         PrefEvidenceBulletsEnabled = preferences.Coach.EvidenceBulletsEnabled;
+        PrefQuietModeEnabled = preferences.Coach.QuietModeEnabled;
+        PrefMinimalEngineerEnabled = preferences.Coach.MinimalEngineerEnabled;
         PrefFuelSafetyMarginLaps = preferences.Strategy.FuelSafetyMarginLaps.ToString("0.0", CultureInfo.InvariantCulture);
         PrefPitAggressiveness = preferences.Strategy.PitRecommendationAggressiveness;
         PrefTyreRiskSensitivity = preferences.Strategy.TyreRiskSensitivity;
@@ -767,6 +803,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 PushToTalkHotkey: PrefPushToTalkHotkey,
                 VoiceInputConfirmationsEnabled: PrefVoiceInputConfirmationsEnabled,
                 EvidenceBulletsEnabled: PrefEvidenceBulletsEnabled,
+                QuietModeEnabled: PrefQuietModeEnabled,
+                MinimalEngineerEnabled: PrefMinimalEngineerEnabled,
                 VoiceInputCooldownSeconds: userPreferences.Coach.VoiceInputCooldownSeconds)),
             UserPreferencesNormalizer.NormalizeStrategy(new StrategyPreferencesRecord(
                 FuelSafetyMarginLaps: fuelMargin,
@@ -789,6 +827,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         voiceInputService.SetEnabled(userPreferences.Coach.VoiceEnabledDefault);
         pushToTalkHotkey = ParsePushToTalkHotkeySafely(userPreferences.Coach.PushToTalkHotkey);
         RaiseVoiceProperties();
+        OnPropertyChanged(nameof(EngineerModeLabel));
     }
 
     private async Task SavePrepAsync()
@@ -1268,6 +1307,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private void RefreshAnalytics()
     {
+        UpdateSessionContext();
         analyticsPanelTitle = isReviewMode ? "Analytics (Review Session)" : "Analytics (Live Session)";
         sessionAnalytics = analyticsService.Analyze(new SessionAnalyticsInput(
             ActiveSession,
@@ -1338,13 +1378,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             : string.Join(" ", intelligence.Weaknesses);
 
         strategyPanelTitle = isReviewMode ? "Strategy (Review Session)" : "Strategy (Live Session)";
-        sessionStrategy = strategyEngine.Analyze(new StrategyInput(
+        var rawStrategy = strategyEngine.Analyze(new StrategyInput(
             ActiveSession,
             metrics,
             intelligence,
             CurrentPrepPlan(),
             ActiveSession.Events,
             userPreferences.Strategy));
+        sessionStrategy = StrategyGate.Apply(rawStrategy, sessionContextAssessment, ActiveSession);
+        strategyConfidenceLabel = sessionStrategy.StrategyConfidenceLabel;
         var strategy = sessionStrategy;
         strategyFuelRisk = strategy.Fuel.RiskLevel.ToString();
         strategyLapsRemaining = strategy.Fuel.LapsRemaining?.ToString("0.0", CultureInfo.InvariantCulture)
@@ -1367,7 +1409,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private void TrySpeakStrategyCallout()
     {
-        var callout = strategyCalloutManager.TryCreateCallout(sessionStrategy, DateTimeOffset.UtcNow);
+        var callout = strategyCalloutManager.TryCreateCallout(
+            sessionStrategy,
+            DateTimeOffset.UtcNow,
+            sessionContextAssessment,
+            userPreferences.Coach);
         if (callout is null)
         {
             return;
@@ -1415,6 +1461,19 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(StrategyPitRecommendation));
         OnPropertyChanged(nameof(StrategyTyreRisk));
         OnPropertyChanged(nameof(StrategySummary));
+        OnPropertyChanged(nameof(SessionModeLabel));
+        OnPropertyChanged(nameof(StrategyConfidenceLabel));
+        OnPropertyChanged(nameof(EngineerModeLabel));
+    }
+
+    private void UpdateSessionContext()
+    {
+        sessionContextAssessment = sessionContextClassifier.Classify(new SessionContextInput(
+            ActiveSession,
+            ActiveTraceSnapshots.Count > 0 ? ActiveTraceSnapshots.TakeLast(12).ToArray() : null,
+            CurrentPrepPlan(),
+            isReviewMode));
+        sessionModeLabel = sessionContextAssessment.SessionModeLabel;
     }
 
     private void RaiseVoiceProperties()
@@ -1516,7 +1575,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             CurrentPrepPlan(),
             KnowledgeSources.Select(item => item.Source).ToArray(),
             false,
-            userPreferences.Coach);
+            userPreferences.Coach,
+            sessionContextAssessment);
     }
 
     private void RaiseReviewModeProperties()

@@ -138,9 +138,9 @@ public sealed class EventEngine
             TryAddEvent(events, snapshot, EventType.BrakeOverheating, EventSeverity.Warning, 0.90, new Dictionary<string, object?> { ["max_brake_temp_c"] = maxBrakeTemp, ["brake_temp_threshold_c"] = 850, ["brake_temp_c"] = FormatList(snapshot.Condition.BrakeTempC) }, "Open the braking phase slightly and avoid dragging the pedal.", "At least one brake temperature exceeded the overheating threshold.");
         }
 
-        if (snapshot.Condition.Fuel <= 3.0)
+        if (snapshot.Condition.Fuel <= 3.0 && (snapshot.Car.SpeedKmh ?? 0) > 15)
         {
-            TryAddEvent(events, snapshot, EventType.LowFuel, EventSeverity.Critical, 0.86, new Dictionary<string, object?> { ["fuel"] = snapshot.Condition.Fuel, ["fuel_threshold"] = 3.0 }, "Fuel is tight; lift earlier into heavy braking zones.", "Fuel level crossed the low-fuel threshold.");
+            TryAddEvent(events, snapshot, EventType.LowFuel, EventSeverity.Critical, 0.86, new Dictionary<string, object?> { ["fuel"] = snapshot.Condition.Fuel, ["fuel_threshold"] = 3.0, ["speed_kmh"] = snapshot.Car.SpeedKmh }, "Fuel is tight; lift earlier into heavy braking zones.", "Fuel level crossed the low-fuel threshold while on track.");
         }
 
         if (snapshot.Race.Flags is not null)

@@ -1,5 +1,7 @@
 namespace RaceEngineer.Core.Strategy;
 
+using RaceEngineer.Core.SessionContext;
+
 public enum FuelRiskLevel
 {
     Unknown,
@@ -55,7 +57,9 @@ public sealed record SessionStrategy(
     PitStrategyMetric Pit,
     TyreRiskMetric TyreRisk,
     string Summary,
-    StrategyCalloutSignal? CalloutSignal)
+    StrategyCalloutSignal? CalloutSignal,
+    StrategyConfidenceLevel StrategyConfidence = StrategyConfidenceLevel.Low,
+    string StrategyConfidenceLabel = "Low")
 {
     public static SessionStrategy Empty { get; } = new(
         new FuelPredictionMetric(null, null, null, FuelRiskLevel.Unknown, "No fuel samples yet."),

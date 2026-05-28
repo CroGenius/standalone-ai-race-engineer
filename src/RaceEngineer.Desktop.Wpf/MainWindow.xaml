@@ -28,6 +28,17 @@
             <Setter Property="BorderBrush" Value="#30383E" />
             <Setter Property="Padding" Value="8" />
         </Style>
+        <Style x:Key="PreferenceGroupExpander" TargetType="Expander">
+            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="Foreground" Value="#EFF3F4" />
+            <Setter Property="Background" Value="#15191D" />
+            <Setter Property="BorderBrush" Value="#30383E" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style x:Key="PrefFieldLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#9AA6AC" />
+            <Setter Property="Margin" Value="0,0,0,2" />
+        </Style>
     </Window.Resources>
 
     <Grid Margin="18">
@@ -169,9 +180,9 @@
                                                 <TextBlock DockPanel.Dock="Right" Text="{Binding Severity}" Margin="10,0,0,0" Foreground="#F5A524" />
                                             </DockPanel>
                                             <TextBlock Foreground="#9AA6AC">
-                                                <Run Text="Lap " /><Run Text="{Binding Lap}" />
-                                                <Run Text=" / Progress " /><Run Text="{Binding LapProgress}" />
-                                                <Run Text=" / Confidence " /><Run Text="{Binding Confidence}" />
+                                                <Run Text="Lap " /><Run Text="{Binding Lap, Mode=OneWay}" />
+                                                <Run Text=" / Progress " /><Run Text="{Binding LapProgress, Mode=OneWay}" />
+                                                <Run Text=" / Confidence " /><Run Text="{Binding Confidence, Mode=OneWay}" />
                                             </TextBlock>
                                             <TextBlock Text="{Binding SuggestedAction}" TextWrapping="Wrap" />
                                         </StackPanel>
@@ -189,10 +200,10 @@
             </Border>
 
             <Border Grid.Row="1" Grid.Column="1">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel>
                     <TextBlock Text="Session" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
-                    <UniformGrid Columns="2" Rows="7" Margin="0,0,0,18">
+                    <UniformGrid Columns="2" Rows="7" Margin="0,0,0,12">
                         <TextBlock Text="Current lap" /><TextBlock Text="{Binding CurrentLap}" TextAlignment="Right" Foreground="#9AA6AC" />
                         <TextBlock Text="Last lap" /><TextBlock Text="{Binding LastLapTime}" TextAlignment="Right" Foreground="#9AA6AC" />
                         <TextBlock Text="Best lap" /><TextBlock Text="{Binding BestLapTime}" TextAlignment="Right" Foreground="#9AA6AC" />
@@ -201,6 +212,95 @@
                         <TextBlock Text="Fuel level" /><TextBlock Text="{Binding Fuel}" TextAlignment="Right" Foreground="#9AA6AC" />
                         <TextBlock Text="Est. laps remaining" /><TextBlock Text="{Binding EstimatedLapsRemaining}" TextAlignment="Right" Foreground="#9AA6AC" />
                     </UniformGrid>
+                    <UniformGrid Columns="2" Rows="3" Margin="0,0,0,18">
+                        <TextBlock Text="Session mode" /><TextBlock Text="{Binding SessionModeLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Strategy confidence" /><TextBlock Text="{Binding StrategyConfidenceLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Engineer mode" /><TextBlock Text="{Binding EngineerModeLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
+
+                    <Border Margin="0,0,0,18" Padding="12" Background="#15191D" BorderBrush="#30383E" BorderThickness="1" CornerRadius="8">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="Preferences" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,10" />
+                            <ScrollViewer Grid.Row="1"
+                                          MaxHeight="340"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          Padding="0,0,4,0">
+                                <StackPanel>
+                                    <Expander Style="{StaticResource PreferenceGroupExpander}" IsExpanded="True">
+                                        <Expander.Header>
+                                            <TextBlock Text="Driver" FontWeight="SemiBold" />
+                                        </Expander.Header>
+                                        <StackPanel Margin="8,6,4,4">
+                                            <TextBlock Text="Driver name" Style="{StaticResource PrefFieldLabel}" />
+                                            <TextBox Text="{Binding PrefDriverName, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
+                                            <TextBlock Text="Language (auto / hr-HR / en-US)" Style="{StaticResource PrefFieldLabel}" />
+                                            <TextBox Text="{Binding PrefPreferredLanguage, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
+                                            <TextBlock Text="Units (metric / imperial)" Style="{StaticResource PrefFieldLabel}" />
+                                            <TextBox Text="{Binding PrefPreferredUnits, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
+                                            <TextBlock Text="Experience (beginner / intermediate / advanced)" Style="{StaticResource PrefFieldLabel}" />
+                                            <TextBox Text="{Binding PrefExperienceLevel, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
+                                            <TextBlock Text="Driving style (conservative / balanced / aggressive)" Style="{StaticResource PrefFieldLabel}" />
+                                            <TextBox Text="{Binding PrefDrivingStyle, UpdateSourceTrigger=PropertyChanged}" />
+                                        </StackPanel>
+                                    </Expander>
+                                    <Expander Style="{StaticResource PreferenceGroupExpander}" IsExpanded="True">
+                                        <Expander.Header>
+                                            <TextBlock Text="Coach" FontWeight="SemiBold" />
+                                        </Expander.Header>
+                                        <StackPanel Margin="8,6,4,4">
+                                            <TextBlock Text="Response length (short / normal / detailed)" Style="{StaticResource PrefFieldLabel}" />
+                                            <TextBox Text="{Binding PrefResponseLength, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
+                                            <TextBlock Text="Callout aggressiveness (low / normal / high)" Style="{StaticResource PrefFieldLabel}" />
+                                            <TextBox Text="{Binding PrefCalloutAggressiveness, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
+                                            <CheckBox Content="Evidence bullets" IsChecked="{Binding PrefEvidenceBulletsEnabled}" Foreground="#EFF3F4" />
+                                        </StackPanel>
+                                    </Expander>
+                                    <Expander Style="{StaticResource PreferenceGroupExpander}" IsExpanded="True">
+                                        <Expander.Header>
+                                            <TextBlock Text="Voice" FontWeight="SemiBold" />
+                                        </Expander.Header>
+                                        <StackPanel Margin="8,6,4,4">
+                                            <CheckBox Content="Voice enabled default" IsChecked="{Binding PrefVoiceEnabledDefault}" Foreground="#EFF3F4" Margin="0,0,0,8" />
+                                            <TextBlock Text="Speech provider (auto / windows / whisper)" Style="{StaticResource PrefFieldLabel}" />
+                                            <TextBox Text="{Binding PrefSpeechRecognitionProvider, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
+                                            <TextBlock Text="Push-to-talk key" Style="{StaticResource PrefFieldLabel}" />
+                                            <TextBox Text="{Binding PrefPushToTalkHotkey, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
+                                            <CheckBox Content="Confirmation prefix" IsChecked="{Binding PrefVoiceInputConfirmationsEnabled}" Foreground="#EFF3F4" Margin="0,0,0,8" />
+                                            <CheckBox Content="Quiet mode" IsChecked="{Binding PrefQuietModeEnabled}" Foreground="#EFF3F4" Margin="0,0,0,8" />
+                                            <CheckBox Content="Minimal engineer" IsChecked="{Binding PrefMinimalEngineerEnabled}" Foreground="#EFF3F4" />
+                                        </StackPanel>
+                                    </Expander>
+                                    <Expander Style="{StaticResource PreferenceGroupExpander}" IsExpanded="True">
+                                        <Expander.Header>
+                                            <TextBlock Text="Strategy" FontWeight="SemiBold" />
+                                        </Expander.Header>
+                                        <StackPanel Margin="8,6,4,4">
+                                            <TextBlock Text="Fuel safety margin (laps)" Style="{StaticResource PrefFieldLabel}" />
+                                            <TextBox Text="{Binding PrefFuelSafetyMarginLaps, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
+                                            <TextBlock Text="Pit aggressiveness (conservative / normal / aggressive)" Style="{StaticResource PrefFieldLabel}" />
+                                            <TextBox Text="{Binding PrefPitAggressiveness, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
+                                            <TextBlock Text="Tyre risk sensitivity (low / normal / high)" Style="{StaticResource PrefFieldLabel}" />
+                                            <TextBox Text="{Binding PrefTyreRiskSensitivity, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" />
+                                            <TextBlock Text="Pit strategy preference (undercut / balanced / overcut)" Style="{StaticResource PrefFieldLabel}" />
+                                            <TextBox Text="{Binding PrefPitStrategyPreference, UpdateSourceTrigger=PropertyChanged}" />
+                                        </StackPanel>
+                                    </Expander>
+                                </StackPanel>
+                            </ScrollViewer>
+                            <Button Grid.Row="2"
+                                    Content="Save preferences"
+                                    Command="{Binding SavePreferencesCommand}"
+                                    HorizontalAlignment="Stretch"
+                                    Margin="0,10,0,0"
+                                    Padding="12,8" />
+                        </Grid>
+                    </Border>
 
                     <TextBlock Text="{Binding AnalyticsPanelTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2" Rows="8" Margin="0,0,0,18">
@@ -223,29 +323,6 @@
                     </UniformGrid>
                     <TextBlock Text="Strategy summary" Margin="0,0,0,2" />
                     <TextBlock Text="{Binding StrategySummary}" TextWrapping="Wrap" Foreground="#9AA6AC" Margin="0,0,0,18" />
-
-                    <TextBlock Text="Preferences" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
-                    <UniformGrid Columns="2" Rows="8" Margin="0,0,0,8">
-                        <TextBlock Text="Driver name" VerticalAlignment="Center" /><TextBox Text="{Binding PrefDriverName, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBlock Text="Language" VerticalAlignment="Center" /><TextBox Text="{Binding PrefPreferredLanguage, UpdateSourceTrigger=PropertyChanged}" ToolTip="auto / hr-HR / en-US" />
-                        <TextBlock Text="Units" VerticalAlignment="Center" /><TextBox Text="{Binding PrefPreferredUnits, UpdateSourceTrigger=PropertyChanged}" ToolTip="metric / imperial" />
-                        <TextBlock Text="Experience" VerticalAlignment="Center" /><TextBox Text="{Binding PrefExperienceLevel, UpdateSourceTrigger=PropertyChanged}" ToolTip="beginner / intermediate / advanced" />
-                        <TextBlock Text="Driving style" VerticalAlignment="Center" /><TextBox Text="{Binding PrefDrivingStyle, UpdateSourceTrigger=PropertyChanged}" ToolTip="conservative / balanced / aggressive" />
-                        <TextBlock Text="Response length" VerticalAlignment="Center" /><TextBox Text="{Binding PrefResponseLength, UpdateSourceTrigger=PropertyChanged}" ToolTip="short / normal / detailed" />
-                        <TextBlock Text="Callout aggressiveness" VerticalAlignment="Center" /><TextBox Text="{Binding PrefCalloutAggressiveness, UpdateSourceTrigger=PropertyChanged}" ToolTip="low / normal / high" />
-                        <TextBlock Text="Speech provider" VerticalAlignment="Center" /><TextBox Text="{Binding PrefSpeechRecognitionProvider, UpdateSourceTrigger=PropertyChanged}" ToolTip="auto / windows / whisper" />
-                        <TextBlock Text="Push-to-talk key" VerticalAlignment="Center" /><TextBox Text="{Binding PrefPushToTalkHotkey, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBlock Text="Fuel safety margin (laps)" VerticalAlignment="Center" /><TextBox Text="{Binding PrefFuelSafetyMarginLaps, UpdateSourceTrigger=PropertyChanged}" />
-                        <TextBlock Text="Pit aggressiveness" VerticalAlignment="Center" /><TextBox Text="{Binding PrefPitAggressiveness, UpdateSourceTrigger=PropertyChanged}" ToolTip="conservative / normal / aggressive" />
-                        <TextBlock Text="Tyre risk sensitivity" VerticalAlignment="Center" /><TextBox Text="{Binding PrefTyreRiskSensitivity, UpdateSourceTrigger=PropertyChanged}" ToolTip="low / normal / high" />
-                        <TextBlock Text="Pit strategy preference" VerticalAlignment="Center" /><TextBox Text="{Binding PrefPitStrategyPreference, UpdateSourceTrigger=PropertyChanged}" ToolTip="undercut / balanced / overcut" />
-                    </UniformGrid>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <CheckBox Content="Voice enabled default" IsChecked="{Binding PrefVoiceEnabledDefault}" Margin="0,0,16,0" />
-                        <CheckBox Content="Confirmation prefix" IsChecked="{Binding PrefVoiceInputConfirmationsEnabled}" Margin="0,0,16,0" />
-                        <CheckBox Content="Evidence bullets" IsChecked="{Binding PrefEvidenceBulletsEnabled}" />
-                    </StackPanel>
-                    <Button Content="Save preferences" Command="{Binding SavePreferencesCommand}" HorizontalAlignment="Left" Margin="0,0,0,18" Padding="12,6" />
 
                     <TextBlock Text="{Binding LapIntelligenceTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2" Rows="6" Margin="0,0,0,18">

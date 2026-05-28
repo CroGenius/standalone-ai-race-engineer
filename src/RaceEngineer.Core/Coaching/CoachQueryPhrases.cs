@@ -50,6 +50,8 @@ public static class CoachQueryPhrases
     public static readonly string[] Fuel =
     [
         "fuel status",
+        "how much fuel",
+        "how much fuel do i have",
         "fuel plan",
         "fuel strategy",
         "koliko goriva",
