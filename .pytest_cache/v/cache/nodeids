@@ -1,0 +1,7 @@
+[
+  "tests/test_coach.py::test_coach_states_uncertainty_without_telemetry",
+  "tests/test_events.py::test_abrupt_brake_release_event_has_evidence",
+  "tests/test_events.py::test_temperature_and_fuel_events",
+  "tests/test_provider.py::test_normalize_expected_fields",
+  "tests/test_provider.py::test_normalize_missing_values_are_none"
+]

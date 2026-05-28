@@ -1,0 +1,25 @@
+# Created by pytest automatically.
+*bin/
+obj/
+.vs/
+.vscode/
+artifacts/publish/
+*.user
+*.suo
+*.cache
+*.pdb
+*.log
+**/bin/
+**/obj/
+.vs/
+.vscode/
+artifacts/publish/
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.cache
+*_wpftmp*
+*.pdb
+TestResults/
