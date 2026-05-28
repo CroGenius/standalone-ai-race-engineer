@@ -19,7 +19,13 @@ public sealed record AppSettings(
     string WhisperLanguageMode = "auto",
     string WhisperPrompt = "",
     int WhisperTrailingAudioMilliseconds = 500,
-    float WhisperNoSpeechThreshold = 0.5f)
+    float WhisperNoSpeechThreshold = 0.5f,
+    bool AiEngineerEnabled = false,
+    string AiProvider = "disabled",
+    string AiModel = "",
+    string AiEndpoint = "",
+    int AiMaxResponseWords = 40,
+    int AiTimeoutSeconds = 3)
 {
     public static AppSettings Default => new(
         "127.0.0.1",
@@ -37,7 +43,13 @@ public sealed record AppSettings(
         "auto",
         "",
         WhisperSpeechOptions.DefaultTrailingAudioMilliseconds,
-        WhisperSpeechOptions.DefaultNoSpeechThreshold);
+        WhisperSpeechOptions.DefaultNoSpeechThreshold,
+        false,
+        "disabled",
+        "",
+        "",
+        40,
+        3);
 
     public static AppSettingsLoadResult Load(string path)
     {
@@ -147,8 +159,27 @@ public sealed record AppSettings(
                 : settings.WhisperPrompt.Trim(),
             WhisperTrailingAudioMilliseconds = WhisperSpeechOptions.ClampTrailingAudioMilliseconds(
                 settings.WhisperTrailingAudioMilliseconds),
-            WhisperNoSpeechThreshold = WhisperSpeechOptions.ClampNoSpeechThreshold(settings.WhisperNoSpeechThreshold)
+            WhisperNoSpeechThreshold = WhisperSpeechOptions.ClampNoSpeechThreshold(settings.WhisperNoSpeechThreshold),
+            AiEngineerEnabled = settings.AiEngineerEnabled,
+            AiProvider = NormalizeAiProvider(settings.AiProvider),
+            AiModel = string.IsNullOrWhiteSpace(settings.AiModel) ? Default.AiModel : settings.AiModel.Trim(),
+            AiEndpoint = string.IsNullOrWhiteSpace(settings.AiEndpoint) ? Default.AiEndpoint : settings.AiEndpoint.Trim(),
+            AiMaxResponseWords = settings.AiMaxResponseWords is < 8 or > 120 ? Default.AiMaxResponseWords : settings.AiMaxResponseWords,
+            AiTimeoutSeconds = settings.AiTimeoutSeconds is < 1 or > 30 ? Default.AiTimeoutSeconds : settings.AiTimeoutSeconds
         };
+    }
+
+    private static string NormalizeAiProvider(string? configuredProvider)
+    {
+        if (string.IsNullOrWhiteSpace(configuredProvider))
+        {
+            return Default.AiProvider;
+        }
+
+        var normalized = configuredProvider.Trim().ToLowerInvariant();
+        return normalized is "disabled" or "mock" or "openai"
+            ? normalized
+            : Default.AiProvider;
     }
 
     private static string NormalizeSpeechRecognitionProvider(string? configuredProvider)

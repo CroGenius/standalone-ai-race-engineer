@@ -10,6 +10,7 @@ using Microsoft.Win32;
 using RaceEngineer.Core;
 using RaceEngineer.Core.Analytics;
 using RaceEngineer.Core.Coaching;
+using RaceEngineer.Core.Coaching.Ai;
 using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Profile;
@@ -32,7 +33,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly RawPacketCapture rawPacketCapture;
     private readonly PacketReplayTool replayTool = new();
     private readonly EventEngine eventEngine = new();
-    private readonly CoachEngine coachEngine = new();
+    private HybridCoachEngine coachEngine = HybridCoachEngine.FromSettings(AppSettings.Default);
     private readonly TelemetryAnalyticsService analyticsService = new();
     private readonly LapIntelligenceService lapIntelligenceService = new();
     private readonly TelemetryTraceBuilder traceBuilder = new();
@@ -141,6 +142,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         startupWarnings.AddRange(settingsResult.Warnings);
         appSettings = settingsResult.Settings;
         var settings = appSettings;
+        coachEngine = HybridCoachEngine.FromSettings(settings);
         Directory.CreateDirectory(settings.CaptureFolder);
         Directory.CreateDirectory(settings.ReplayFolder);
 
@@ -149,6 +151,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         rawPacketCapture = new RawPacketCapture(Path.Combine(settings.CaptureFolder, "raw-packets.jsonl"));
         voiceService = new VoiceService(CreateVoiceOutputSafely());
         voiceService.SetVoiceEnabled(settings.VoiceEnabledDefault);
+        if (settings.VoiceEnabledDefault)
+        {
+            voiceService.SetMuted(false);
+        }
         voiceInputService = CreateVoiceInputServiceSafely(settings);
         voiceInputService.QueryRecognized += OnVoiceQueryRecognized;
         voiceInputService.DiagnosticRaised += OnVoiceDiagnosticRaised;
@@ -413,7 +419,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string ListeningIndicator => voiceInputService.ListeningIndicator;
     public string RecognizedSpeechPreview => voiceInputService.RecognizedSpeechPreview;
     public string PushToTalkHotkeyLabel => $"Hold {pushToTalkHotkey.DisplayName} or Hold to Talk";
-    public string VoiceSuppressionState => calloutManager.LastSuppressionState;
+    public string VoiceSuppressionState =>
+        $"{calloutManager.LastSuppressionState} | {voiceService.InteractionDiagnostic}";
     public string CurrentLap => ActiveSession.CurrentLap.ToString(CultureInfo.InvariantCulture);
     public string LastLapTime => FormatDuration(ActiveSession.LastLap?.Duration);
     public string BestLapTime => FormatDuration(ActiveSession.BestLap?.Duration);
@@ -669,22 +676,31 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
                 var callout = coachEngine.ChooseLiveCallout(events, sessionContextAssessment);
                 var spoken = false;
-                foreach (var item in events.OrderBy(VoicePriority))
+                var timestamp = snapshot.Timestamp;
+                if (voiceService.InteractionGate.IsAutomaticCalloutAllowed(timestamp))
                 {
-                    var voiceCallout = calloutManager.TryCreateCallout(
-                        item,
-                        sessionContextAssessment,
-                        userPreferences.Coach);
-                    if (voiceCallout is not null)
+                    foreach (var item in events.OrderBy(VoicePriority))
                     {
-                        spoken = voiceService.Speak(voiceCallout);
-                        if (spoken)
+                        var voiceCallout = calloutManager.TryCreateCallout(
+                            item,
+                            sessionContextAssessment,
+                            userPreferences.Coach);
+                        if (voiceCallout is not null)
                         {
-                            LastCallout = voiceCallout;
-                        }
+                            spoken = voiceService.SpeakAutomaticCallout(voiceCallout, timestamp);
+                            if (spoken)
+                            {
+                                LastCallout = voiceCallout;
+                            }
 
-                        break;
+                            break;
+                        }
                     }
+                }
+                else
+                {
+                    var reason = voiceService.InteractionGate.AutomaticSuppressionReason(timestamp);
+                    calloutManager.NoteExternalSuppression($"Automatic callout suppressed: {reason}.");
                 }
 
                 if (!spoken && callout is not null)
@@ -819,6 +835,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         strategyCalloutManager.ConfigureCooldown(
             StrategyPreferencesMapper.CalloutCooldown(userPreferences.Strategy, userPreferences.Coach));
         voiceService.SetVoiceEnabled(userPreferences.Coach.VoiceEnabledDefault);
+        if (userPreferences.Coach.VoiceEnabledDefault)
+        {
+            voiceService.SetMuted(false);
+        }
         voiceInputService.Configure(new VoiceInputOptions
         {
             ConfirmationsEnabled = userPreferences.Coach.VoiceInputConfirmationsEnabled,
@@ -1125,7 +1145,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             confirmQuery: voiceInputService.ConfirmationsEnabled,
             preferences: userPreferences.Coach);
         AppendCoachChatLines(result.WrittenResponse);
-        LastCallout = result.SpokenResponse;
+        ChatMessages.Add(result.Spoken
+            ? $"Voice diag: direct answer spoken — {result.SpokenResponse}"
+            : $"Voice diag: direct answer not spoken — {result.SpeechDiagnostic}");
+        LastCallout = result.Spoken ? result.SpokenResponse : voiceService.LastSpokenCallout;
         RaiseVoiceProperties();
     }
 
@@ -1409,9 +1432,17 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private void TrySpeakStrategyCallout()
     {
+        var timestamp = DateTimeOffset.UtcNow;
+        if (!voiceService.InteractionGate.IsAutomaticCalloutAllowed(timestamp))
+        {
+            var reason = voiceService.InteractionGate.AutomaticSuppressionReason(timestamp);
+            strategyCalloutManager.NoteExternalSuppression($"Strategy callout suppressed: {reason}.");
+            return;
+        }
+
         var callout = strategyCalloutManager.TryCreateCallout(
             sessionStrategy,
-            DateTimeOffset.UtcNow,
+            timestamp,
             sessionContextAssessment,
             userPreferences.Coach);
         if (callout is null)
@@ -1419,7 +1450,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             return;
         }
 
-        if (voiceService.Speak(callout))
+        if (voiceService.SpeakAutomaticCallout(callout, timestamp))
         {
             LastCallout = callout;
         }

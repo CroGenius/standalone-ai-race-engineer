@@ -18,6 +18,11 @@ public sealed class StrategyCalloutManager
         cooldown = configuredCooldown <= TimeSpan.Zero ? TimeSpan.FromSeconds(25) : configuredCooldown;
     }
 
+    public void NoteExternalSuppression(string reason)
+    {
+        LastSuppressionState = reason;
+    }
+
     public string? TryCreateCallout(
         SessionStrategy strategy,
         DateTimeOffset timestamp,

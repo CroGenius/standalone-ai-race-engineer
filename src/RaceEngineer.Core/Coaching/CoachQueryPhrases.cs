@@ -17,10 +17,14 @@ public static class CoachQueryPhrases
         "how is my braking",
         "my braking",
         "brake status",
+        "how is my brake",
+        "braking",
         "kako kočim",
         "kako kocim",
         "kakvo mi je kočenje",
-        "kakvo mi je kocenje"
+        "kakvo mi je kocenje",
+        "kočenje",
+        "kocenje"
     ];
 
     public static readonly string[] Throttle =
@@ -28,7 +32,10 @@ public static class CoachQueryPhrases
         "how is my throttle",
         "my throttle",
         "throttle application",
-        "kakav mi je gas"
+        "throttle",
+        "gas",
+        "kakav mi je gas",
+        "kakav je gas"
     ];
 
     public static readonly string[] Improvement =
@@ -44,7 +51,21 @@ public static class CoachQueryPhrases
     [
         "race pace",
         "stint pace",
-        "kakav mi je tempo"
+        "kakav mi je tempo",
+        "kakvo mi je tempo"
+    ];
+
+    public static readonly string[] Tyre =
+    [
+        "tyre status",
+        "tire status",
+        "my tyres",
+        "my tires",
+        "how are my tyres",
+        "how are my tires",
+        "kakve su gume",
+        "stanje guma",
+        "kakvo je stanje guma"
     ];
 
     public static readonly string[] Fuel =
@@ -68,12 +89,35 @@ public static class CoachQueryPhrases
         "pit now",
         "stay out",
         "strategy",
+        "strategija",
         "koliko još mogu voziti",
         "koliko jos mogu voziti",
         "imam li dovoljno goriva",
         "kakva je strategija",
         "kada u boks",
         "trebam li u boks"
+    ];
+
+    public static readonly string[] Pit =
+    [
+        "pit",
+        "box",
+        "boks",
+        "u boks",
+        "pit stop",
+        "pitstop"
+    ];
+
+    public static readonly string[] LapTime =
+    [
+        "lap time",
+        "my lap time",
+        "current lap time",
+        "vrijeme kruga",
+        "vreme kruga",
+        "last lap",
+        "previous lap",
+        "best lap"
     ];
 
     public static readonly string[] Incidents =
@@ -89,16 +133,30 @@ public static class CoachQueryPhrases
     public static readonly string[] EnglishRecognition =
     [
         "fuel status",
+        "how much fuel do i have",
         "tyre status",
         "tire status",
+        "kakve su gume",
+        "koliko goriva imam",
+        "gorivo",
+        "gume",
+        "tempo",
+        "pace",
+        "pit",
+        "box",
+        "boks",
+        "gas",
+        "fuel",
+        "strategija",
         "brake status",
+        "how is my braking",
+        "how is my throttle",
         "last lap",
         "best lap",
+        "lap time",
         "recent mistakes",
         "next lap focus",
         "where am i losing time",
-        "how is my braking",
-        "how is my throttle",
         "what should i improve",
         "tell me about this track",
         "setup notes",
@@ -106,6 +164,10 @@ public static class CoachQueryPhrases
         "what is my strategy",
         "should I stay out",
         "do I need to pit",
+        "koliko goriva imam",
+        "gdje gubim vrijeme",
+        "kako kočim",
+        "kakav mi je tempo",
         "copy",
         "radio check"
     ];
@@ -117,8 +179,11 @@ public static class CoachQueryPhrases
             .Concat(Throttle)
             .Concat(Improvement)
             .Concat(RacePace)
+            .Concat(Tyre)
             .Concat(Fuel)
             .Concat(Strategy)
+            .Concat(Pit)
+            .Concat(LapTime)
             .Concat(Incidents)
             .Distinct(StringComparer.OrdinalIgnoreCase);
 }

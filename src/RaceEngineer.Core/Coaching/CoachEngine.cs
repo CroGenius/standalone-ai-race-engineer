@@ -3,6 +3,7 @@ using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Profile;
 using RaceEngineer.Core.Session;
+using RaceEngineer.Core.Coaching.Ai;
 using RaceEngineer.Core.SessionContext;
 using RaceEngineer.Core.Telemetry;
 
@@ -24,7 +25,7 @@ public sealed record CoachContext(
     Profile.CoachPreferencesRecord? Preferences = null,
     SessionContext.SessionContextAssessment? SessionContext = null);
 
-public sealed class CoachEngine
+public sealed class CoachEngine : ICoachEngine
 {
     public CoachMessage? ChooseLiveCallout(
         IReadOnlyList<TelemetryEvent> events,
@@ -97,19 +98,28 @@ public sealed class CoachEngine
             return AttachEvidence(RecentMistakesAnswer(recentEvents), evidence, CoachEvidenceTopic.Incidents);
         }
 
+        if (ContainsAny(text, CoachQueryPhrases.Tyre))
+        {
+            return TyreAnswer(latest, recentEvents);
+        }
+
+        if (ContainsAny(text, CoachQueryPhrases.Pit))
+        {
+            return AttachEvidence(StrategyAnswer(evidence, context?.SessionContext), evidence, CoachEvidenceTopic.Strategy);
+        }
+
         if (ContainsAny(text, CoachQueryPhrases.Strategy))
         {
             return AttachEvidence(StrategyAnswer(evidence, context?.SessionContext), evidence, CoachEvidenceTopic.Strategy);
         }
 
-        if (ContainsAny(text, "tyre", "tire"))
+        if (ContainsAny(text, CoachQueryPhrases.LapTime))
         {
-            return TyreAnswer(latest, recentEvents);
-        }
-
-        if (text.Contains("brake", StringComparison.Ordinal))
-        {
-            return AttachEvidence(BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
+            return text.Contains("best lap", StringComparison.Ordinal)
+                ? BestLapAnswer(session)
+                : text.Contains("current lap", StringComparison.Ordinal)
+                    ? CurrentLapAnswer(session)
+                    : LastLapAnswer(session);
         }
 
         if (ContainsAny(text, "fuel plan", "fuel strategy"))
@@ -127,19 +137,9 @@ public sealed class CoachEngine
             return AttachEvidence(FuelAnswer(session, recentEvents, context?.SessionContext), evidence, CoachEvidenceTopic.Fuel);
         }
 
-        if (ContainsAny(text, "last lap", "previous lap"))
+        if (text.Contains("brake", StringComparison.Ordinal))
         {
-            return LastLapAnswer(session);
-        }
-
-        if (text.Contains("best lap", StringComparison.Ordinal))
-        {
-            return BestLapAnswer(session);
-        }
-
-        if (text.Contains("current lap", StringComparison.Ordinal))
-        {
-            return CurrentLapAnswer(session);
+            return AttachEvidence(BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
         }
 
         if (ContainsAny(text, "mistake", "mistakes", "recent event", "recent events", "issues"))

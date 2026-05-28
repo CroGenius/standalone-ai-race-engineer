@@ -9,6 +9,7 @@ public sealed class CalloutManager
     private readonly Dictionary<EventType, DateTimeOffset> lastSpokenAt = [];
     private readonly Dictionary<EventType, int> suppressedCounts = [];
     private readonly Dictionary<EventType, int> consecutiveSuppressions = [];
+    private readonly Dictionary<EventType, EventSeverity> lastSpokenSeverity = [];
     private double cooldownMultiplier = 1.0;
 
     public string LastSuppressionState { get; private set; } = "No callouts suppressed.";
@@ -17,10 +18,15 @@ public sealed class CalloutManager
     {
         cooldownMultiplier = aggressiveness switch
         {
-            "low" => 1.4,
+            "low" => 1.6,
             "high" => 0.75,
             _ => 1.0
         };
+    }
+
+    public void NoteExternalSuppression(string reason)
+    {
+        LastSuppressionState = reason;
     }
 
     public string? TryCreateCallout(
@@ -28,9 +34,21 @@ public sealed class CalloutManager
         SessionContextAssessment? context = null,
         CoachPreferencesRecord? preferences = null)
     {
+        if (preferences?.MinimalEngineerEnabled == true && item.Severity != EventSeverity.Critical)
+        {
+            RecordSuppression(item.Type, "minimal-engineer");
+            return null;
+        }
+
+        if (preferences?.QuietModeEnabled == true && IsTechniqueEvent(item.Type) && item.Severity != EventSeverity.Critical)
+        {
+            RecordSuppression(item.Type, "quiet-mode");
+            return null;
+        }
+
         if (!ShouldAllowCallout(item, context, preferences))
         {
-            RecordSuppression(item.Type, item.Timestamp, "context");
+            RecordSuppression(item.Type, "context");
             return null;
         }
 
@@ -40,13 +58,20 @@ public sealed class CalloutManager
             return null;
         }
 
+        if (IsRepeatedSeverity(item))
+        {
+            RecordSuppression(item.Type, "unchanged-severity");
+            return null;
+        }
+
         if (IsInCooldown(item.Type, item.Timestamp, preferences))
         {
-            RecordSuppression(item.Type, item.Timestamp, "cooldown");
+            RecordSuppression(item.Type, "cooldown");
             return null;
         }
 
         lastSpokenAt[item.Type] = item.Timestamp;
+        lastSpokenSeverity[item.Type] = item.Severity;
         suppressedCounts[item.Type] = 0;
         consecutiveSuppressions[item.Type] = 0;
         LastSuppressionState = $"{item.Type}: ready.";
@@ -63,14 +88,28 @@ public sealed class CalloutManager
         SessionContextAssessment? context,
         CoachPreferencesRecord? preferences)
     {
-        if (preferences?.MinimalEngineerEnabled == true && item.Severity != EventSeverity.Critical)
+        if (context is { AllowDrivingCallouts: false } && item.Type != EventType.LowFuel)
         {
             return false;
         }
 
-        if (context is { AllowDrivingCallouts: false } && item.Type != EventType.LowFuel)
+        if (IsTechniqueEvent(item.Type) && context is not null)
         {
-            return false;
+            var restrictedActivity = context.Activity is VehicleActivity.PitLane
+                or VehicleActivity.OutLap
+                or VehicleActivity.InLap
+                or VehicleActivity.Stationary;
+            var restrictedPhase = context.Phase is SessionPhase.Practice
+                or SessionPhase.Qualifying
+                or SessionPhase.Unknown;
+
+            if (restrictedActivity || restrictedPhase)
+            {
+                if (item.Confidence < 0.80 || item.Severity < EventSeverity.Warning)
+                {
+                    return false;
+                }
+            }
         }
 
         if (item.Type == EventType.LowFuel)
@@ -91,11 +130,41 @@ public sealed class CalloutManager
         return true;
     }
 
-    private void RecordSuppression(EventType type, DateTimeOffset timestamp, string reason)
+    private bool IsRepeatedSeverity(TelemetryEvent item)
+    {
+        if (!lastSpokenSeverity.TryGetValue(item.Type, out var previousSeverity))
+        {
+            return false;
+        }
+
+        return SeverityRank(item.Severity) <= SeverityRank(previousSeverity);
+    }
+
+    private void RecordSuppression(EventType type, string reason)
     {
         suppressedCounts[type] = GetSuppressedCount(type) + 1;
         consecutiveSuppressions[type] = consecutiveSuppressions.TryGetValue(type, out var count) ? count + 1 : 1;
         LastSuppressionState = $"{type}: suppressed ({reason}) x{suppressedCounts[type]}.";
+    }
+
+    private static bool IsTechniqueEvent(EventType type)
+    {
+        return type is EventType.AbruptBrakeRelease
+            or EventType.UnstableBraking
+            or EventType.EarlyThrottleWithSteering
+            or EventType.TractionLoss
+            or EventType.SteeringOveruse
+            or EventType.ThrottleHesitation;
+    }
+
+    private static int SeverityRank(EventSeverity severity)
+    {
+        return severity switch
+        {
+            EventSeverity.Critical => 3,
+            EventSeverity.Warning => 2,
+            _ => 1
+        };
     }
 
     private static string? CalloutText(TelemetryEvent item)
@@ -125,12 +194,17 @@ public sealed class CalloutManager
         var multiplier = cooldownMultiplier;
         if (preferences?.QuietModeEnabled == true)
         {
+            multiplier *= 2.5;
+        }
+
+        if (preferences?.MinimalEngineerEnabled == true)
+        {
             multiplier *= 2.0;
         }
 
         if (consecutiveSuppressions.TryGetValue(type, out var consecutive) && consecutive > 0)
         {
-            multiplier *= 1.0 + Math.Min(consecutive * 0.15, 1.0);
+            multiplier *= 1.0 + Math.Min(consecutive * 0.25, 1.5);
         }
 
         return timestamp - lastSpoken < CooldownFor(type) * multiplier;
@@ -140,11 +214,12 @@ public sealed class CalloutManager
     {
         return type switch
         {
-            EventType.LowFuel => TimeSpan.FromSeconds(25),
-            EventType.InvalidLapOrFlags => TimeSpan.FromSeconds(20),
-            EventType.TyreOverheating or EventType.BrakeOverheating => TimeSpan.FromSeconds(20),
-            EventType.AbruptBrakeRelease or EventType.UnstableBraking => TimeSpan.FromSeconds(12),
-            EventType.EarlyThrottleWithSteering or EventType.TractionLoss or EventType.SteeringOveruse => TimeSpan.FromSeconds(15),
+            EventType.LowFuel => TimeSpan.FromSeconds(30),
+            EventType.InvalidLapOrFlags => TimeSpan.FromSeconds(24),
+            EventType.TyreOverheating or EventType.BrakeOverheating => TimeSpan.FromSeconds(24),
+            EventType.AbruptBrakeRelease or EventType.UnstableBraking => TimeSpan.FromSeconds(22),
+            EventType.EarlyThrottleWithSteering or EventType.TractionLoss or EventType.SteeringOveruse => TimeSpan.FromSeconds(20),
+            EventType.ThrottleHesitation => TimeSpan.FromSeconds(18),
             _ => TimeSpan.FromSeconds(20)
         };
     }

@@ -83,20 +83,20 @@ public sealed class EventEngine
         if (previous?.Inputs.Brake is { } previousBrake && brake is { } currentBrake)
         {
             var brakeDelta = currentBrake - previousBrake;
-            if (previousBrake >= 0.55 && brakeDelta <= -0.45)
+            if (previousBrake >= 0.60 && brakeDelta <= -0.50)
             {
-                TryAddEvent(events, snapshot, EventType.AbruptBrakeRelease, EventSeverity.Warning, 0.82, new Dictionary<string, object?> { ["previous_brake"] = previousBrake, ["previous_brake_threshold"] = 0.55, ["brake"] = currentBrake, ["brake_delta"] = brakeDelta, ["brake_delta_threshold"] = -0.45 }, "Smooth the brake trail-off to keep the platform settled.", "Brake release delta crossed abrupt-release threshold.");
+                TryAddEvent(events, snapshot, EventType.AbruptBrakeRelease, EventSeverity.Warning, 0.84, new Dictionary<string, object?> { ["previous_brake"] = previousBrake, ["previous_brake_threshold"] = 0.60, ["brake"] = currentBrake, ["brake_delta"] = brakeDelta, ["brake_delta_threshold"] = -0.50 }, "Smooth the brake trail-off to keep the platform settled.", "Brake release delta crossed abrupt-release threshold.");
             }
 
-            if (Math.Abs(brakeDelta) >= 0.28 && previousBrake >= 0.25 && currentBrake >= 0.25)
+            if (Math.Abs(brakeDelta) >= 0.34 && previousBrake >= 0.30 && currentBrake >= 0.30)
             {
-                TryAddEvent(events, snapshot, EventType.UnstableBraking, EventSeverity.Warning, 0.72, new Dictionary<string, object?> { ["previous_brake"] = previousBrake, ["brake"] = currentBrake, ["brake_delta"] = brakeDelta, ["abs_brake_delta_threshold"] = 0.28, ["active_brake_threshold"] = 0.25 }, "Hold brake pressure steadier before turn-in.", "Brake pressure changed rapidly while still in an active braking phase.");
+                TryAddEvent(events, snapshot, EventType.UnstableBraking, EventSeverity.Warning, 0.76, new Dictionary<string, object?> { ["previous_brake"] = previousBrake, ["brake"] = currentBrake, ["brake_delta"] = brakeDelta, ["abs_brake_delta_threshold"] = 0.34, ["active_brake_threshold"] = 0.30 }, "Hold brake pressure steadier before turn-in.", "Brake pressure changed rapidly while still in an active braking phase.");
             }
         }
 
-        if (throttle >= 0.25 && Math.Abs(steering ?? 0) >= 0.35 && brake <= 0.08)
+        if (throttle >= 0.35 && Math.Abs(steering ?? 0) >= 0.42 && brake <= 0.08)
         {
-            TryAddEvent(events, snapshot, EventType.EarlyThrottleWithSteering, EventSeverity.Warning, 0.78, new Dictionary<string, object?> { ["throttle"] = throttle, ["throttle_threshold"] = 0.25, ["steering"] = steering, ["abs_steering_threshold"] = 0.35, ["brake"] = brake, ["brake_release_threshold"] = 0.08 }, "Wait for steering to unwind before adding more throttle.", "Throttle was applied while steering lock remained above threshold.");
+            TryAddEvent(events, snapshot, EventType.EarlyThrottleWithSteering, EventSeverity.Warning, 0.80, new Dictionary<string, object?> { ["throttle"] = throttle, ["throttle_threshold"] = 0.35, ["steering"] = steering, ["abs_steering_threshold"] = 0.42, ["brake"] = brake, ["brake_release_threshold"] = 0.08 }, "Wait for steering to unwind before adding more throttle.", "Throttle was applied while steering lock remained above threshold.");
         }
 
         if (Math.Abs(steering ?? 0) >= 0.72 && speed >= 90)
@@ -115,15 +115,15 @@ public sealed class EventEngine
                 throttleHesitationTicks = 0;
             }
 
-            if (throttleHesitationTicks == 5)
+            if (throttleHesitationTicks == 6)
             {
-                TryAddEvent(events, snapshot, EventType.ThrottleHesitation, EventSeverity.Warning, 0.65, new Dictionary<string, object?> { ["throttle"] = currentThrottle, ["previous_throttle"] = previousThrottle, ["throttle_min_threshold"] = 0.08, ["throttle_max_threshold"] = 0.22, ["throttle_delta_threshold"] = 0.04, ["brake"] = brake, ["brake_threshold"] = 0.05, ["ticks"] = throttleHesitationTicks, ["ticks_threshold"] = 5 }, "Commit earlier once the car is pointed.", "Throttle stayed in the hesitation band for the configured sample count.");
+                TryAddEvent(events, snapshot, EventType.ThrottleHesitation, EventSeverity.Warning, 0.68, new Dictionary<string, object?> { ["throttle"] = currentThrottle, ["previous_throttle"] = previousThrottle, ["throttle_min_threshold"] = 0.08, ["throttle_max_threshold"] = 0.22, ["throttle_delta_threshold"] = 0.04, ["brake"] = brake, ["brake_threshold"] = 0.05, ["ticks"] = throttleHesitationTicks, ["ticks_threshold"] = 6 }, "Commit earlier once the car is pointed.", "Throttle stayed in the hesitation band for the configured sample count.");
             }
         }
 
-        if (previous?.Car.SpeedKmh is { } previousSpeed && throttle >= 0.65 && Math.Abs(steering ?? 0) >= 0.28 && speed + 1.0 < previousSpeed)
+        if (previous?.Car.SpeedKmh is { } previousSpeed && throttle >= 0.70 && Math.Abs(steering ?? 0) >= 0.32 && speed + 1.5 < previousSpeed)
         {
-            TryAddEvent(events, snapshot, EventType.TractionLoss, EventSeverity.Warning, 0.62, new Dictionary<string, object?> { ["throttle"] = throttle, ["throttle_threshold"] = 0.65, ["steering"] = steering, ["abs_steering_threshold"] = 0.28, ["speed_kmh"] = speed, ["previous_speed_kmh"] = previousSpeed, ["speed_delta_kmh"] = speed - previousSpeed, ["speed_loss_threshold_kmh"] = -1.0 }, "Reduce throttle pickup until rear grip is stable.", "Heuristic: speed dropped while throttle and steering angle were both high.");
+            TryAddEvent(events, snapshot, EventType.TractionLoss, EventSeverity.Warning, 0.66, new Dictionary<string, object?> { ["throttle"] = throttle, ["throttle_threshold"] = 0.70, ["steering"] = steering, ["abs_steering_threshold"] = 0.32, ["speed_kmh"] = speed, ["previous_speed_kmh"] = previousSpeed, ["speed_delta_kmh"] = speed - previousSpeed, ["speed_loss_threshold_kmh"] = -1.5 }, "Reduce throttle pickup until rear grip is stable.", "Heuristic: speed dropped while throttle and steering angle were both high.");
         }
 
         var maxTyreTemp = MaxOrNull(snapshot.Condition.TyreTempC);

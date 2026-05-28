@@ -5,6 +5,7 @@ using System.Text;
 using RaceEngineer.Core;
 using RaceEngineer.Core.Analytics;
 using RaceEngineer.Core.Coaching;
+using RaceEngineer.Core.Coaching.Ai;
 using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Profile;
@@ -67,6 +68,8 @@ StrategyCalloutManagerSpeaksOnlyOnStateChange();
 SessionContextSuppressesStationaryFuelPanic();
 StrategyGateSuppressesPracticeStrategyCallouts();
 CoachFuelAnswerLeadsWithActualFuelLevel();
+VoiceInteractionGateSuppressesAutomaticCalloutsAfterQuestion();
+CoachEngineRoutesCroatianTyrePhrase();
 CoachEngineRoutesStrategyQuestions();
 await ProfilePreferencesPersistAndMergeAppSettings();
 CoachResponseFormatterRespectsResponseLength();
@@ -95,6 +98,11 @@ await StoragePersistsSessionFactsAndExports();
 AnalyticsComputesDeterministicMetrics();
 LapIntelligenceComputesDeterministicInsights();
 CoachEvidenceBuilderCreatesDeterministicPackets();
+HybridCoachFallsBackWhenAiDisabled();
+HybridCoachMockAnswersFromEvidence();
+HybridCoachFallsBackWhenNoEvidence();
+HybridCoachMockAnswersCroatianQuestions();
+HybridCoachFallsBackOnAiTimeout();
 TelemetryTraceBuilderCreatesDeterministicTimeline();
 EndToEndFixtureReplayVerifiesPipeline();
 await ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint();
@@ -414,7 +422,7 @@ static void MutedVoiceProducesNoSpokenOutput()
     voice.SetVoiceEnabled(true);
     voice.SetMuted(true);
 
-    var spoken = voice.Speak("Fuel is low. Start saving.");
+    var spoken = voice.SpeakAutomaticCallout("Fuel is low. Start saving.", DateTimeOffset.UtcNow);
 
     Assert(!spoken, "Muted voice should not speak.");
     Assert(output.SpokenTexts.Count == 0, "Muted voice should not write to speech output.");
@@ -432,6 +440,7 @@ static void SpokenQueryRoutesThroughCoachEngine()
     var result = voice.HandleSpokenQuery(session, "fuel status", coach);
 
     Assert(result.WrittenResponse.Content.Contains("latest fuel: 5.0", StringComparison.Ordinal), "Spoken query should route through deterministic CoachEngine.");
+    Assert(result.Spoken, "Spoken query should produce spoken output when unmuted.");
     Assert(output.SpokenTexts.Count == 1, "Spoken query should produce one spoken response when unmuted.");
     Assert(!output.SpokenTexts[0].Contains("Evidence:", StringComparison.Ordinal), "Spoken response should be shorter than written chat response.");
 }
@@ -655,6 +664,56 @@ static void CoachFuelAnswerLeadsWithActualFuelLevel()
 
     Assert(answer.Content.Contains("You have 30.0 L fuel.", StringComparison.Ordinal), "Fuel question should answer with actual telemetry fuel first.");
     Assert(answer.Content.Contains("Not enough race data yet", StringComparison.OrdinalIgnoreCase), "Insufficient context should be stated explicitly.");
+}
+
+static void VoiceInteractionGateSuppressesAutomaticCalloutsAfterQuestion()
+{
+    var output = new RecordingVoiceOutput();
+    var voice = new VoiceService(output);
+    voice.SetVoiceEnabled(true);
+    voice.SetMuted(false);
+    var coach = new CoachEngine();
+    var (session, _) = SessionWithFuelEstimate();
+    var manager = new CalloutManager();
+
+    _ = voice.HandleSpokenQuery(session, "koliko goriva imam", coach);
+    var blocked = voice.SpeakAutomaticCallout("Brake release is unstable.", DateTimeOffset.UtcNow);
+    var raceContext = new SessionContextAssessment(
+        SessionPhase.Race,
+        VehicleActivity.OnTrack,
+        "Race / On track",
+        StrategyConfidenceLevel.High,
+        "High",
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        "Race context active.");
+    var callout = manager.TryCreateCallout(
+        Event(EventType.AbruptBrakeRelease, EventSeverity.Warning, DateTimeOffset.UtcNow),
+        raceContext);
+
+    Assert(output.SpokenTexts.Count == 1, "Only the direct answer should be spoken during quiet window.");
+    Assert(!blocked, "Automatic callout should be blocked immediately after a spoken question.");
+    Assert(callout is not null, "Callout manager should still create eligible callouts.");
+    Assert(!voice.SpeakAutomaticCallout(callout!, DateTimeOffset.UtcNow), "Automatic callout speech should honor post-question quiet window.");
+}
+
+static void CoachEngineRoutesCroatianTyrePhrase()
+{
+    var coach = new CoachEngine();
+    var session = new SessionState();
+    session.ApplySnapshot(Packet("""{"speed_kmh":120,"tyre_temp_c":[90,91,89,88]}"""), []);
+
+    var answer = coach.Answer(session, "kakve su gume");
+
+    Assert(
+        answer.Content.Contains("tyre", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("temp", StringComparison.OrdinalIgnoreCase),
+        "Croatian tyre phrase should route to tyre coaching.");
 }
 
 static void CoachEngineRoutesStrategyQuestions()
@@ -1158,6 +1217,109 @@ static void CoachEvidenceBuilderCreatesDeterministicPackets()
     Assert(answer.EvidencePackets.Count > 0, "Coach answer should attach structured evidence packets.");
 }
 
+static CoachEvidenceBundle BuildSampleCoachEvidence(SessionState session)
+{
+    var snapshots = BuildLapIntelligenceSnapshots(session);
+    var analytics = new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session));
+    var lapIntelligence = new LapIntelligenceService().Analyze(new LapIntelligenceInput(session, snapshots));
+    var strategy = new StrategyEngine().Analyze(new StrategyInput(session, analytics));
+    return new CoachEvidenceBuilder().Build(new CoachEvidenceInput(
+        session,
+        snapshots,
+        session.Events,
+        analytics,
+        lapIntelligence,
+        strategy));
+}
+
+static void HybridCoachFallsBackWhenAiDisabled()
+{
+    var deterministic = new CoachEngine();
+    var hybrid = new HybridCoachEngine(
+        DisabledEngineerAiProvider.Instance,
+        new EngineerAiOptions(false, "disabled", "", "", 40, 3));
+    var (session, _) = SessionWithFuelEstimate();
+    var evidence = BuildSampleCoachEvidence(session);
+
+    var expected = deterministic.Answer(session, "gdje gubim vrijeme", evidence: evidence);
+    var actual = hybrid.Answer(session, "gdje gubim vrijeme", evidence: evidence);
+
+    Assert(expected.Content == actual.Content, "Disabled AI should fall back to deterministic CoachEngine.");
+}
+
+static void HybridCoachMockAnswersFromEvidence()
+{
+    var hybrid = new HybridCoachEngine(
+        new MockEngineerAiProvider(),
+        new EngineerAiOptions(true, "mock", "", "", 40, 3));
+    var (session, _) = SessionWithFuelEstimate();
+    var evidence = BuildSampleCoachEvidence(session);
+
+    var answer = hybrid.Answer(session, "where am I losing time?", evidence: evidence);
+
+    Assert(
+        answer.Uncertainty?.Contains("telemetry", StringComparison.OrdinalIgnoreCase) == true,
+        "Mock AI answer should report telemetry-based uncertainty.");
+    Assert(answer.EvidencePackets.Count > 0, "Mock AI answer should attach evidence packets.");
+    Assert(
+        answer.Content.Contains("time loss", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("gubitak", StringComparison.OrdinalIgnoreCase),
+        "Mock AI answer should reference losing-time evidence.");
+}
+
+static void HybridCoachFallsBackWhenNoEvidence()
+{
+    var hybrid = new HybridCoachEngine(
+        new MockEngineerAiProvider(),
+        new EngineerAiOptions(true, "mock", "", "", 40, 3));
+    var (session, _) = SessionWithFuelEstimate();
+    var expected = new CoachEngine().Answer(session, "fuel status");
+    var actual = hybrid.Answer(session, "fuel status");
+
+    Assert(expected.Content == actual.Content, "Missing evidence should fall back to deterministic CoachEngine.");
+}
+
+static void HybridCoachMockAnswersCroatianQuestions()
+{
+    var hybrid = new HybridCoachEngine(
+        new MockEngineerAiProvider(),
+        new EngineerAiOptions(true, "mock", "", "", 40, 3));
+    var (session, _) = SessionWithFuelEstimate();
+    var evidence = BuildSampleCoachEvidence(session);
+
+    var losingTime = hybrid.Answer(session, "gdje gubim vrijeme", evidence: evidence);
+    var braking = hybrid.Answer(session, "kako kočim", evidence: evidence);
+    var fuel = hybrid.Answer(session, "imam li dovoljno goriva", evidence: evidence);
+
+    Assert(
+        losingTime.Content.Contains("gubitak", StringComparison.OrdinalIgnoreCase)
+            || losingTime.EvidencePackets.Count > 0,
+        "Croatian losing-time question should use telemetry evidence.");
+    Assert(
+        braking.Content.Contains("Kočenje", StringComparison.OrdinalIgnoreCase)
+            || braking.Content.Contains("Braking", StringComparison.OrdinalIgnoreCase)
+            || braking.EvidencePackets.Count > 0,
+        "Croatian braking question should use telemetry evidence.");
+    Assert(
+        fuel.Content.Contains("goriv", StringComparison.OrdinalIgnoreCase)
+            || fuel.Content.Contains("fuel", StringComparison.OrdinalIgnoreCase)
+            || fuel.EvidencePackets.Count > 0,
+        "Croatian fuel question should use telemetry evidence.");
+}
+
+static void HybridCoachFallsBackOnAiTimeout()
+{
+    var hybrid = new HybridCoachEngine(
+        new SlowMockEngineerAiProvider(),
+        new EngineerAiOptions(true, "mock", "", "", 40, 1));
+    var (session, _) = SessionWithFuelEstimate();
+    var evidence = BuildSampleCoachEvidence(session);
+    var expected = new CoachEngine().Answer(session, "where am I losing time?", evidence: evidence);
+    var actual = hybrid.Answer(session, "where am I losing time?", evidence: evidence);
+
+    Assert(expected.Content == actual.Content, "Timed-out AI should fall back to deterministic CoachEngine.");
+}
+
 static void EndToEndFixtureReplayVerifiesPipeline()
 {
     var fixturePath = SampleThreeLapFixture.ResolvePath();
@@ -1185,7 +1347,10 @@ static void TelemetryTraceBuilderCreatesDeterministicTimeline()
 
 static async Task ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint()
 {
-    await using var receiver = new TelemetryReceiver();
+    using var portHolder = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+    var port = ((IPEndPoint)portHolder.Client.LocalEndPoint!).Port;
+    portHolder.Close();
+    await using var receiver = new TelemetryReceiver("127.0.0.1", port);
     var packets = new List<TelemetryPacketResult>();
     var snapshots = new List<TelemetrySnapshot>();
     var validSnapshotReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1210,12 +1375,12 @@ static async Task ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint()
     await receiver.StartAsync();
 
     using var sender = new UdpClient();
-    await SendUdp(sender, """{"schema":"acevo_engineer.simhub_datacore","schema_version":1""");
-    await SendUdp(sender, """{"schema":"wrong","schema_version":1,"speed_kmh":50}""");
-    await SendUdp(sender, """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"speed_kmh":123.4,"tyre_temp_c":[88,89,87,86]}""");
+    await SendUdp(sender, port, """{"schema":"acevo_engineer.simhub_datacore","schema_version":1""");
+    await SendUdp(sender, port, """{"schema":"wrong","schema_version":1,"speed_kmh":50}""");
+    await SendUdp(sender, port, """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"speed_kmh":123.4,"tyre_temp_c":[88,89,87,86]}""");
 
     var completed = await Task.WhenAny(validSnapshotReceived.Task, Task.Delay(TimeSpan.FromSeconds(3)));
-    Assert(completed == validSnapshotReceived.Task, "Receiver did not emit a valid snapshot on 127.0.0.1:20999.");
+    Assert(completed == validSnapshotReceived.Task, $"Receiver did not emit a valid snapshot on 127.0.0.1:{port}.");
     await Task.Delay(150);
 
     receiver.Stop();
@@ -1270,10 +1435,10 @@ static string ValidRaw(string jsonBody)
     return $$"""{"schema":"acevo_engineer.simhub_datacore","schema_version":1,{{body}}}""";
 }
 
-static async Task SendUdp(UdpClient sender, string json)
+static async Task SendUdp(UdpClient sender, int port, string json)
 {
     var bytes = Encoding.UTF8.GetBytes(json);
-    await sender.SendAsync(bytes, new IPEndPoint(IPAddress.Parse("127.0.0.1"), 20999));
+    await sender.SendAsync(bytes, new IPEndPoint(IPAddress.Parse("127.0.0.1"), port));
 }
 
 static TelemetrySnapshot Packet(string jsonBody)
@@ -1327,5 +1492,18 @@ static void Assert(bool condition, string message)
     if (!condition)
     {
         throw new InvalidOperationException(message);
+    }
+}
+
+sealed class SlowMockEngineerAiProvider : IEngineerAiProvider
+{
+    public string Name => "slow-mock";
+
+    public bool IsEnabled => true;
+
+    public async Task<EngineerAiResult> GenerateAnswerAsync(EngineerAiRequest request, CancellationToken cancellationToken)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+        return EngineerAiResult.Succeeded("Too late.", Name);
     }
 }
