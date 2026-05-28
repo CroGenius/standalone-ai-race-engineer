@@ -38,6 +38,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly TelemetryAnalyticsService analyticsService = new();
     private readonly LapIntelligenceService lapIntelligenceService = new();
     private readonly TyreIntelligenceService tyreIntelligenceService = new();
+    private readonly DriverPerformanceIntelligenceService driverPerformanceService = new();
     private readonly TelemetryTraceBuilder traceBuilder = new();
     private readonly CoachEvidenceBuilder evidenceBuilder = new();
     private readonly VoiceService voiceService;
@@ -118,6 +119,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private SessionTelemetryAnalytics sessionAnalytics = SessionTelemetryAnalytics.Empty;
     private SessionLapIntelligence sessionLapIntelligence = SessionLapIntelligence.Empty;
     private SessionTyreIntelligence sessionTyreIntelligence = SessionTyreIntelligence.Unavailable("No tyre analysis yet.");
+    private SessionDriverPerformance sessionDriverPerformance = SessionDriverPerformance.Unavailable(SessionDriverPerformance.NeedCleanLapMessage);
     private SessionStrategy sessionStrategy = SessionStrategy.Empty;
     private LiveRaceContext liveRaceContext = LiveRaceContext.Unavailable("initial");
     private TrackMemoryRecord? trackMemoryRecord;
@@ -134,6 +136,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string raceFieldDiagnosticsLabel = "-";
     private string raceMemoryPreviousBestLabel = "-";
     private string raceMemoryPreviousAverageLabel = "-";
+    private string performancePanelTitle = "Performance Intelligence (Live Session)";
+    private string performanceBiggestLossLabel = "-";
+    private string performanceMainWeaknessLabel = "-";
+    private string performanceBrakingQualityLabel = "-";
+    private string performanceThrottleQualityLabel = "-";
+    private string performanceConsistencyLabel = "-";
+    private string performanceCurrentVsBestLabel = "-";
+    private string performanceStoredBaselineLabel = "-";
     private SessionContextAssessment sessionContextAssessment = SessionContextAssessment.InitialLive;
     private string sessionModeLabel = SessionContextAssessment.InitialLive.SessionModeLabel;
     private string strategyConfidenceLabel = SessionContextAssessment.InitialLive.StrategyConfidenceLabel;
@@ -281,6 +291,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string RaceFieldDiagnosticsLabel => raceFieldDiagnosticsLabel;
     public string RaceMemoryPreviousBestLabel => raceMemoryPreviousBestLabel;
     public string RaceMemoryPreviousAverageLabel => raceMemoryPreviousAverageLabel;
+
+    public string PerformancePanelTitle => performancePanelTitle;
+    public string PerformanceBiggestLossLabel => performanceBiggestLossLabel;
+    public string PerformanceMainWeaknessLabel => performanceMainWeaknessLabel;
+    public string PerformanceBrakingQualityLabel => performanceBrakingQualityLabel;
+    public string PerformanceThrottleQualityLabel => performanceThrottleQualityLabel;
+    public string PerformanceConsistencyLabel => performanceConsistencyLabel;
+    public string PerformanceCurrentVsBestLabel => performanceCurrentVsBestLabel;
+    public string PerformanceStoredBaselineLabel => performanceStoredBaselineLabel;
 
     public string StrategyPanelTitle => strategyPanelTitle;
     public string StrategyFuelRisk => strategyFuelRisk;
@@ -882,6 +901,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             sessionAnalytics,
             sessionLapIntelligence,
             sessionTyreIntelligence,
+            sessionDriverPerformance,
             sessionStrategy,
             traceTimeline,
             KnowledgeSources.Select(item => item.Source).ToArray(),
@@ -1646,6 +1666,34 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             ? sessionTyreIntelligence.OverheatingRisk
             : "-";
 
+        performancePanelTitle = isReviewMode ? "Performance Intelligence (Review Session)" : "Performance Intelligence (Live Session)";
+        RefreshRaceAwareness();
+        sessionDriverPerformance = driverPerformanceService.Analyze(new DriverPerformanceInput(
+            ActiveSession,
+            ActiveTraceSnapshots.Count >= 4 ? ActiveTraceSnapshots : null,
+            ActiveSession.Events,
+            metrics,
+            intelligence,
+            trackMemoryRecord,
+            trackMemoryComparison,
+            ActiveSession.LastLap?.LapNumber));
+        var performance = sessionDriverPerformance;
+        performanceBiggestLossLabel = performance.Availability != "Available"
+            ? performance.Availability
+            : performance.BiggestTimeLoss is { } loss
+                ? $"{loss.Zone.Label}: {string.Join(", ", loss.Behaviors)} ({loss.EstimatedLossSeconds?.ToString("+0.000;-0.000;0.000", CultureInfo.InvariantCulture) ?? "n/a"}s)"
+                : "No clear zone loss yet.";
+        performanceMainWeaknessLabel = performance.MainWeakness ?? performance.Availability;
+        performanceBrakingQualityLabel = performance.BrakingQuality.Detail;
+        performanceThrottleQualityLabel = performance.ThrottleQuality.Detail;
+        performanceConsistencyLabel = performance.Consistency.Detail;
+        performanceCurrentVsBestLabel = performance.CurrentVsBestDeltaSeconds is { } delta
+            ? $"Δ {delta:+0.000;-0.000;0.000}s vs session best"
+            : performance.Availability;
+        performanceStoredBaselineLabel = performance.StoredBaselineComparison
+            ?? trackMemoryComparison?.Summary
+            ?? "no stored baseline";
+
         strategyPanelTitle = isReviewMode ? "Strategy (Review Session)" : "Strategy (Live Session)";
         var rawStrategy = strategyEngine.Analyze(new StrategyInput(
             ActiveSession,
@@ -1668,7 +1716,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             : $"{strategy.TyreRisk.RiskLevel} ({strategy.TyreRisk.RiskScore0To100:0}/100)";
         strategySummary = strategy.Summary;
 
-        RefreshRaceAwareness();
         _ = RefreshTrackMemoryAsync();
 
         RaiseAnalyticsProperties();
@@ -1751,6 +1798,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(RaceFieldDiagnosticsLabel));
         OnPropertyChanged(nameof(RaceMemoryPreviousBestLabel));
         OnPropertyChanged(nameof(RaceMemoryPreviousAverageLabel));
+        OnPropertyChanged(nameof(PerformancePanelTitle));
+        OnPropertyChanged(nameof(PerformanceBiggestLossLabel));
+        OnPropertyChanged(nameof(PerformanceMainWeaknessLabel));
+        OnPropertyChanged(nameof(PerformanceBrakingQualityLabel));
+        OnPropertyChanged(nameof(PerformanceThrottleQualityLabel));
+        OnPropertyChanged(nameof(PerformanceConsistencyLabel));
+        OnPropertyChanged(nameof(PerformanceCurrentVsBestLabel));
+        OnPropertyChanged(nameof(PerformanceStoredBaselineLabel));
         OnPropertyChanged(nameof(StrategyPanelTitle));
         OnPropertyChanged(nameof(StrategyFuelRisk));
         OnPropertyChanged(nameof(StrategyLapsRemaining));
@@ -1836,7 +1891,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 sessionLapIntelligence,
                 sessionTyreIntelligence,
                 sessionStrategy,
-                summaryMarkdown));
+                summaryMarkdown,
+                RaceResult: null,
+                DriverPerformance: sessionDriverPerformance));
         trackMemoryComparison = trackMemoryService.Compare(trackMemoryRecord, session, sessionAnalytics);
     }
 
@@ -1967,6 +2024,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             sessionContextAssessment,
             sessionTyreIntelligence,
             sessionAnalytics,
+            sessionDriverPerformance,
             sessionStrategy,
             ActiveTraceSnapshots.Count > 0 ? ActiveTraceSnapshots.TakeLast(40).ToArray() : null,
             liveRaceContext,

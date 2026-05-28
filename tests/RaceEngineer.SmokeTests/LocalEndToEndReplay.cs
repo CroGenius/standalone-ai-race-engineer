@@ -74,6 +74,7 @@ internal static class LocalEndToEndReplay
             analytics,
             lapIntelligence,
             null,
+            null,
             strategy,
             timeline));
 

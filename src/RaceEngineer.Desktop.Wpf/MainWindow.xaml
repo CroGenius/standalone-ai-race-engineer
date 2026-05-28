@@ -361,6 +361,17 @@
                     <TextBlock Text="Race field diagnostics" Margin="0,0,0,2" />
                     <TextBlock Text="{Binding RaceFieldDiagnosticsLabel}" TextWrapping="Wrap" Foreground="#9AA6AC" Margin="0,0,0,18" />
 
+                    <TextBlock Text="{Binding PerformancePanelTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <UniformGrid Columns="2" Rows="7" Margin="0,0,0,18">
+                        <TextBlock Text="Biggest time loss" /><TextBlock Text="{Binding PerformanceBiggestLossLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Main weakness" /><TextBlock Text="{Binding PerformanceMainWeaknessLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Braking quality" /><TextBlock Text="{Binding PerformanceBrakingQualityLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Throttle quality" /><TextBlock Text="{Binding PerformanceThrottleQualityLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Consistency" /><TextBlock Text="{Binding PerformanceConsistencyLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Current vs best" /><TextBlock Text="{Binding PerformanceCurrentVsBestLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Stored baseline" /><TextBlock Text="{Binding PerformanceStoredBaselineLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
+
                     <TextBlock Text="{Binding AnalyticsPanelTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2" Rows="8" Margin="0,0,0,18">
                         <TextBlock Text="Lap consistency" /><TextBlock Text="{Binding AnalyticsLapConsistency}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />

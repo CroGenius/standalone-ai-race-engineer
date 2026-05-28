@@ -93,6 +93,7 @@ public sealed record TrackMemoryRecord(
     double? FuelUsedPerLap,
     double? IncidentRate,
     IReadOnlyList<string> StrategyNotes,
+    IReadOnlyList<string> PerformanceWeaknessPatterns,
     string? PreviousRaceResult,
     DateTimeOffset? LastSessionAt,
     IReadOnlyList<string> SessionSummaries)
@@ -110,6 +111,7 @@ public sealed record TrackMemoryRecord(
         null,
         null,
         null,
+        [],
         [],
         null,
         null,
@@ -141,4 +143,5 @@ public sealed record TrackMemoryInput(
     Analytics.SessionTyreIntelligence? TyreIntelligence,
     Strategy.SessionStrategy? Strategy,
     string? SessionSummaryMarkdown = null,
-    string? RaceResult = null);
+    string? RaceResult = null,
+    Analytics.SessionDriverPerformance? DriverPerformance = null);

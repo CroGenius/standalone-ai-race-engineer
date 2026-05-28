@@ -140,6 +140,9 @@ RaceAwarenessValidatorBlocksCrossTopicFallback();
 ProviderDiagMapsTrackAndCarIntoRaceAwareness();
 TrackCarIdentityRoutingKeepsFieldsSeparate();
 CoachHistoricalLapComparisonUsesStoredData();
+DriverPerformanceIntelligenceComputesDeterministicInsights();
+CoachLosingTimeUsesPerformanceIntelligence();
+CoachPerformanceNeedsCleanLapWhenInsufficientData();
 TelemetryTraceBuilderCreatesDeterministicTimeline();
 EndToEndFixtureReplayVerifiesPipeline();
 await ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint();
@@ -936,6 +939,7 @@ static void CoachEngineRoutesStrategyQuestions()
         analytics,
         null,
         null,
+        null,
         strategy));
 
     var english = coach.Answer(session, "what is my strategy", evidence: evidence);
@@ -1634,8 +1638,14 @@ static void CoachEvidenceBuilderCreatesDeterministicPackets()
 static CoachEvidenceBundle BuildSampleCoachEvidence(SessionState session)
 {
     var snapshots = BuildLapIntelligenceSnapshots(session);
-    var analytics = new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session));
+    var analytics = new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session, snapshots));
     var lapIntelligence = new LapIntelligenceService().Analyze(new LapIntelligenceInput(session, snapshots));
+    var driverPerformance = new DriverPerformanceIntelligenceService().Analyze(new DriverPerformanceInput(
+        session,
+        snapshots,
+        session.Events,
+        analytics,
+        lapIntelligence));
     var strategy = new StrategyEngine().Analyze(new StrategyInput(session, analytics));
     return new CoachEvidenceBuilder().Build(new CoachEvidenceInput(
         session,
@@ -1644,7 +1654,33 @@ static CoachEvidenceBundle BuildSampleCoachEvidence(SessionState session)
         analytics,
         lapIntelligence,
         null,
+        driverPerformance,
         strategy));
+}
+
+static (SessionState Session, SessionDriverPerformance Performance, CoachContext Context) SessionWithPerformanceContext()
+{
+    var (session, _) = SessionWithFuelEstimate();
+    var snapshots = BuildLapIntelligenceSnapshots(session);
+    var analytics = new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session, snapshots));
+    var lapIntelligence = new LapIntelligenceService().Analyze(new LapIntelligenceInput(session, snapshots));
+    var selectedLapNumber = session.CompletedLaps
+        .Where(lap => lap.IsValid && lap.Duration.HasValue)
+        .OrderByDescending(lap => lap.Duration!.Value)
+        .First()
+        .LapNumber;
+    var performance = new DriverPerformanceIntelligenceService().Analyze(new DriverPerformanceInput(
+        session,
+        snapshots,
+        session.Events,
+        analytics,
+        lapIntelligence,
+        SelectedLapNumber: selectedLapNumber));
+    var context = new CoachContext(
+        Analytics: analytics,
+        DriverPerformance: performance,
+        RecentSnapshots: snapshots);
+    return (session, performance, context);
 }
 
 static void HybridCoachFallsBackWhenAiDisabled()
@@ -2393,7 +2429,7 @@ static void TrackCarIdentityRoutingKeepsFieldsSeparate()
         "Validator must remove track field from car question answer.");
 
     var hybrid = new HybridCoachEngine(new MockEngineerAiProvider(), new EngineerAiOptions(true, "mock", "", "", 40, 3));
-    var evidence = new CoachEvidenceBuilder().Build(new CoachEvidenceInput(session, [session.LatestSnapshot!], [], null, null, null, null, null, null, raceContext));
+    var evidence = new CoachEvidenceBuilder().Build(new CoachEvidenceInput(session, [session.LatestSnapshot!], [], null, null, null, null, null, null, null, raceContext));
     var pipelineTrack = CoachQueryPipeline.Resolve(session, "which track am i on", hybrid, context, evidence);
     Assert(
         pipelineTrack.FinalDisplayedText.Contains("Monza-GP", StringComparison.OrdinalIgnoreCase),
@@ -2431,6 +2467,76 @@ static void CoachHistoricalLapComparisonUsesStoredData()
     Assert(
         answer.Content.Contains("faster", StringComparison.OrdinalIgnoreCase),
         "Historical lap comparison should report faster pace when current best beats stored best.");
+}
+
+static void DriverPerformanceIntelligenceComputesDeterministicInsights()
+{
+    var (session, _, _) = SessionWithPerformanceContext();
+    var snapshots = BuildLapIntelligenceSnapshots(session);
+    var analytics = new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session, snapshots));
+    var lapIntelligence = new LapIntelligenceService().Analyze(new LapIntelligenceInput(session, snapshots));
+    var selectedLapNumber = session.CompletedLaps
+        .Where(lap => lap.IsValid && lap.Duration.HasValue)
+        .OrderByDescending(lap => lap.Duration!.Value)
+        .First()
+        .LapNumber;
+    var service = new DriverPerformanceIntelligenceService();
+    var input = new DriverPerformanceInput(
+        session,
+        snapshots,
+        session.Events,
+        analytics,
+        lapIntelligence,
+        SelectedLapNumber: selectedLapNumber);
+    var first = service.Analyze(input);
+    var second = service.Analyze(input);
+
+    Assert(first.Availability == second.Availability, "Performance availability should be deterministic.");
+    Assert(first.Availability == "Available", "Performance analysis should be available with valid laps.");
+    Assert(first.ZoneCount == second.ZoneCount && first.ZoneCount > 0, "Performance zones should be deterministic.");
+    Assert(first.ZoneMetrics.Count > 0, "Performance zone metrics should be generated.");
+    Assert(first.CoachingMessages.Count > 0, "Performance coaching messages should be generated.");
+}
+
+static void CoachLosingTimeUsesPerformanceIntelligence()
+{
+    var coach = new CoachEngine();
+    var (session, performance, context) = SessionWithPerformanceContext();
+    var evidence = BuildSampleCoachEvidence(session);
+
+    Assert(performance.Availability == "Available", "Performance analysis should be available for losing-time coaching.");
+
+    var answer = coach.Answer(session, "gdje gubim vrijeme", context, evidence);
+
+    Assert(
+        answer.Content.Contains("Zone", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("Sector", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("throttle", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("brake", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("loss", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("losing", StringComparison.OrdinalIgnoreCase),
+        $"Losing-time answer should mention a specific zone, sector, or behavior. Actual: '{answer.Content}'");
+    Assert(
+        !answer.Content.Contains("Focus on the sector with the largest loss", StringComparison.Ordinal),
+        "Losing-time answer should not fall back to generic coaching when performance data exists.");
+}
+
+static void CoachPerformanceNeedsCleanLapWhenInsufficientData()
+{
+    var coach = new CoachEngine();
+    var session = new SessionState();
+    var performance = SessionDriverPerformance.Unavailable(SessionDriverPerformance.NeedCleanLapMessage);
+    var context = new CoachContext(DriverPerformance: performance);
+
+    var losingTime = coach.Answer(session, "gdje gubim vrijeme", context);
+    var improvement = coach.Answer(session, "what should I improve", context);
+
+    Assert(
+        losingTime.Content.Contains(SessionDriverPerformance.NeedCleanLapMessage, StringComparison.Ordinal),
+        "Losing-time answer should request a clean lap when performance data is unavailable.");
+    Assert(
+        improvement.Content.Contains(SessionDriverPerformance.NeedCleanLapMessage, StringComparison.Ordinal),
+        "Improvement answer should request a clean lap when performance data is unavailable.");
 }
 
 static void TyreAnswerIncludesAllCornersOrUnavailableRear()
@@ -2487,6 +2593,14 @@ static void EndToEndFixtureReplayVerifiesPipeline()
     Assert(
         raceContext.Diagnostics.MissingFields.Contains("gap_ahead_s"),
         "Fixture replay should report missing opponent gap fields in diagnostics.");
+
+    var performance = new DriverPerformanceIntelligenceService().Analyze(new DriverPerformanceInput(
+        result.Session,
+        result.Snapshots,
+        result.Session.Events));
+    Assert(performance.ValidLapCount >= 2, "Fixture replay should produce multiple valid laps.");
+    Assert(performance.Availability == "Available", "Fixture replay should produce performance intelligence.");
+    Assert(performance.ZoneCount > 0, "Fixture replay should segment analysis zones.");
 }
 
 static void TelemetryTraceBuilderCreatesDeterministicTimeline()

@@ -59,6 +59,7 @@ public sealed record CoachEvidenceInput(
     Analytics.SessionTelemetryAnalytics? Analytics = null,
     Analytics.SessionLapIntelligence? LapIntelligence = null,
     Analytics.SessionTyreIntelligence? TyreIntelligence = null,
+    Analytics.SessionDriverPerformance? DriverPerformance = null,
     Strategy.SessionStrategy? Strategy = null,
     TelemetryVisualization.TelemetryTimeline? Timeline = null,
     IReadOnlyList<Knowledge.KnowledgeSource>? KnowledgeSources = null,
@@ -70,11 +71,11 @@ public static class CoachEvidenceSelector
 {
     private static readonly IReadOnlyDictionary<CoachEvidenceTopic, string[]> TopicCategories = new Dictionary<CoachEvidenceTopic, string[]>
     {
-        [CoachEvidenceTopic.LosingTime] = ["Sector", "LapComparison", "DeltaTrace", "LosingTime"],
-        [CoachEvidenceTopic.Braking] = ["Braking", "Event"],
-        [CoachEvidenceTopic.Throttle] = ["Throttle", "Event"],
-        [CoachEvidenceTopic.Improvement] = ["Improvement", "Analytics", "LapIntelligence"],
-        [CoachEvidenceTopic.LapComparison] = ["LapComparison", "DeltaTrace", "Sector"],
+        [CoachEvidenceTopic.LosingTime] = ["Performance", "Sector", "LapComparison", "DeltaTrace", "LosingTime"],
+        [CoachEvidenceTopic.Braking] = ["Performance", "Braking", "Event"],
+        [CoachEvidenceTopic.Throttle] = ["Performance", "Throttle", "Event"],
+        [CoachEvidenceTopic.Improvement] = ["Performance", "Improvement", "Analytics", "LapIntelligence"],
+        [CoachEvidenceTopic.LapComparison] = ["Performance", "LapComparison", "DeltaTrace", "Sector"],
         [CoachEvidenceTopic.RacePace] = ["Pace", "Analytics", "LapIntelligence"],
         [CoachEvidenceTopic.Fuel] = ["Fuel", "Analytics", "Session"],
         [CoachEvidenceTopic.Strategy] = ["Strategy"],

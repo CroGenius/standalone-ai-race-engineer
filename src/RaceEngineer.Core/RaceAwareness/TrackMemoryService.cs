@@ -46,6 +46,7 @@ public sealed class TrackMemoryService
             .Where(item => item.Contains("throttle", StringComparison.OrdinalIgnoreCase) || item.Contains("exit", StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray() ?? [];
+        var performancePatterns = BuildPerformancePatterns(input.DriverPerformance);
         var strategyNotes = new List<string>(existing.StrategyNotes);
         if (!string.IsNullOrWhiteSpace(input.Strategy?.Summary))
         {
@@ -65,6 +66,7 @@ public sealed class TrackMemoryService
             ConsistencyScore = consistency ?? existing.ConsistencyScore,
             BrakingWeaknesses = MergeDistinct(existing.BrakingWeaknesses, brakingWeaknesses),
             ThrottleWeaknesses = MergeDistinct(existing.ThrottleWeaknesses, throttleWeaknesses),
+            PerformanceWeaknessPatterns = MergeDistinct(existing.PerformanceWeaknessPatterns, performancePatterns).TakeLast(8).ToArray(),
             TyreWarmupNotes = input.TyreIntelligence?.TyreConditionMessage ?? existing.TyreWarmupNotes,
             FuelUsedPerLap = fuelPerLap ?? existing.FuelUsedPerLap,
             IncidentRate = incidentRate ?? existing.IncidentRate,
@@ -128,7 +130,10 @@ public sealed class TrackMemoryService
             averageDelta,
             memory.FuelUsedPerLap,
             session.FuelUsedPerLap ?? analytics?.FuelTrend.FuelPerLap,
-            memory.BrakingWeaknesses.Concat(memory.ThrottleWeaknesses).ToArray(),
+            memory.BrakingWeaknesses
+                .Concat(memory.ThrottleWeaknesses)
+                .Concat(memory.PerformanceWeaknessPatterns)
+                .ToArray(),
             memory.StrategyNotes,
             summary);
     }
@@ -178,6 +183,40 @@ public sealed class TrackMemoryService
     {
         return
             $"Session {input.Session.SessionId.ToString()[..8]} best {FormatLapTime(best)} avg {FormatLapTime(average)} fuel {fuelPerLap?.ToString("0.00", CultureInfo.InvariantCulture) ?? "n/a"}/lap";
+    }
+
+    private static IReadOnlyList<string> BuildPerformancePatterns(Analytics.SessionDriverPerformance? performance)
+    {
+        if (performance is not { Availability: "Available" })
+        {
+            return [];
+        }
+
+        var patterns = new List<string>();
+        if (!string.IsNullOrWhiteSpace(performance.MainWeakness))
+        {
+            patterns.Add(performance.MainWeakness);
+        }
+
+        foreach (var metric in performance.ZoneMetrics.Take(3))
+        {
+            if (metric.Behaviors.Count == 0)
+            {
+                continue;
+            }
+
+            patterns.Add($"{metric.Zone.Label}: {metric.Behaviors[0].Split('(')[0].Trim()}");
+        }
+
+        foreach (var cluster in performance.MistakeClusters.Take(2))
+        {
+            patterns.Add($"{cluster.Behavior} in {cluster.ZoneLabel}");
+        }
+
+        return patterns
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static double? AverageValidLap(Session.SessionState session)

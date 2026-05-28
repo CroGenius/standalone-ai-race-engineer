@@ -15,6 +15,7 @@ public sealed class CoachEvidenceBuilder
     private readonly TelemetryAnalyticsService analyticsService = new();
     private readonly LapIntelligenceService lapIntelligenceService = new();
     private readonly TyreIntelligenceService tyreIntelligenceService = new();
+    private readonly DriverPerformanceIntelligenceService driverPerformanceService = new();
     private readonly TelemetryTraceBuilder traceBuilder = new();
 
     public CoachEvidenceBundle Build(CoachEvidenceInput input)
@@ -31,6 +32,15 @@ public sealed class CoachEvidenceBuilder
             input.Session,
             input.Snapshots,
             events));
+        var driverPerformance = input.DriverPerformance ?? driverPerformanceService.Analyze(new DriverPerformanceInput(
+            input.Session,
+            input.Snapshots,
+            events,
+            analytics,
+            lapIntelligence,
+            input.TrackMemory,
+            input.TrackMemoryComparison,
+            input.Session.LastLap?.LapNumber));
         var timeline = input.Timeline ?? (input.Snapshots is { Count: >= 2 }
             ? traceBuilder.Build(new TelemetryTimelineInput(
                 input.Session,
@@ -45,6 +55,7 @@ public sealed class CoachEvidenceBuilder
         AddAnalyticsPackets(packets, analytics);
         AddLapIntelligencePackets(packets, lapIntelligence);
         AddTyreIntelligencePackets(packets, tyreIntelligence);
+        AddDriverPerformancePackets(packets, driverPerformance);
         var strategy = input.Strategy ?? new StrategyEngine().Analyze(new StrategyInput(
             input.Session,
             analytics,
@@ -380,6 +391,119 @@ public sealed class CoachEvidenceBuilder
                 [],
                 axle.AverageTempC,
                 axle.Summary));
+        }
+    }
+
+    private static void AddDriverPerformancePackets(List<CoachEvidencePacket> packets, SessionDriverPerformance performance)
+    {
+        if (performance.Availability != "Available")
+        {
+            return;
+        }
+
+        if (performance.BiggestTimeLoss is { } loss)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "Performance",
+                "Biggest time loss",
+                "Warning",
+                0.90,
+                CoachEvidenceSourceType.Analytics,
+                null,
+                [],
+                loss.EstimatedLossSeconds,
+                $"Biggest loss in {loss.Zone.Label}: {string.Join(", ", loss.Behaviors)}."));
+        }
+
+        if (!string.IsNullOrWhiteSpace(performance.MainWeakness))
+        {
+            packets.Add(new CoachEvidencePacket(
+                "Performance",
+                "Main weakness",
+                "Warning",
+                0.88,
+                CoachEvidenceSourceType.Analytics,
+                null,
+                [],
+                null,
+                performance.MainWeakness));
+        }
+
+        packets.Add(new CoachEvidencePacket(
+            "Performance",
+            "Braking quality",
+            performance.BrakingQuality.Score0To100 is < 60 ? "Warning" : "Info",
+            0.85,
+            CoachEvidenceSourceType.Analytics,
+            null,
+            [],
+            performance.BrakingQuality.Score0To100,
+            performance.BrakingQuality.Detail));
+
+        packets.Add(new CoachEvidencePacket(
+            "Performance",
+            "Throttle quality",
+            performance.ThrottleQuality.Score0To100 is < 60 ? "Warning" : "Info",
+            0.85,
+            CoachEvidenceSourceType.Analytics,
+            null,
+            [],
+            performance.ThrottleQuality.Score0To100,
+            performance.ThrottleQuality.Detail));
+
+        packets.Add(new CoachEvidencePacket(
+            "Performance",
+            "Consistency",
+            performance.Consistency.Score0To100 is < 60 ? "Warning" : "Info",
+            0.85,
+            CoachEvidenceSourceType.Analytics,
+            null,
+            [],
+            performance.Consistency.Score0To100,
+            performance.Consistency.Detail));
+
+        if (performance.CurrentVsBestDeltaSeconds is { } delta)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "Performance",
+                "Current vs best",
+                delta > 0.050 ? "Warning" : "Info",
+                0.85,
+                CoachEvidenceSourceType.Analytics,
+                null,
+                [],
+                delta,
+                delta <= 0.010
+                    ? "Selected lap matches session best."
+                    : $"Selected lap is {delta.ToString("0.000", CultureInfo.InvariantCulture)}s slower than session best."));
+        }
+
+        if (!string.IsNullOrWhiteSpace(performance.StoredBaselineComparison))
+        {
+            packets.Add(new CoachEvidencePacket(
+                "Performance",
+                "Stored baseline",
+                "Info",
+                0.80,
+                CoachEvidenceSourceType.Analytics,
+                null,
+                [],
+                null,
+                performance.StoredBaselineComparison));
+        }
+
+        foreach (var message in performance.CoachingMessages.Take(3))
+        {
+            packets.Add(new CoachEvidencePacket(
+                "Performance",
+                "Coaching insight",
+                "Info",
+                0.82,
+                CoachEvidenceSourceType.Analytics,
+                null,
+                [],
+                null,
+                message));
         }
     }
 

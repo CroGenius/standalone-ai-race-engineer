@@ -29,6 +29,7 @@ public sealed record CoachContext(
     SessionContext.SessionContextAssessment? SessionContext = null,
     Analytics.SessionTyreIntelligence? TyreIntelligence = null,
     Analytics.SessionTelemetryAnalytics? Analytics = null,
+    Analytics.SessionDriverPerformance? DriverPerformance = null,
     Strategy.SessionStrategy? Strategy = null,
     IReadOnlyList<Telemetry.TelemetrySnapshot>? RecentSnapshots = null,
     LiveRaceContext? RaceContext = null,
@@ -123,15 +124,50 @@ public sealed class CoachEngine : ICoachEngine
             case CoachQueryTopic.LapTime:
                 return RouteLapTimeAnswer(session, text);
             case CoachQueryTopic.LosingTime:
-                return AnswerDrivingTechniqueFromEvidence(userMessage, session, context, CoachQueryTopic.LosingTime, "Focus on the sector with the largest loss versus your best lap.", "No sector delta or delta trace evidence is available.", evidence, CoachEvidenceTopic.LosingTime);
+                return AnswerFromDriverPerformance(
+                    userMessage,
+                    session,
+                    context,
+                    CoachQueryTopic.LosingTime,
+                    DriverPerformanceIntelligenceService.BuildLosingTimeAnswer,
+                    "Focus on the sector with the largest loss versus your best lap.",
+                    "No sector delta or delta trace evidence is available.",
+                    evidence,
+                    CoachEvidenceTopic.LosingTime);
             case CoachQueryTopic.Braking:
-                return AnswerDrivingTechnique(userMessage, session, context, CoachQueryTopic.Braking, () => BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
+                return AnswerDrivingTechniqueWithPerformance(
+                    userMessage,
+                    session,
+                    context,
+                    CoachQueryTopic.Braking,
+                    performance => DriverPerformanceIntelligenceService.BuildBrakingAnswer(performance),
+                    () => BrakeAnswer(latest, recentEvents),
+                    evidence,
+                    CoachEvidenceTopic.Braking);
             case CoachQueryTopic.Throttle:
                 return ThrottleAnswer(session, context, recentEvents, evidence, userMessage);
             case CoachQueryTopic.Improvement:
-                return AnswerDrivingTechniqueFromEvidence(userMessage, session, context, CoachQueryTopic.Improvement, "Address the highest-priority weakness first.", "No improvement evidence is available.", evidence, CoachEvidenceTopic.Improvement);
+                return AnswerFromDriverPerformance(
+                    userMessage,
+                    session,
+                    context,
+                    CoachQueryTopic.Improvement,
+                    DriverPerformanceIntelligenceService.BuildImprovementAnswer,
+                    "Address the highest-priority weakness first.",
+                    "No improvement evidence is available.",
+                    evidence,
+                    CoachEvidenceTopic.Improvement);
             case CoachQueryTopic.LapComparison:
-                return AnswerDrivingTechniqueFromEvidence(userMessage, session, context, CoachQueryTopic.LapComparison, "Use the best lap as the reference and close the largest gap.", "No lap comparison evidence is available.", evidence, CoachEvidenceTopic.LapComparison);
+                return AnswerFromDriverPerformance(
+                    userMessage,
+                    session,
+                    context,
+                    CoachQueryTopic.LapComparison,
+                    performance => DriverPerformanceIntelligenceService.BuildLapComparisonAnswer(performance, context?.TrackMemoryComparison),
+                    "Use the best lap as the reference and close the largest gap.",
+                    "No lap comparison evidence is available.",
+                    evidence,
+                    CoachEvidenceTopic.LapComparison);
             case CoachQueryTopic.RacePace:
                 return AnswerDrivingTechniqueFromEvidence(userMessage, session, context, CoachQueryTopic.RacePace, "Protect race pace by managing tyre, fuel, and repeat incidents.", "No race pace evidence is available.", evidence, CoachEvidenceTopic.RacePace);
             case CoachQueryTopic.Incidents:
@@ -149,7 +185,15 @@ public sealed class CoachEngine : ICoachEngine
 
         if (text.Contains("brake", StringComparison.Ordinal))
         {
-            return AnswerDrivingTechnique(userMessage, session, context, CoachQueryTopic.Braking, () => BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
+            return AnswerDrivingTechniqueWithPerformance(
+                userMessage,
+                session,
+                context,
+                CoachQueryTopic.Braking,
+                performance => DriverPerformanceIntelligenceService.BuildBrakingAnswer(performance),
+                () => BrakeAnswer(latest, recentEvents),
+                evidence,
+                CoachEvidenceTopic.Braking);
         }
 
         if (ContainsAny(text, "mistake", "mistakes", "recent event", "recent events", "issues"))
@@ -389,6 +433,17 @@ public sealed class CoachEngine : ICoachEngine
             return Unavailable(assessment.CoachingMessage, assessment.EvidenceLines.FirstOrDefault() ?? "Push confidence unavailable.");
         }
 
+        var coachingMessage = assessment.CoachingMessage;
+        if (context?.DriverPerformance is { Availability: "Available" } performance)
+        {
+            var pushHint = DriverPerformanceIntelligenceService.BuildPushAnswer(performance);
+            if (!string.Equals(pushHint, SessionDriverPerformance.NeedCleanLapMessage, StringComparison.Ordinal)
+                && !coachingMessage.Contains(pushHint, StringComparison.OrdinalIgnoreCase))
+            {
+                coachingMessage = $"{coachingMessage} {pushHint}";
+            }
+        }
+
         var resolvedEvidence = evidence ?? new CoachEvidenceBuilder().Build(new CoachEvidenceInput(
             session,
             context?.RecentSnapshots,
@@ -396,12 +451,13 @@ public sealed class CoachEngine : ICoachEngine
             context?.Analytics,
             null,
             context?.TyreIntelligence,
+            context?.DriverPerformance,
             context?.Strategy));
 
         return AttachEvidence(
             new CoachMessage(
                 "coach",
-                assessment.CoachingMessage,
+                coachingMessage,
                 [],
                 $"Grip confidence {assessment.GripConfidence.ToString().ToLowerInvariant()}; push safe={assessment.CanPushHarder}",
                 []),
@@ -431,6 +487,24 @@ public sealed class CoachEngine : ICoachEngine
                 new CoachMessage("coach", live.CoachingMessage, [], live.SpokenSummary, []),
                 evidence,
                 CoachEvidenceTopic.Throttle);
+        }
+
+        if (context?.DriverPerformance is { Availability: "Available" } performance)
+        {
+            return AttachEvidence(
+                new CoachMessage(
+                    "coach",
+                    DriverPerformanceIntelligenceService.BuildThrottleAnswer(performance),
+                    [],
+                    null,
+                    []),
+                evidence,
+                CoachEvidenceTopic.Throttle);
+        }
+
+        if (context?.DriverPerformance?.Availability == SessionDriverPerformance.NeedCleanLapMessage)
+        {
+            return Unavailable(SessionDriverPerformance.NeedCleanLapMessage, "No valid completed lap with telemetry yet.");
         }
 
         if (!gate.Allowed)
@@ -989,6 +1063,73 @@ public sealed class CoachEngine : ICoachEngine
             || string.IsNullOrWhiteSpace(plan?.Track)
             || string.Equals(source.Track, plan.Track, StringComparison.OrdinalIgnoreCase);
         return categoryMatches && carMatches && trackMatches;
+    }
+
+    private static CoachMessage AnswerDrivingTechniqueWithPerformance(
+        string query,
+        SessionState session,
+        CoachContext? context,
+        CoachQueryTopic topic,
+        Func<SessionDriverPerformance, string> performanceAnswer,
+        Func<CoachMessage> answerFactory,
+        CoachEvidenceBundle? evidence,
+        CoachEvidenceTopic evidenceTopic)
+    {
+        var gate = DrivingTechniqueGate.Evaluate(topic, session, context?.SessionContext);
+        if (context?.DriverPerformance is { Availability: "Available" } performance)
+        {
+            return AttachEvidence(
+                new CoachMessage("coach", performanceAnswer(performance), [], null, []),
+                evidence,
+                evidenceTopic);
+        }
+
+        if (context?.DriverPerformance?.Availability == SessionDriverPerformance.NeedCleanLapMessage)
+        {
+            return Unavailable(SessionDriverPerformance.NeedCleanLapMessage, "No valid completed lap with telemetry yet.");
+        }
+
+        if (!gate.Allowed)
+        {
+            LogGateTrace(query, topic, gate, "deterministic-gate");
+            return Unavailable(gate.UnavailableMessage!, gate.EvidenceReason);
+        }
+
+        return AttachEvidence(answerFactory(), evidence, evidenceTopic);
+    }
+
+    private static CoachMessage AnswerFromDriverPerformance(
+        string query,
+        SessionState session,
+        CoachContext? context,
+        CoachQueryTopic topic,
+        Func<SessionDriverPerformance, string> performanceAnswer,
+        string fallbackAction,
+        string unavailableReason,
+        CoachEvidenceBundle? evidence,
+        CoachEvidenceTopic evidenceTopic)
+    {
+        var gate = DrivingTechniqueGate.Evaluate(topic, session, context?.SessionContext);
+        if (context?.DriverPerformance is { Availability: "Available" } performance)
+        {
+            return AttachEvidence(
+                new CoachMessage("coach", performanceAnswer(performance), [], null, []),
+                evidence,
+                evidenceTopic);
+        }
+
+        if (context?.DriverPerformance?.Availability == SessionDriverPerformance.NeedCleanLapMessage)
+        {
+            return Unavailable(SessionDriverPerformance.NeedCleanLapMessage, "No valid completed lap with telemetry yet.");
+        }
+
+        if (!gate.Allowed)
+        {
+            LogGateTrace(query, topic, gate, "deterministic-gate");
+            return Unavailable(gate.UnavailableMessage!, gate.EvidenceReason);
+        }
+
+        return AnswerFromEvidence(fallbackAction, unavailableReason, evidence, evidenceTopic);
     }
 
     private static CoachMessage AnswerDrivingTechnique(
