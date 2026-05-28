@@ -9,7 +9,15 @@ public static class CoachQueryPhrases
         "lose time",
         "where am i losing",
         "gdje gubim vrijeme",
-        "gdje gubim vreme"
+        "gdje gubim vreme",
+        "which sector",
+        "what sector",
+        "koji sektor",
+        "sector loss",
+        "sector time",
+        "time loss",
+        "gubim vrijeme",
+        "gubim vreme"
     ];
 
     public static readonly string[] Braking =

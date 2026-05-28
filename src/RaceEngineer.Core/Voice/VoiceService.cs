@@ -115,7 +115,8 @@ public sealed class VoiceService
         CoachContext? context = null,
         CoachEvidenceBundle? evidence = null,
         bool confirmQuery = false,
-        CoachPreferencesRecord? preferences = null)
+        CoachPreferencesRecord? preferences = null,
+        CoachQueryTranscriptContext? transcriptContext = null)
     {
         interactionGate.BeginUserQuestionQuietWindow(DateTimeOffset.UtcNow);
         var pipeline = CoachQueryPipeline.Resolve(
@@ -125,7 +126,8 @@ public sealed class VoiceService
             context,
             evidence,
             preferences,
-            confirmQuery);
+            confirmQuery,
+            transcriptContext);
 
         var payload = pipeline.FinalTtsPayload;
         if (string.IsNullOrWhiteSpace(payload))

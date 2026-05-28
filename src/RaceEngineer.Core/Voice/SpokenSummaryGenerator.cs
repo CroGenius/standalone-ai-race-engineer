@@ -551,7 +551,9 @@ public static class SpokenSummaryGenerator
                 packet.Category == "RaceAwareness"
                     && packet.Summary.Equals("Car identity", StringComparison.Ordinal)).ToArray(),
             CoachQueryTopic.Position => [],
-            _ => packets.Where(packet => !IsFuelPacket(packet)).ToArray()
+            _ => packets.Where(packet =>
+                !IsFuelPacket(packet)
+                    && !string.Equals(packet.Category, "RaceAwareness", StringComparison.Ordinal)).ToArray()
         };
     }
 

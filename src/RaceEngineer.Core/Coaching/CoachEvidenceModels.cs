@@ -127,10 +127,27 @@ public static class CoachEvidenceSelector
 
         return filtered
             .Where(packet => IsAllowedTechniquePacket(packet, topic))
+            .Where(packet => !IsExcludedIdentityFallbackPacket(packet, topic))
             .OrderBy(packet => packet.Category, StringComparer.Ordinal)
             .ThenBy(packet => packet.Summary, StringComparer.Ordinal)
             .Take(6)
             .ToArray();
+    }
+
+    private static bool IsExcludedIdentityFallbackPacket(CoachEvidencePacket packet, CoachEvidenceTopic topic)
+    {
+        if (topic is CoachEvidenceTopic.LosingTime
+            or CoachEvidenceTopic.Braking
+            or CoachEvidenceTopic.Throttle
+            or CoachEvidenceTopic.Improvement
+            or CoachEvidenceTopic.LapComparison
+            or CoachEvidenceTopic.RacePace
+            or CoachEvidenceTopic.Tyres)
+        {
+            return string.Equals(packet.Category, "RaceAwareness", StringComparison.Ordinal);
+        }
+
+        return false;
     }
 
     private static bool IsAllowedTechniquePacket(CoachEvidencePacket packet, CoachEvidenceTopic topic)

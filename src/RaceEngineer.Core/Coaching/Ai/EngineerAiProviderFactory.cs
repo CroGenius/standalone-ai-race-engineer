@@ -14,7 +14,10 @@ public static class EngineerAiProviderFactory
         return NormalizeProvider(settings.AiProvider) switch
         {
             "mock" => new MockEngineerAiProvider(),
-            "openai" => new OpenAiCompatibleEngineerAiProvider(settings.AiEndpoint, settings.AiModel),
+            "openai" => new OpenAiCompatibleEngineerAiProvider(
+                settings.AiEndpoint,
+                settings.AiModel,
+                settings.AiTimeoutSeconds),
             _ => DisabledEngineerAiProvider.Instance
         };
     }

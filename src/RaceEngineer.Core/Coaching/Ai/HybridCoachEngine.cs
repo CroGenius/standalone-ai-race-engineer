@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Profile;
 using RaceEngineer.Core.Session;
@@ -19,6 +20,10 @@ public sealed class HybridCoachEngine : ICoachEngine
 
     public static HybridCoachEngine FromSettings(Core.AppSettings settings) =>
         new(EngineerAiProviderFactory.Create(settings), EngineerAiOptions.FromAppSettings(settings));
+
+    public EngineerAiOptions Options => options;
+
+    public string ProviderName => aiProvider.Name;
 
     public CoachMessage BuildDeterministicAnswer(
         SessionState session,
@@ -44,102 +49,160 @@ public sealed class HybridCoachEngine : ICoachEngine
 
         if (!gate.Allowed)
         {
-            LogTrace(userMessage, topic, gate, "deterministic-gate", null, "DrivingTechniqueGate blocked AI path.");
+            RecordDiagnostic(
+                userMessage,
+                topic,
+                gate,
+                "deterministic-gate",
+                null,
+                "DrivingTechniqueGate blocked AI path.",
+                usedAi: false,
+                usedFallback: true,
+                timedOut: false,
+                latencyMs: null);
             return fallback;
         }
 
         if (!ShouldTryAi(evidence, topic, session, context))
         {
-            LogTrace(
+            RecordDiagnostic(
                 userMessage,
                 topic,
                 gate,
                 "deterministic",
                 DescribeEvidence(evidence, topic),
-                "AI disabled or no eligible evidence.");
+                "AI disabled or no eligible evidence.",
+                usedAi: false,
+                usedFallback: false,
+                timedOut: false,
+                latencyMs: null);
             return fallback;
         }
 
         var aiContext = EngineerAiContextBuilder.Build(session, userMessage, context, evidence!);
         if (aiContext.Facts.Count == 0)
         {
-            LogTrace(
+            RecordDiagnostic(
                 userMessage,
                 topic,
                 gate,
                 "deterministic-fallback",
                 DescribeEvidence(evidence, topic),
-                "AI context had no eligible facts.");
+                "AI context had no eligible facts.",
+                usedAi: false,
+                usedFallback: true,
+                timedOut: false,
+                latencyMs: null);
             return fallback;
         }
 
         try
         {
             using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(options.TimeoutSeconds));
+            var stopwatch = Stopwatch.StartNew();
             var result = aiProvider
                 .GenerateAnswerAsync(new EngineerAiRequest(userMessage, aiContext, options.MaxResponseWords), cancellation.Token)
                 .GetAwaiter()
                 .GetResult();
+            stopwatch.Stop();
+            var latencyMs = result.LatencyMs ?? (int)stopwatch.ElapsedMilliseconds;
 
             if (!result.Success || string.IsNullOrWhiteSpace(result.Answer))
             {
-                LogTrace(
+                var timedOut = IsTimeoutFailure(result.FailureReason);
+                RecordDiagnostic(
                     userMessage,
                     topic,
                     gate,
                     "deterministic-fallback",
                     aiContext.Facts[0].Topic,
-                    result.FailureReason ?? "AI provider returned no answer.");
+                    result.FailureReason ?? "AI provider returned no answer.",
+                    usedAi: false,
+                    usedFallback: true,
+                    timedOut: timedOut,
+                    latencyMs: latencyMs);
                 return fallback;
             }
 
             if (DrivingTechniqueGate.IsDrivingTechniqueTopic(topic)
                 && DrivingTechniqueGate.ContainsBlockedTechniqueLeak(result.Answer))
             {
-                LogTrace(
+                RecordDiagnostic(
                     userMessage,
                     topic,
                     gate,
                     "deterministic-fallback",
                     aiContext.Facts[0].Topic,
-                    "AI answer leaked invalid technique evidence.");
+                    "AI answer leaked invalid technique evidence.",
+                    usedAi: false,
+                    usedFallback: true,
+                    timedOut: false,
+                    latencyMs: latencyMs);
                 return fallback;
             }
 
             var validated = EngineerAiResponseValidator.Validate(result.Answer, aiContext, options.MaxResponseWords);
             if (validated is null)
             {
-                LogTrace(
+                RecordDiagnostic(
                     userMessage,
                     topic,
                     gate,
                     "deterministic-fallback",
                     aiContext.Facts[0].Topic,
-                    "AI answer failed validation.");
+                    "AI answer failed validation.",
+                    usedAi: false,
+                    usedFallback: true,
+                    timedOut: false,
+                    latencyMs: latencyMs);
                 return fallback;
             }
 
             var uncertainty = result.Uncertainty ?? EngineerAiResponseValidator.BuildUncertainty(aiContext);
             var packets = AttachEvidencePackets(evidence!, aiContext);
-            LogTrace(
+            RecordDiagnostic(
                 userMessage,
                 topic,
                 gate,
                 "hybrid-ai",
                 aiContext.Facts[0].Topic,
-                null);
+                null,
+                usedAi: true,
+                usedFallback: false,
+                timedOut: false,
+                latencyMs: latencyMs);
             return CoachResponseFormatter.ApplyPreferences(
                 new CoachMessage("coach", validated, [], uncertainty, packets),
                 context?.Preferences);
         }
         catch (OperationCanceledException)
         {
-            LogTrace(userMessage, topic, gate, "deterministic-fallback", null, "AI request timed out.");
+            RecordDiagnostic(
+                userMessage,
+                topic,
+                gate,
+                "deterministic-fallback",
+                null,
+                "AI request timed out.",
+                usedAi: false,
+                usedFallback: true,
+                timedOut: true,
+                latencyMs: options.TimeoutSeconds * 1000);
             return fallback;
         }
         catch (Exception exception)
         {
-            LogTrace(userMessage, topic, gate, "deterministic-fallback", null, exception.Message);
+            RecordDiagnostic(
+                userMessage,
+                topic,
+                gate,
+                "deterministic-fallback",
+                null,
+                exception.Message,
+                usedAi: false,
+                usedFallback: true,
+                timedOut: false,
+                latencyMs: null);
             return fallback;
         }
     }
@@ -163,19 +226,50 @@ public sealed class HybridCoachEngine : ICoachEngine
             return false;
         }
 
-        if (topic is CoachQueryTopic.PushConfidence or CoachQueryTopic.Tyre or CoachQueryTopic.FuelStrategy
-            or CoachQueryTopic.TrackIdentity or CoachQueryTopic.CarIdentity or CoachQueryTopic.Position
-            or CoachQueryTopic.RaceAwareness or CoachQueryTopic.TrackMemory)
-        {
-            return false;
-        }
+        return DrivingTechniqueGate.Evaluate(topic, session, context?.SessionContext).Allowed;
+    }
 
-        if (!DrivingTechniqueGate.Evaluate(topic, session, context?.SessionContext).Allowed)
-        {
-            return false;
-        }
+    private static bool IsTimeoutFailure(string? failureReason) =>
+        failureReason?.Contains("timed out", StringComparison.OrdinalIgnoreCase) == true;
 
-        return true;
+    private string ResolveModelLabel() =>
+        aiProvider switch
+        {
+            OpenAiCompatibleEngineerAiProvider openAi => openAi.ResolvedModel,
+            _ => string.IsNullOrWhiteSpace(options.Model) ? aiProvider.Name : options.Model
+        };
+
+    private void RecordDiagnostic(
+        string query,
+        CoachQueryTopic topic,
+        DrivingTechniqueGateResult gate,
+        string answerSource,
+        string? selectedEvidenceType,
+        string? fallbackReason,
+        bool usedAi,
+        bool usedFallback,
+        bool timedOut,
+        int? latencyMs)
+    {
+        var diagnostic = new EngineerAiDiagnosticTrace(
+            aiProvider.Name,
+            ResolveModelLabel(),
+            options.TimeoutSeconds,
+            fallbackReason,
+            latencyMs,
+            usedAi,
+            usedFallback,
+            timedOut);
+        AiEngineerRuntime.LastDiagnostic = diagnostic;
+        CoachQueryDiagnosticLog.RaiseAi(diagnostic);
+        CoachQueryDiagnosticLog.Raise(new CoachAnswerTrace(
+            query,
+            topic,
+            !gate.Allowed,
+            gate.UnavailableMessage,
+            answerSource,
+            selectedEvidenceType,
+            fallbackReason));
     }
 
     private static string? DescribeEvidence(CoachEvidenceBundle? evidence, CoachQueryTopic topic)
@@ -195,26 +289,10 @@ public sealed class HybridCoachEngine : ICoachEngine
             }
         }
 
-        var first = evidence.Packets[0];
+        var first = evidence.Packets.FirstOrDefault(packet =>
+            !string.Equals(packet.Category, "RaceAwareness", StringComparison.Ordinal))
+            ?? evidence.Packets[0];
         return $"{first.Category}/{first.Summary}";
-    }
-
-    private static void LogTrace(
-        string query,
-        CoachQueryTopic topic,
-        DrivingTechniqueGateResult gate,
-        string answerSource,
-        string? selectedEvidenceType,
-        string? fallbackReason)
-    {
-        CoachQueryDiagnosticLog.Raise(new CoachAnswerTrace(
-            query,
-            topic,
-            !gate.Allowed,
-            gate.UnavailableMessage,
-            answerSource,
-            selectedEvidenceType,
-            fallbackReason));
     }
 
     private static IReadOnlyList<CoachEvidencePacket> AttachEvidencePackets(

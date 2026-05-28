@@ -18,6 +18,7 @@ public sealed record CoachQueryPipelineResult(
 public static class CoachQueryPipeline
 {
     public const string ExpectedStationaryBrakingGateMessage = "No braking data yet. Drive a clean lap first.";
+    public const string UnclearTranscriptMessage = "I didn't catch that.";
 
     public static CoachQueryPipelineResult Resolve(
         SessionState session,
@@ -26,9 +27,28 @@ public static class CoachQueryPipeline
         CoachContext? context = null,
         CoachEvidenceBundle? evidence = null,
         CoachPreferencesRecord? preferences = null,
-        bool confirmQuery = false)
+        bool confirmQuery = false,
+        CoachQueryTranscriptContext? transcriptContext = null)
     {
         var effectivePreferences = preferences ?? context?.Preferences;
+        var rawTranscript = transcriptContext?.RawTranscript ?? query;
+        var normalizedTranscript = transcriptContext?.NormalizedTranscript
+            ?? CoachQueryTopicClassifier.NormalizeQuery(query);
+
+        if (ShouldRejectUnclearTranscript(transcriptContext))
+        {
+            return BuildUnclearTranscriptResult(
+                query,
+                rawTranscript,
+                normalizedTranscript,
+                CoachQueryTopicClassifier.ClassifyPrimary(query),
+                session,
+                context,
+                effectivePreferences,
+                confirmQuery,
+                transcriptContext);
+        }
+
         var topic = DrivingTechniqueOutputSanitizer.ResolveTopic(query);
         var gate = DrivingTechniqueGate.Evaluate(topic, session, context?.SessionContext);
         var deterministicWritten = coachEngine.BuildDeterministicAnswer(session, query, context, evidence);
@@ -40,10 +60,12 @@ public static class CoachQueryPipeline
                 session,
                 context?.SessionContext,
                 primaryWritten,
-                deterministicWritten));
+                deterministicWritten),
+            context?.RaceContext);
 
         var raceRouting = RaceAwarenessQueryClassifier.Classify(query, context?.RaceContext);
         sanitizedWritten = RaceAwarenessAnswerValidator.Enforce(query, sanitizedWritten, session, context);
+        sanitizedWritten = CoachTopicOutputGuard.RejectIdentityBleed(topic, sanitizedWritten, context?.RaceContext);
 
         var summaryResult = SpokenSummaryGenerator.GenerateSpokenSummary(sanitizedWritten, effectivePreferences, query);
         if (string.IsNullOrWhiteSpace(summaryResult.Summary))
@@ -83,6 +105,8 @@ public static class CoachQueryPipeline
             requiresUnifiedOutput ? [] : sanitizedWritten.EvidencePackets);
 
         var answerSource = InferAnswerSource(primaryWritten, deterministicWritten, sanitizedWritten, gate, requiresUnifiedOutput);
+        var evidenceSelection = DescribeEvidence(evidence, topic);
+        var aiDiagnostic = AiEngineerRuntime.LastDiagnostic;
         var trace = new CoachQueryRuntimeTrace(
             query,
             topic,
@@ -96,7 +120,7 @@ public static class CoachQueryPipeline
             payload,
             displayText,
             answerSource,
-            DescribeEvidence(evidence, topic),
+            evidenceSelection.FullDescription,
             InferFallbackReason(requiresUnifiedOutput, gate, primaryWritten, sanitizedWritten),
             Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown",
             raceRouting.Subtopic,
@@ -108,7 +132,15 @@ public static class CoachQueryPipeline
                 : null,
             raceRouting.FallbackReason,
             raceRouting.SelectedField,
-            raceRouting.SelectedValue);
+            raceRouting.SelectedValue,
+            rawTranscript,
+            normalizedTranscript,
+            evidenceSelection.Category,
+            aiDiagnostic?.ProviderSelected,
+            aiDiagnostic?.Model,
+            aiDiagnostic?.TimeoutSeconds,
+            aiDiagnostic?.LatencyMs,
+            aiDiagnostic?.FallbackReason);
 
         CoachQueryDiagnosticLog.RaiseRuntime(trace);
         CoachQueryDiagnosticLog.Raise(new CoachAnswerTrace(
@@ -117,10 +149,89 @@ public static class CoachQueryPipeline
             !gate.Allowed,
             gate.UnavailableMessage,
             answerSource,
-            DescribeEvidence(evidence, topic),
+            evidenceSelection.FullDescription,
             trace.FallbackReason));
 
         return new CoachQueryPipelineResult(finalWritten, summaryResult, payload, displayText, trace);
+    }
+
+    private static bool ShouldRejectUnclearTranscript(CoachQueryTranscriptContext? transcriptContext)
+    {
+        if (transcriptContext?.GateDecision is { Accepted: false })
+        {
+            return true;
+        }
+
+        if (transcriptContext?.Confidence is { } confidence
+            && confidence < TranscriptGateOptions.Default.MinimumConfidence)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static CoachQueryPipelineResult BuildUnclearTranscriptResult(
+        string query,
+        string rawTranscript,
+        string normalizedTranscript,
+        CoachQueryTopic topic,
+        SessionState session,
+        CoachContext? context,
+        CoachPreferencesRecord? preferences,
+        bool confirmQuery,
+        CoachQueryTranscriptContext? transcriptContext)
+    {
+        var unclearMessage = transcriptContext?.GateDecision?.SpokenRejectionMessage;
+        if (string.IsNullOrWhiteSpace(unclearMessage))
+        {
+            unclearMessage = UnclearTranscriptMessage;
+        }
+
+        var written = new CoachMessage("coach", unclearMessage, [], "Transcript rejected before routing.", []);
+        var summaryResult = new SpokenSummaryResult(unclearMessage, unclearMessage, unclearMessage, "transcript-rejected");
+        var payload = SpokenSummaryGenerator.ComposeSpokenPayload(
+            unclearMessage,
+            confirmQuery,
+            SpokenSummaryGenerator.ResolveMaxWords(preferences));
+        var raceRouting = RaceAwarenessQueryClassifier.Classify(query, context?.RaceContext);
+        var trace = new CoachQueryRuntimeTrace(
+            query,
+            topic,
+            context?.SessionContext?.SessionModeLabel ?? SessionContextAssessment.InitialLive.SessionModeLabel,
+            session.CompletedLaps.Count,
+            false,
+            unclearMessage,
+            unclearMessage,
+            unclearMessage,
+            unclearMessage,
+            payload,
+            unclearMessage,
+            "transcript-rejected",
+            null,
+            transcriptContext?.GateDecision?.Reason ?? "Transcript rejected before routing.",
+            Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown",
+            raceRouting.Subtopic,
+            null,
+            null,
+            transcriptContext?.GateDecision?.Reason,
+            null,
+            null,
+            rawTranscript,
+            normalizedTranscript,
+            null);
+
+        CoachQueryDiagnosticLog.RaiseRuntime(trace);
+        CoachQueryDiagnosticLog.Raise(new CoachAnswerTrace(
+            query,
+            topic,
+            false,
+            unclearMessage,
+            "transcript-rejected",
+            null,
+            trace.FallbackReason));
+
+        return new CoachQueryPipelineResult(written, summaryResult, payload, unclearMessage, trace);
     }
 
     private static string InferAnswerSource(
@@ -167,11 +278,13 @@ public static class CoachQueryPipeline
         return null;
     }
 
-    private static string? DescribeEvidence(CoachEvidenceBundle? evidence, CoachQueryTopic topic)
+    private static (string? Category, string? FullDescription) DescribeEvidence(
+        CoachEvidenceBundle? evidence,
+        CoachQueryTopic topic)
     {
         if (evidence is null || evidence.Packets.Count == 0)
         {
-            return null;
+            return (null, null);
         }
 
         var evidenceTopic = CoachQueryTopicClassifier.ToEvidenceTopic(topic);
@@ -180,11 +293,27 @@ public static class CoachQueryPipeline
             var selected = evidence.Select(evidenceTopic.Value).FirstOrDefault();
             if (selected is not null)
             {
-                return $"{selected.Category}/{selected.Summary}";
+                return (selected.Category, $"{selected.Category}/{selected.Summary}");
+            }
+
+            if (CoachQueryTopicClassifier.BlocksIdentityRouting(topic))
+            {
+                return (null, null);
             }
         }
 
-        var first = evidence.Packets[0];
-        return $"{first.Category}/{first.Summary}";
+        if (CoachQueryTopicClassifier.BlocksIdentityRouting(topic))
+        {
+            return (null, null);
+        }
+
+        var first = evidence.Packets.FirstOrDefault(packet =>
+            !string.Equals(packet.Category, "RaceAwareness", StringComparison.Ordinal));
+        if (first is null)
+        {
+            return (null, null);
+        }
+
+        return (first.Category, $"{first.Category}/{first.Summary}");
     }
 }

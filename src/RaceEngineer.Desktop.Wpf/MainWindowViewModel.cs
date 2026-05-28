@@ -199,6 +199,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         voiceInputService.StateChanged += (_, _) => RaiseVoiceProperties();
         CoachQueryDiagnosticLog.TraceRaised += OnCoachQueryTraceRaised;
         CoachQueryDiagnosticLog.RuntimeTraceRaised += OnCoachQueryRuntimeTraceRaised;
+        CoachQueryDiagnosticLog.AiTraceRaised += OnAiTraceRaised;
         pushToTalkHotkey = ParsePushToTalkHotkeySafely(settings.PushToTalkHotkey);
         storageService = new StorageService(settings.DatabasePath);
         profilePreferencesService = new ProfilePreferencesService(storageService);
@@ -435,6 +436,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         : userPreferences.Coach.QuietModeEnabled
             ? "Quiet"
             : "Normal";
+
+    public string AiEngineerStatus => AiEngineerStatusResolver.ResolveLabel(appSettings, AiEngineerRuntime.LastDiagnostic);
 
     public string PrefFuelSafetyMarginLaps
     {
@@ -677,6 +680,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         }
 
         ChatMessages.Add($"Startup: Voice input status — {voiceInputService.StatusText}. Provider: {voiceInputService.ProviderStatus}");
+        ChatMessages.Add($"Startup: AI engineer status — {AiEngineerStatus}. Set RACE_ENGINEER_AI_API_KEY for OpenAI.");
 
         try
         {
@@ -868,7 +872,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         Application.Current?.Dispatcher.Invoke(() =>
         {
             ChatMessages.Add(
-                $"Coach trace: transcript='{trace.Transcript}' topic={trace.Topic} mode={trace.SessionMode} laps={trace.CompletedLaps} gate={(trace.GateBlocked ? "blocked" : "open")} gateMsg='{trace.GateMessage ?? "none"}' det='{trace.DeterministicAnswer}' ai='{trace.PrimaryAnswer}' spoken='{trace.SpokenSummary}' tts='{trace.FinalTtsPayload}' ui='{trace.FinalDisplayedText}' source={trace.AnswerSource} build={trace.AssemblyVersion}");
+                $"Coach trace: raw='{trace.RawTranscript ?? trace.Transcript}' normalized='{trace.NormalizedTranscript ?? trace.Transcript}' topic={trace.Topic} subtopic={trace.RaceAwarenessSubtopic?.ToString() ?? "none"} evidenceCategory={trace.SelectedEvidenceCategory ?? "none"} source={trace.AnswerSource} aiProvider={trace.AiProviderSelected ?? "none"} aiModel={trace.AiModel ?? "none"} aiTimeout={trace.AiTimeoutSeconds?.ToString() ?? "none"} aiLatencyMs={trace.AiLatencyMs?.ToString() ?? "none"} aiFallback={trace.AiFallbackReason ?? "none"} det='{trace.DeterministicAnswer}' ai='{trace.PrimaryAnswer}' ui='{trace.FinalDisplayedText}' build={trace.AssemblyVersion}");
+            OnPropertyChanged(nameof(AiEngineerStatus));
+        });
+    }
+
+    private void OnAiTraceRaised(EngineerAiDiagnosticTrace trace)
+    {
+        Application.Current?.Dispatcher.Invoke(() =>
+        {
+            ChatMessages.Add(
+                $"AI diag: provider={trace.ProviderSelected} model={trace.Model} timeout={trace.TimeoutSeconds}s latency={trace.LatencyMs?.ToString() ?? "none"}ms usedAi={trace.UsedAi} fallback={trace.FallbackReason ?? "none"}");
+            OnPropertyChanged(nameof(AiEngineerStatus));
         });
     }
 
@@ -1349,12 +1364,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private void OnVoiceQueryRecognized(object? sender, VoiceInputQueryEventArgs e)
     {
-        Application.Current.Dispatcher.Invoke(() => HandleVoiceQuery(e.Text));
+        Application.Current.Dispatcher.Invoke(() => HandleVoiceQuery(e.Text, e.Confidence));
     }
 
-    private void HandleVoiceQuery(string query)
+    private void HandleVoiceQuery(string query, float? confidence = null)
     {
         ChatMessages.Add(isReviewMode ? $"You voice (review): {query}" : $"You voice: {query}");
+        var transcriptContext = confidence is null
+            ? null
+            : new CoachQueryTranscriptContext(
+                RawTranscript: query,
+                NormalizedTranscript: CoachQueryTopicClassifier.NormalizeQuery(query),
+                Confidence: confidence);
         var result = voiceService.HandleSpokenQuery(
             ActiveSession,
             query,
@@ -1362,7 +1383,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             CurrentCoachContext(),
             BuildCoachEvidence(),
             confirmQuery: voiceInputService.ConfirmationsEnabled,
-            preferences: userPreferences.Coach);
+            preferences: userPreferences.Coach,
+            transcriptContext: transcriptContext);
         AppendCoachChatLines(result.WrittenResponse);
         ChatMessages.Add(result.Spoken
             ? $"Voice diag: spoken — ui='{result.FinalDisplayedText}' summary='{result.GeneratedSummary}' tts='{result.FinalTtsPayload}'"

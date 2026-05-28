@@ -23,4 +23,12 @@ public sealed record CoachQueryRuntimeTrace(
     string? RaceAwarenessMissingFields = null,
     string? RaceAwarenessFallbackReason = null,
     string? RaceAwarenessSelectedField = null,
-    string? RaceAwarenessSelectedValue = null);
+    string? RaceAwarenessSelectedValue = null,
+    string? RawTranscript = null,
+    string? NormalizedTranscript = null,
+    string? SelectedEvidenceCategory = null,
+    string? AiProviderSelected = null,
+    string? AiModel = null,
+    int? AiTimeoutSeconds = null,
+    int? AiLatencyMs = null,
+    string? AiFallbackReason = null);

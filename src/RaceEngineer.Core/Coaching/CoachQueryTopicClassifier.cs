@@ -29,28 +29,16 @@ public enum CoachQueryTopic
 
 public static class CoachQueryTopicClassifier
 {
+    public static string NormalizeQuery(string question) =>
+        question.ReplaceLineEndings(" ").Trim().ToLowerInvariant();
+
     public static CoachQueryTopic ClassifyPrimary(string question)
     {
-        var text = question.ToLowerInvariant();
+        var text = NormalizeQuery(question);
 
         if (ContainsAny(text, CoachQueryPhrases.TrackMemory))
         {
             return CoachQueryTopic.TrackMemory;
-        }
-
-        if (RaceAwarenessQueryClassifier.IsTrackIdentityQuery(text))
-        {
-            return CoachQueryTopic.TrackIdentity;
-        }
-
-        if (RaceAwarenessQueryClassifier.IsCarIdentityQuery(text))
-        {
-            return CoachQueryTopic.CarIdentity;
-        }
-
-        if (ContainsAny(text, CoachQueryPhrases.RaceAwareness))
-        {
-            return CoachQueryTopic.RaceAwareness;
         }
 
         if (ContainsAny(text, CoachQueryPhrases.Position))
@@ -138,8 +126,50 @@ public static class CoachQueryTopicClassifier
             return CoachQueryTopic.Strategy;
         }
 
+        if (ContainsAny(text, CoachQueryPhrases.RaceAwareness))
+        {
+            return CoachQueryTopic.RaceAwareness;
+        }
+
+        if (RaceAwarenessQueryClassifier.IsTrackIdentityQuery(text))
+        {
+            return CoachQueryTopic.TrackIdentity;
+        }
+
+        if (RaceAwarenessQueryClassifier.IsCarIdentityQuery(text))
+        {
+            return CoachQueryTopic.CarIdentity;
+        }
+
         return CoachQueryTopic.Unknown;
     }
+
+    public static bool IsTechnicalTopic(string text)
+    {
+        var normalized = NormalizeQuery(text);
+        return ContainsAny(normalized, CoachQueryPhrases.Tyre)
+            || normalized.Contains("gume", StringComparison.Ordinal)
+            || ContainsAny(normalized, CoachQueryPhrases.LosingTime)
+            || ContainsAny(normalized, CoachQueryPhrases.Braking)
+            || ContainsAny(normalized, CoachQueryPhrases.Throttle)
+            || ContainsAny(normalized, CoachQueryPhrases.Improvement)
+            || ContainsAny(normalized, CoachQueryPhrases.RacePace)
+            || ContainsAny(normalized, CoachQueryPhrases.PushConfidence)
+            || ContainsAny(normalized, CoachQueryPhrases.LapTime)
+            || normalized.Contains("vrijeme kruga", StringComparison.Ordinal)
+            || normalized.Contains("vreme kruga", StringComparison.Ordinal)
+            || ContainsAny(normalized, "compare my laps", "compare laps", "lap comparison");
+    }
+
+    public static bool BlocksIdentityRouting(CoachQueryTopic topic) =>
+        topic is CoachQueryTopic.Tyre
+            or CoachQueryTopic.PushConfidence
+            or CoachQueryTopic.LosingTime
+            or CoachQueryTopic.Braking
+            or CoachQueryTopic.Throttle
+            or CoachQueryTopic.Improvement
+            or CoachQueryTopic.LapComparison
+            or CoachQueryTopic.RacePace;
 
     public static CoachEvidenceTopic? ToEvidenceTopic(CoachQueryTopic topic) =>
         topic switch

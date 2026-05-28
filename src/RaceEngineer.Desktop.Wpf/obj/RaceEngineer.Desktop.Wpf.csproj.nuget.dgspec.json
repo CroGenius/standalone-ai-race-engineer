@@ -4,14 +4,14 @@
     "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj": {}
   },
   "projects": {
-    "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj": {
+    "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj",
+        "projectUniqueName": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj",
         "projectName": "RaceEngineer.Core",
-        "projectPath": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj",
+        "projectPath": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj",
         "packagesPath": "C:\\Users\\budis\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\obj\\",
+        "outputPath": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\budis\\AppData\\Roaming\\NuGet\\NuGet.Config"
@@ -108,8 +108,8 @@
             "framework": "net8.0-windows7.0",
             "targetAlias": "net8.0-windows",
             "projectReferences": {
-              "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj": {
-                "projectPath": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj"
+              "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj": {
+                "projectPath": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj"
               }
             }
           }

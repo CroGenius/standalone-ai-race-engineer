@@ -11,6 +11,12 @@ public static class RaceAwarenessAnswerValidator
         SessionState session,
         CoachContext? context)
     {
+        if (CoachQueryTopicClassifier.IsTechnicalTopic(query)
+            || CoachQueryTopicClassifier.BlocksIdentityRouting(CoachQueryTopicClassifier.ClassifyPrimary(query)))
+        {
+            return message;
+        }
+
         var routing = RaceAwarenessQueryClassifier.Classify(query, context?.RaceContext);
         if (!RequiresValidation(routing.Subtopic, query))
         {
@@ -125,7 +131,6 @@ public static class RaceAwarenessAnswerValidator
             or RaceAwarenessSubtopic.GapBehind
             or RaceAwarenessSubtopic.SessionType
             or RaceAwarenessSubtopic.OpponentCount
-            or RaceAwarenessSubtopic.RaceContext
         || RaceAwarenessQueryClassifier.LooksLikeTrackRelatedQuery(query)
         || RaceAwarenessQueryClassifier.LooksLikeCarRelatedQuery(query)
         || RaceAwarenessQueryClassifier.LooksLikePositionQuery(query);
@@ -136,10 +141,8 @@ public static class RaceAwarenessAnswerValidator
 
     private static bool ContainsValidCarAnswer(string content) =>
         content.Contains("car:", StringComparison.OrdinalIgnoreCase)
-            || (content.Contains('.', StringComparison.Ordinal)
-                && !ContainsValidTrackAnswer(content)
-                && !ContainsUnavailableTrackMessage(content)
-                && !ContainsPositionAnswer(content));
+            || content.Contains(RaceAwarenessAnswerBuilder.CarUnavailableMessage, StringComparison.OrdinalIgnoreCase)
+            || CoachIdentityAnswerGuard.LooksLikeBareCarNameAnswer(content);
 
     private static bool ContainsUnavailableTrackMessage(string content) =>
         content.Contains(RaceAwarenessAnswerBuilder.TrackUnavailableMessage, StringComparison.OrdinalIgnoreCase);

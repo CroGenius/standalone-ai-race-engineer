@@ -45,19 +45,31 @@ public sealed record EngineerAiRequest(
     EngineerAiContext Context,
     int MaxResponseWords);
 
+public sealed record EngineerAiDiagnosticTrace(
+    string ProviderSelected,
+    string Model,
+    int TimeoutSeconds,
+    string? FallbackReason,
+    int? LatencyMs,
+    bool UsedAi,
+    bool UsedFallback,
+    bool TimedOut);
+
 public sealed record EngineerAiResult(
     bool Success,
     string? Answer,
     string? Uncertainty,
     string Source,
-    string? FailureReason)
+    string? FailureReason,
+    int? LatencyMs = null)
 {
     public static EngineerAiResult Disabled(string reason) =>
         new(false, null, null, "disabled", reason);
 
-    public static EngineerAiResult Failed(string reason, string source = "ai") =>
-        new(false, null, null, source, reason);
+    public static EngineerAiResult Failed(string reason, string source = "ai", int? latencyMs = null) =>
+        new(false, null, null, source, reason, latencyMs);
 
-    public static EngineerAiResult Succeeded(string answer, string source, string? uncertainty = null) =>
-        new(true, answer, uncertainty, source, null);
+    public static EngineerAiResult Succeeded(string answer, string source, string? uncertainty = null, int? latencyMs = null) =>
+        new(true, answer, uncertainty, source, null, latencyMs);
 }
+

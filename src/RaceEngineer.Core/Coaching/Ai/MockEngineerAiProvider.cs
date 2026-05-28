@@ -47,6 +47,8 @@ public sealed class MockEngineerAiProvider : IEngineerAiProvider
             CoachQueryTopic.FuelConsumption => FormatFuelConsumptionAnswer(request.Context, FilterFactsByTopic(request.Context.Facts, CoachQueryTopic.FuelConsumption)),
             CoachQueryTopic.FuelStrategy => FormatFuelStrategyAnswer(request.Context, FilterFactsByTopic(request.Context.Facts, CoachQueryTopic.FuelStrategy)),
             CoachQueryTopic.Strategy or CoachQueryTopic.Pit => FormatStrategyAnswer(request, topicFacts),
+            CoachQueryTopic.TrackIdentity => FormatTrackIdentityAnswer(topicFacts),
+            CoachQueryTopic.CarIdentity => FormatCarIdentityAnswer(topicFacts),
             _ => BuildTopicAnswer("Telemetry shows", topicFacts)
         };
 
@@ -78,6 +80,54 @@ public sealed class MockEngineerAiProvider : IEngineerAiProvider
         }
 
         return BuildTopicAnswer("Tyres from telemetry:", tyreFacts);
+    }
+
+    private static string FormatTrackIdentityAnswer(IReadOnlyList<EngineerAiFact> facts)
+    {
+        var trackFact = facts.FirstOrDefault(fact =>
+            fact.Summary.Contains("Track identity", StringComparison.OrdinalIgnoreCase)
+                || fact.Detail.Contains("track:", StringComparison.OrdinalIgnoreCase)
+                || fact.Detail.Contains("Track is ", StringComparison.OrdinalIgnoreCase));
+        if (trackFact is null)
+        {
+            return "Track name is unavailable from telemetry.";
+        }
+
+        if (trackFact.Detail.Contains("Track is ", StringComparison.OrdinalIgnoreCase))
+        {
+            var track = trackFact.Detail["Track is ".Length..].Trim().TrimEnd('.');
+            return string.IsNullOrWhiteSpace(track)
+                ? "Track name is unavailable from telemetry."
+                : $"You are on {track}.";
+        }
+
+        var legacyTrack = trackFact.Detail.Replace("track:", "", StringComparison.OrdinalIgnoreCase).Trim();
+        return string.IsNullOrWhiteSpace(legacyTrack)
+            ? "Track name is unavailable from telemetry."
+            : $"You are on {legacyTrack.TrimEnd('.')}.";
+    }
+
+    private static string FormatCarIdentityAnswer(IReadOnlyList<EngineerAiFact> facts)
+    {
+        var carFact = facts.FirstOrDefault(fact =>
+            fact.Summary.Contains("Car identity", StringComparison.OrdinalIgnoreCase)
+                || fact.Detail.Contains("car:", StringComparison.OrdinalIgnoreCase));
+        if (carFact is null)
+        {
+            return "Car name is unavailable from telemetry.";
+        }
+
+        if (carFact.Detail.Contains("car:", StringComparison.OrdinalIgnoreCase))
+        {
+            var car = carFact.Detail.Replace("car:", "", StringComparison.OrdinalIgnoreCase).Trim();
+            return string.IsNullOrWhiteSpace(car)
+                ? "Car name is unavailable from telemetry."
+                : $"{car.TrimEnd('.')}.";
+        }
+
+        return string.IsNullOrWhiteSpace(carFact.Detail)
+            ? "Car name is unavailable from telemetry."
+            : $"{carFact.Detail.Trim().TrimEnd('.')}.";
     }
 
     private static string FormatLapTimeAnswer(IReadOnlyList<EngineerAiFact> facts)
@@ -202,6 +252,11 @@ public sealed class MockEngineerAiProvider : IEngineerAiProvider
             CoachQueryTopic.RacePace => facts.Where(IsPaceFact).ToArray(),
             CoachQueryTopic.LosingTime or CoachQueryTopic.LapComparison => facts.Where(IsLapComparisonFact).ToArray(),
             CoachQueryTopic.Improvement => facts.Where(IsImprovementFact).ToArray(),
+            CoachQueryTopic.TrackIdentity => facts.Where(fact =>
+                fact.Summary.Contains("Track identity", StringComparison.OrdinalIgnoreCase)
+                    || fact.Detail.Contains("Track is ", StringComparison.OrdinalIgnoreCase)).ToArray(),
+            CoachQueryTopic.CarIdentity => facts.Where(fact =>
+                fact.Summary.Contains("Car identity", StringComparison.OrdinalIgnoreCase)).ToArray(),
             CoachQueryTopic.Position => [],
             _ => facts.Where(fact => !IsFuelFact(fact)).ToArray()
         };

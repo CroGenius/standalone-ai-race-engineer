@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -6,22 +7,31 @@ namespace RaceEngineer.Core.Coaching.Ai;
 
 public sealed class OpenAiCompatibleEngineerAiProvider : IEngineerAiProvider, IDisposable
 {
+    public const string ApiKeyEnvironmentVariable = "RACE_ENGINEER_AI_API_KEY";
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly HttpClient httpClient;
     private readonly string endpoint;
     private readonly string model;
     private readonly bool ownsClient;
 
-    public OpenAiCompatibleEngineerAiProvider(string endpoint, string model, HttpClient? httpClient = null)
+    public OpenAiCompatibleEngineerAiProvider(
+        string endpoint,
+        string model,
+        int timeoutSeconds = 3,
+        HttpClient? httpClient = null)
     {
-        this.endpoint = string.IsNullOrWhiteSpace(endpoint)
+        ResolvedEndpoint = string.IsNullOrWhiteSpace(endpoint)
             ? "https://api.openai.com/v1/chat/completions"
             : endpoint.Trim();
-        this.model = string.IsNullOrWhiteSpace(model) ? "gpt-4o-mini" : model.Trim();
+        ResolvedModel = string.IsNullOrWhiteSpace(model) ? "gpt-4o-mini" : model.Trim();
+        TimeoutSeconds = Math.Clamp(timeoutSeconds, 1, 30);
+        this.endpoint = ResolvedEndpoint;
+        this.model = ResolvedModel;
         ownsClient = httpClient is null;
         this.httpClient = httpClient ?? new HttpClient
         {
-            Timeout = TimeSpan.FromSeconds(30)
+            Timeout = TimeSpan.FromSeconds(TimeoutSeconds + 1)
         };
     }
 
@@ -29,47 +39,75 @@ public sealed class OpenAiCompatibleEngineerAiProvider : IEngineerAiProvider, ID
 
     public bool IsEnabled => true;
 
+    public string ResolvedEndpoint { get; }
+
+    public string ResolvedModel { get; }
+
+    public int TimeoutSeconds { get; }
+
+    public static bool HasConfiguredApiKey() =>
+        !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ApiKeyEnvironmentVariable));
+
     public async Task<EngineerAiResult> GenerateAnswerAsync(EngineerAiRequest request, CancellationToken cancellationToken)
     {
-        var apiKey = Environment.GetEnvironmentVariable("RACE_ENGINEER_AI_API_KEY");
+        var stopwatch = Stopwatch.StartNew();
+        var apiKey = Environment.GetEnvironmentVariable(ApiKeyEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            return EngineerAiResult.Failed("OpenAI-compatible provider requires RACE_ENGINEER_AI_API_KEY.");
+            return EngineerAiResult.Failed(
+                $"OpenAI-compatible provider requires {ApiKeyEnvironmentVariable}.",
+                latencyMs: (int)stopwatch.ElapsedMilliseconds);
         }
 
         if (request.Context.Facts.Count == 0)
         {
-            return EngineerAiResult.Failed("No telemetry evidence was provided.");
+            return EngineerAiResult.Failed(
+                "No telemetry evidence was provided.",
+                latencyMs: (int)stopwatch.ElapsedMilliseconds);
         }
 
-        using var message = new HttpRequestMessage(HttpMethod.Post, endpoint);
-        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        message.Content = new StringContent(BuildPayload(request), Encoding.UTF8, "application/json");
-
-        using var response = await httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            return EngineerAiResult.Failed($"OpenAI-compatible provider returned {(int)response.StatusCode}.");
+            using var message = new HttpRequestMessage(HttpMethod.Post, endpoint);
+            message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            message.Content = new StringContent(BuildPayload(request), Encoding.UTF8, "application/json");
+
+            using var response = await httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return EngineerAiResult.Failed(
+                    $"OpenAI-compatible provider returned {(int)response.StatusCode}.",
+                    latencyMs: (int)stopwatch.ElapsedMilliseconds);
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var content = document.RootElement
+                .GetProperty("choices")[0]
+                .GetProperty("message")
+                .GetProperty("content")
+                .GetString();
+
+            var validated = EngineerAiResponseValidator.Validate(content ?? "", request.Context, request.MaxResponseWords);
+            if (validated is null)
+            {
+                return EngineerAiResult.Failed(
+                    "OpenAI-compatible answer failed validation.",
+                    latencyMs: (int)stopwatch.ElapsedMilliseconds);
+            }
+
+            return EngineerAiResult.Succeeded(
+                validated,
+                Name,
+                EngineerAiResponseValidator.BuildUncertainty(request.Context),
+                latencyMs: (int)stopwatch.ElapsedMilliseconds);
         }
-
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
-        var content = document.RootElement
-            .GetProperty("choices")[0]
-            .GetProperty("message")
-            .GetProperty("content")
-            .GetString();
-
-        var validated = EngineerAiResponseValidator.Validate(content ?? "", request.Context, request.MaxResponseWords);
-        if (validated is null)
+        catch (OperationCanceledException)
         {
-            return EngineerAiResult.Failed("OpenAI-compatible answer failed validation.");
+            return EngineerAiResult.Failed(
+                "OpenAI-compatible request timed out.",
+                latencyMs: (int)stopwatch.ElapsedMilliseconds);
         }
-
-        return EngineerAiResult.Succeeded(
-            validated,
-            Name,
-            EngineerAiResponseValidator.BuildUncertainty(request.Context));
     }
 
     public void Dispose()

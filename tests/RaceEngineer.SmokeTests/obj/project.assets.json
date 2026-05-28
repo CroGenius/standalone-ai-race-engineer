@@ -383,8 +383,8 @@
           "framework": "net8.0",
           "targetAlias": "net8.0",
           "projectReferences": {
-            "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj": {
-              "projectPath": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj"
+            "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj": {
+              "projectPath": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj"
             }
           }
         }

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("RaceEngineer.SmokeTests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e004a60c2ad207e7e09aa79de8a4fa393792e242")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1228fad169afaab315e3f5806d9c415dba0943d3")]
 [assembly: System.Reflection.AssemblyProductAttribute("RaceEngineer.SmokeTests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("RaceEngineer.SmokeTests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

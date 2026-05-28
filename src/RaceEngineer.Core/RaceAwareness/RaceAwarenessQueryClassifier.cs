@@ -109,6 +109,11 @@ public static class RaceAwarenessQueryClassifier
     {
         var text = question.Trim().ToLowerInvariant();
 
+        if (CoachQueryTopicClassifier.IsTechnicalTopic(text))
+        {
+            return RaceAwarenessSubtopic.RaceContext;
+        }
+
         if (ContainsAny(text, CoachQueryPhrases.TrackMemory))
         {
             return RaceAwarenessSubtopic.HistoricalComparison;
@@ -160,46 +165,51 @@ public static class RaceAwarenessQueryClassifier
     public static bool IsTrackIdentityQuery(string text)
     {
         var normalized = text.Trim().ToLowerInvariant();
+        if (CoachQueryTopicClassifier.IsTechnicalTopic(normalized))
+        {
+            return false;
+        }
+
         if (ContainsAny(normalized, NonIdentityTrackPhrases))
         {
             return false;
         }
 
-        if (ContainsAny(normalized, TrackIdentityPhrases)
-            || ContainsAny(normalized, CoachQueryPhrases.TrackIdentity))
-        {
-            return true;
-        }
-
-        return LooksLikeTrackIdentity(normalized);
+        return ContainsAny(normalized, TrackIdentityPhrases)
+            || ContainsAny(normalized, CoachQueryPhrases.TrackIdentity);
     }
 
     public static bool IsCarIdentityQuery(string text)
     {
         var normalized = text.Trim().ToLowerInvariant();
+        if (CoachQueryTopicClassifier.IsTechnicalTopic(normalized))
+        {
+            return false;
+        }
+
         if (IsTrackIdentityQuery(normalized))
         {
             return false;
         }
 
-        if (ContainsAny(normalized, CarIdentityPhrases)
-            || ContainsAny(normalized, CoachQueryPhrases.CarIdentity))
-        {
-            return true;
-        }
-
-        return LooksLikeCarIdentity(normalized);
+        return ContainsAny(normalized, CarIdentityPhrases)
+            || ContainsAny(normalized, CoachQueryPhrases.CarIdentity);
     }
 
     public static bool LooksLikeTrackIdentity(string text)
     {
         var normalized = text.Trim().ToLowerInvariant();
+        if (CoachQueryTopicClassifier.IsTechnicalTopic(normalized))
+        {
+            return false;
+        }
+
         if (ContainsAny(normalized, NonIdentityTrackPhrases) || ContainsCarIdentityKeyword(normalized))
         {
             return false;
         }
 
-        if (ContainsAny(normalized, TrackIdentityPhrases))
+        if (IsTrackIdentityQuery(normalized))
         {
             return true;
         }
@@ -222,12 +232,17 @@ public static class RaceAwarenessQueryClassifier
     public static bool LooksLikeCarIdentity(string text)
     {
         var normalized = text.Trim().ToLowerInvariant();
+        if (CoachQueryTopicClassifier.IsTechnicalTopic(normalized))
+        {
+            return false;
+        }
+
         if (IsTrackIdentityQuery(normalized))
         {
             return false;
         }
 
-        if (ContainsAny(normalized, CarIdentityPhrases))
+        if (IsCarIdentityQuery(normalized))
         {
             return true;
         }
@@ -271,7 +286,10 @@ public static class RaceAwarenessQueryClassifier
     private static bool ContainsCarIdentityKeyword(string text) =>
         text.Contains(" car", StringComparison.Ordinal)
             || text.StartsWith("car ", StringComparison.Ordinal)
-            || text.Contains("auto", StringComparison.Ordinal);
+            || text.Contains(" auto", StringComparison.Ordinal)
+            || text.StartsWith("auto ", StringComparison.Ordinal)
+            || text.Contains(" autu", StringComparison.Ordinal)
+            || text.Contains(" auta", StringComparison.Ordinal);
 
     private static bool ContainsPositionIntent(string text) =>
         text.Contains("position", StringComparison.Ordinal)

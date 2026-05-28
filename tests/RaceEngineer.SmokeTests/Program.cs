@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
 using RaceEngineer.Core;
@@ -116,6 +117,11 @@ HybridCoachMockAnswersFromEvidence();
 HybridCoachFallsBackWhenNoEvidence();
 HybridCoachMockAnswersCroatianQuestions();
 HybridCoachFallsBackOnAiTimeout();
+OpenAiCompatibleProviderGeneratesAnswerWithMockHttp();
+AiEngineerStatusResolverReportsConfiguredStates();
+EngineerAiProviderFactorySelectsOpenAiProvider();
+HybridCoachMockAnswersDirectDriverQuestions();
+HybridCoachLiveCalloutsStayDeterministic();
 StrictTopicRoutingTyreQuestionDoesNotReturnFuel();
 StrictTopicRoutingPositionQuestionDoesNotReturnFuel();
 StrictTopicRoutingLapTimeQuestionDoesNotReturnFuel();
@@ -139,6 +145,7 @@ RaceAwarenessRoutingDiagnosticsCoverTrackAndPosition();
 RaceAwarenessValidatorBlocksCrossTopicFallback();
 ProviderDiagMapsTrackAndCarIntoRaceAwareness();
 TrackCarIdentityRoutingKeepsFieldsSeparate();
+TopicRoutingGuardsIdentityBleed();
 CoachHistoricalLapComparisonUsesStoredData();
 DriverPerformanceIntelligenceComputesDeterministicInsights();
 CoachLosingTimeUsesPerformanceIntelligence();
@@ -1769,6 +1776,163 @@ static void HybridCoachFallsBackOnAiTimeout()
     var actual = hybrid.Answer(session, "where am I losing time?", evidence: evidence);
 
     Assert(expected.Content == actual.Content, "Timed-out AI should fall back to deterministic CoachEngine.");
+    Assert(
+        AiEngineerRuntime.LastDiagnostic?.TimedOut == true,
+        "Timed-out AI should record timeout diagnostic.");
+    Assert(
+        AiEngineerStatusResolver.ResolveLabel(AppSettings.Default with { AiEngineerEnabled = true, AiProvider = "mock" }, AiEngineerRuntime.LastDiagnostic) == "Timeout",
+        "Status line should show Timeout after AI timeout.");
+}
+
+static void OpenAiCompatibleProviderGeneratesAnswerWithMockHttp()
+{
+    var previous = Environment.GetEnvironmentVariable(OpenAiCompatibleEngineerAiProvider.ApiKeyEnvironmentVariable);
+    try
+    {
+        Environment.SetEnvironmentVariable(OpenAiCompatibleEngineerAiProvider.ApiKeyEnvironmentVariable, "test-key");
+        using var provider = new OpenAiCompatibleEngineerAiProvider(
+            "https://example.test/v1/chat/completions",
+            "gpt-4o-mini",
+            3,
+            new HttpClient(new MockOpenAiHttpHandler()));
+        var context = new EngineerAiContext(
+            "how is my braking",
+            "Live",
+            "High",
+            true,
+            2,
+            null,
+            [new EngineerAiFact("Braking", "Brake stability", "Stable entry pressure", 0.9, "Analytics", 2)],
+            ["Use only the provided facts."]);
+        var result = provider
+            .GenerateAnswerAsync(new EngineerAiRequest("how is my braking", context, 40), CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+
+        Assert(result.Success, $"OpenAI-compatible provider should succeed with mock HTTP: {result.FailureReason}");
+        Assert(
+            result.Answer?.Contains("Braking looks stable", StringComparison.OrdinalIgnoreCase) == true,
+            "OpenAI-compatible provider should return validated mock content.");
+        Assert(result.LatencyMs is >= 0, "OpenAI-compatible provider should record latency.");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable(OpenAiCompatibleEngineerAiProvider.ApiKeyEnvironmentVariable, previous);
+    }
+}
+
+static void AiEngineerStatusResolverReportsConfiguredStates()
+{
+    var disabled = AppSettings.Default with { AiEngineerEnabled = false, AiProvider = "openai" };
+    Assert(
+        AiEngineerStatusResolver.ResolveLabel(disabled) == "Disabled",
+        "Disabled AI should report Disabled status.");
+
+    var mock = AppSettings.Default with { AiEngineerEnabled = true, AiProvider = "mock" };
+    Assert(
+        AiEngineerStatusResolver.ResolveLabel(mock) == "Mock",
+        "Mock provider should report Mock status.");
+
+    var openAiMissingKey = AppSettings.Default with { AiEngineerEnabled = true, AiProvider = "openai" };
+    var previous = Environment.GetEnvironmentVariable(OpenAiCompatibleEngineerAiProvider.ApiKeyEnvironmentVariable);
+    try
+    {
+        Environment.SetEnvironmentVariable(OpenAiCompatibleEngineerAiProvider.ApiKeyEnvironmentVariable, null);
+        Assert(
+            AiEngineerStatusResolver.ResolveLabel(openAiMissingKey) == "Missing API key",
+            "OpenAI without API key should report Missing API key.");
+
+        Environment.SetEnvironmentVariable(OpenAiCompatibleEngineerAiProvider.ApiKeyEnvironmentVariable, "test-key");
+        Assert(
+            AiEngineerStatusResolver.ResolveLabel(openAiMissingKey) == "OpenAI ready",
+            "OpenAI with API key should report OpenAI ready.");
+
+        var fallbackDiagnostic = new EngineerAiDiagnosticTrace("openai", "gpt-4o-mini", 3, "No facts", 120, false, true, false);
+        Assert(
+            AiEngineerStatusResolver.ResolveLabel(openAiMissingKey, fallbackDiagnostic) == "Fallback",
+            "Last fallback should surface Fallback status.");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable(OpenAiCompatibleEngineerAiProvider.ApiKeyEnvironmentVariable, previous);
+    }
+}
+
+static void EngineerAiProviderFactorySelectsOpenAiProvider()
+{
+    var provider = EngineerAiProviderFactory.Create(AppSettings.Default with
+    {
+        AiEngineerEnabled = true,
+        AiProvider = "openai",
+        AiModel = "gpt-4o-mini",
+        AiTimeoutSeconds = 4
+    });
+
+    Assert(provider.Name == "openai", "Factory should create OpenAI-compatible provider.");
+    var openAi = AssertIs<OpenAiCompatibleEngineerAiProvider>(provider);
+    Assert(openAi.ResolvedModel == "gpt-4o-mini", "Factory should pass configured model.");
+    Assert(openAi.TimeoutSeconds == 4, "Factory should pass configured timeout.");
+}
+
+static void HybridCoachMockAnswersDirectDriverQuestions()
+{
+    var hybrid = new HybridCoachEngine(
+        new MockEngineerAiProvider(),
+        new EngineerAiOptions(true, "mock", "", "", 40, 3));
+    var session = new SessionState();
+    session.ApplySnapshot(
+        SimHubPacketParser.Parse(
+            """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"fuel":18.5,"speed_kmh":180,"provider_diag":{"pm_last_track_id":"Monza-GP","pm_last_car_id":"Ferrari F2004"},"tyre_temp_c":[88,91,90,89]}"""),
+        []);
+    var raceContext = RaceContextService.Build(session, session.LatestSnapshot);
+    var evidence = new CoachEvidenceBuilder().Build(new CoachEvidenceInput(session, [session.LatestSnapshot!], [], null, null, null, null, null, null, null, raceContext));
+
+    var tyre = hybrid.Answer(session, "kakve su gume", new CoachContext(RaceContext: raceContext), evidence);
+    var fuel = hybrid.Answer(session, "koliko goriva imam", new CoachContext(RaceContext: raceContext), evidence);
+    var track = hybrid.Answer(session, "which track am i on", new CoachContext(RaceContext: raceContext), evidence);
+
+    Assert(
+        tyre.Content.Contains("Tyres from telemetry", StringComparison.OrdinalIgnoreCase)
+            || tyre.Content.Contains("Front-left", StringComparison.OrdinalIgnoreCase)
+            || tyre.EvidencePackets.Count > 0,
+        "Tyre question should use AI/mock answer from structured evidence.");
+    Assert(
+        fuel.Content.Contains("liters", StringComparison.OrdinalIgnoreCase)
+            || fuel.Content.Contains("goriv", StringComparison.OrdinalIgnoreCase),
+        "Fuel question should use AI/mock answer from structured evidence.");
+    Assert(
+        track.Content.Contains("You are on Monza-GP", StringComparison.OrdinalIgnoreCase),
+        "Track identity question should use AI/mock answer from structured evidence.");
+    Assert(
+        AiEngineerRuntime.LastDiagnostic?.UsedAi == true,
+        "Direct driver question should record successful AI usage.");
+}
+
+static void HybridCoachLiveCalloutsStayDeterministic()
+{
+    var hybrid = new HybridCoachEngine(
+        new MockEngineerAiProvider(),
+        new EngineerAiOptions(true, "mock", "", "", 40, 3));
+    var deterministic = new CoachEngine();
+    var engine = new EventEngine();
+    var session = new SessionState();
+    Apply(session, engine, Packet("""{"speed_kmh":120,"lap_progress":0.4,"brake":0.9}"""));
+    Apply(session, engine, Packet("""{"speed_kmh":138,"lap_progress":0.41,"brake":0.2}"""));
+    var events = session.RecentEvents.ToArray();
+    var context = SessionContextAssessment.InitialLive;
+
+    var hybridCallout = hybrid.ChooseLiveCallout(events, context);
+    var deterministicCallout = deterministic.ChooseLiveCallout(events, context);
+
+    Assert(
+        (hybridCallout?.Content ?? "") == (deterministicCallout?.Content ?? ""),
+        "Automatic callouts must stay deterministic even when AI is enabled.");
+}
+
+static T AssertIs<T>(object value) where T : class
+{
+    Assert(value is T, $"Expected instance of {typeof(T).Name}.");
+    return (T)value;
 }
 
 static void StrictTopicRoutingTyreQuestionDoesNotReturnFuel()
@@ -2441,6 +2605,111 @@ static void TrackCarIdentityRoutingKeepsFieldsSeparate()
     Assert(pipelineTrack.Trace.RaceAwarenessSelectedValue == "Monza-GP", "Pipeline trace should include selected track value.");
 }
 
+static void TopicRoutingGuardsIdentityBleed()
+{
+    var session = new SessionState();
+    session.ApplySnapshot(
+        SimHubPacketParser.Parse(
+            """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"speed_kmh":180,"provider_diag":{"pm_last_track_id":"Monza-GP","pm_last_car_id":"Ferrari F2004"},"tyre_temp_c":[88,91,90,89]}"""),
+        []);
+    var raceContext = RaceContextService.Build(session, session.LatestSnapshot);
+    var coach = new CoachEngine();
+    var context = new CoachContext(RaceContext: raceContext);
+    var evidence = new CoachEvidenceBuilder().Build(new CoachEvidenceInput(session, [session.LatestSnapshot!], [], null, null, null, null, null, null, null, raceContext));
+
+    Assert(
+        CoachQueryTopicClassifier.ClassifyPrimary("kakve su gume") == CoachQueryTopic.Tyre,
+        "Tyre question should classify as Tyre.");
+    Assert(
+        CoachQueryTopicClassifier.ClassifyPrimary("gdje gubim vrijeme") == CoachQueryTopic.LosingTime,
+        "Losing-time question should classify as LosingTime.");
+    Assert(
+        CoachQueryTopicClassifier.ClassifyPrimary("which sector") == CoachQueryTopic.LosingTime,
+        "Sector question should classify as LosingTime.");
+    Assert(
+        CoachQueryTopicClassifier.ClassifyPrimary("which car am i in") == CoachQueryTopic.CarIdentity,
+        "Car identity question should classify as CarIdentity.");
+    Assert(
+        CoachQueryTopicClassifier.ClassifyPrimary("which track am i on") == CoachQueryTopic.TrackIdentity,
+        "Track identity question should classify as TrackIdentity.");
+
+    var tyreAnswer = coach.Answer(session, "kakve su gume", context, evidence);
+    Assert(
+        !CoachIdentityAnswerGuard.LooksLikeIdentityAnswer(tyreAnswer.Content, raceContext),
+        "Tyre answer must not look like car or track identity.");
+    Assert(
+        tyreAnswer.Content.Contains("Front-left", StringComparison.OrdinalIgnoreCase)
+            || tyreAnswer.Content.Contains("Tyre", StringComparison.OrdinalIgnoreCase)
+            || tyreAnswer.Content.Contains("gum", StringComparison.OrdinalIgnoreCase),
+        "Tyre answer should stay on tyre content.");
+
+    var losingTimeAnswer = coach.Answer(session, "gdje gubim vrijeme", context, evidence);
+    Assert(
+        !CoachIdentityAnswerGuard.LooksLikeIdentityAnswer(losingTimeAnswer.Content, raceContext),
+        "Losing-time answer must not look like identity.");
+    Assert(
+        losingTimeAnswer.Content.Contains(SessionDriverPerformance.NeedCleanLapMessage, StringComparison.Ordinal)
+            || losingTimeAnswer.Content.Contains("loss", StringComparison.OrdinalIgnoreCase)
+            || losingTimeAnswer.Content.Contains("Sector", StringComparison.OrdinalIgnoreCase)
+            || losingTimeAnswer.Content.Contains("Zone", StringComparison.OrdinalIgnoreCase),
+        "Losing-time answer should use performance coaching or request a clean lap.");
+
+    var sectorAnswer = coach.Answer(session, "which sector", context, evidence);
+    Assert(
+        !CoachIdentityAnswerGuard.LooksLikeIdentityAnswer(sectorAnswer.Content, raceContext),
+        "Sector question must never return car or track identity.");
+    Assert(
+        CoachQueryTopicClassifier.ClassifyPrimary("which sector") == CoachQueryTopic.LosingTime,
+        "Sector question routing should stay on performance topic.");
+
+    var carAnswer = coach.Answer(session, "which car am i in", context, evidence);
+    Assert(
+        carAnswer.Content.Contains("Ferrari F2004", StringComparison.OrdinalIgnoreCase),
+        "Car identity question should answer with car only.");
+    Assert(
+        !carAnswer.Content.Contains("You are on", StringComparison.OrdinalIgnoreCase),
+        "Car identity answer must not include track phrasing.");
+
+    var trackAnswer = coach.Answer(session, "which track am i on", context, evidence);
+    Assert(
+        trackAnswer.Content.Contains("You are on Monza-GP", StringComparison.OrdinalIgnoreCase),
+        "Track identity question should answer with track only.");
+    Assert(
+        !trackAnswer.Content.Contains("Ferrari", StringComparison.OrdinalIgnoreCase),
+        "Track identity answer must not include car name.");
+
+    var leakedIdentity = new CoachMessage("coach", "Ferrari F2004.", [], null, []);
+    var guardedTyre = CoachTopicOutputGuard.RejectIdentityBleed(CoachQueryTopic.Tyre, leakedIdentity, raceContext);
+    Assert(
+        guardedTyre.Content.Contains("Tyre status is unavailable", StringComparison.OrdinalIgnoreCase),
+        "Final topic guard should reject identity bleed on tyre questions.");
+
+    var guardedSector = CoachTopicOutputGuard.RejectIdentityBleed(CoachQueryTopic.LosingTime, leakedIdentity, raceContext);
+    Assert(
+        guardedSector.Content.Contains(SessionDriverPerformance.NeedCleanLapMessage, StringComparison.Ordinal),
+        "Final topic guard should reject identity bleed on sector/time-loss questions.");
+
+    var unchangedTyre = RaceAwarenessAnswerValidator.Enforce("kakve su gume", tyreAnswer, session, context);
+    Assert(
+        unchangedTyre.Content == tyreAnswer.Content,
+        "Validator must not rewrite tyre answers into identity responses.");
+
+    var lowConfidence = CoachQueryPipeline.Resolve(
+        session,
+        "which car am i in",
+        coach,
+        context,
+        evidence,
+        transcriptContext: new CoachQueryTranscriptContext(
+            RawTranscript: "which car am i in",
+            NormalizedTranscript: "which car am i in",
+            Confidence: 0.20f));
+    Assert(
+        lowConfidence.FinalDisplayedText.Contains("I didn't catch that", StringComparison.OrdinalIgnoreCase)
+            || lowConfidence.Trace.AnswerSource == "transcript-rejected",
+        "Low-confidence transcript should not route to car identity.");
+}
+
 static void CoachHistoricalLapComparisonUsesStoredData()
 {
     var coach = new CoachEngine();
@@ -2780,5 +3049,18 @@ sealed class SlowMockEngineerAiProvider : IEngineerAiProvider
     {
         await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
         return EngineerAiResult.Succeeded("Too late.", Name);
+    }
+}
+
+sealed class MockOpenAiHttpHandler : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var payload =
+            """{"choices":[{"message":{"content":"Braking looks stable on the latest lap."}}]}""";
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json")
+        });
     }
 }

@@ -26,8 +26,13 @@ public static class CoachTopicOutputGuard
         "All four tyres"
     ];
 
-    public static CoachMessage EnforceTopicIsolation(CoachQueryTopic topic, CoachMessage message)
+    public static CoachMessage EnforceTopicIsolation(
+        CoachQueryTopic topic,
+        CoachMessage message,
+        LiveRaceContext? raceContext = null)
     {
+        message = RejectIdentityBleed(topic, message, raceContext);
+
         var action = DrivingTechniqueOutputSanitizer.ExtractActionText(message.Content);
         var cleaned = topic switch
         {
@@ -49,6 +54,25 @@ public static class CoachTopicOutputGuard
         }
 
         return message with { Content = cleaned };
+    }
+
+    public static CoachMessage RejectIdentityBleed(
+        CoachQueryTopic topic,
+        CoachMessage message,
+        LiveRaceContext? raceContext = null)
+    {
+        if (!CoachQueryTopicClassifier.BlocksIdentityRouting(topic))
+        {
+            return message;
+        }
+
+        var action = DrivingTechniqueOutputSanitizer.ExtractActionText(message.Content);
+        if (!CoachIdentityAnswerGuard.LooksLikeIdentityAnswer(action, raceContext))
+        {
+            return message;
+        }
+
+        return message with { Content = CoachIdentityAnswerGuard.ReplacementForTopic(topic) };
     }
 
     private static string SanitizeFuelStrategy(string content)

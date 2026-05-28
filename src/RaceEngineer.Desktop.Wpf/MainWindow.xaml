@@ -63,6 +63,7 @@
             <StackPanel DockPanel.Dock="Left">
                 <TextBlock Text="AI Race Engineer" FontSize="24" FontWeight="SemiBold" />
                 <TextBlock Text="{Binding SessionLabel}" Foreground="#9AA6AC" Margin="0,4,0,0" />
+                <TextBlock Text="{Binding AiEngineerStatus, StringFormat=AI: {0}}" Foreground="#9AE6B4" Margin="0,4,0,0" />
                 <TextBlock Text="{Binding ReviewModeBanner}" Foreground="#5BC0FF" Margin="0,4,0,0" TextWrapping="Wrap" />
             </StackPanel>
             <TextBlock DockPanel.Dock="Right" Text="{Binding TelemetryStatus}" Foreground="{Binding TelemetryStatusBrush}" FontSize="14" HorizontalAlignment="Right" VerticalAlignment="Center" />
