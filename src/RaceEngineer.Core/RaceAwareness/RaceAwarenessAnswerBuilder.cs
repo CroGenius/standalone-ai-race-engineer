@@ -6,6 +6,7 @@ namespace RaceEngineer.Core.RaceAwareness;
 public static class RaceAwarenessAnswerBuilder
 {
     public const string TrackUnavailableMessage = "Track name is unavailable from telemetry.";
+    public const string CarUnavailableMessage = "Car name is unavailable from telemetry.";
     public const string PositionUnavailableMessage = "Position data is unavailable.";
 
     public static RaceAwarenessAnswer Build(
@@ -13,11 +14,13 @@ public static class RaceAwarenessAnswerBuilder
         SessionState session,
         LiveRaceContext? raceContext,
         RaceAwarenessRoutingResult routing,
-        string? prepTrack = null)
+        string? prepTrack = null,
+        string? prepCar = null)
     {
         return subtopic switch
         {
             RaceAwarenessSubtopic.TrackIdentity => BuildTrackIdentity(raceContext, routing, prepTrack),
+            RaceAwarenessSubtopic.CarIdentity => BuildCarIdentity(raceContext, routing, prepCar),
             RaceAwarenessSubtopic.Position => BuildPosition(session, raceContext, routing),
             RaceAwarenessSubtopic.GapAhead => BuildGapAhead(raceContext, routing),
             RaceAwarenessSubtopic.GapBehind => BuildGapBehind(raceContext, routing),
@@ -49,6 +52,31 @@ public static class RaceAwarenessAnswerBuilder
                 FallbackReason = routing.MissingTelemetryFields.Count > 0
                     ? $"track_name and circuit_id missing ({string.Join(", ", routing.MissingTelemetryFields)})"
                     : "No track or circuit field is available from telemetry or prep."
+            });
+    }
+
+    public static RaceAwarenessAnswer BuildCarIdentity(
+        LiveRaceContext? raceContext,
+        RaceAwarenessRoutingResult routing,
+        string? prepCar = null)
+    {
+        var car = FirstNonEmpty(raceContext?.CarName, prepCar);
+        if (!string.IsNullOrWhiteSpace(car))
+        {
+            return new RaceAwarenessAnswer(
+                $"{car}.",
+                [$"car: {car}"],
+                routing with { FallbackReason = null });
+        }
+
+        return new RaceAwarenessAnswer(
+            CarUnavailableMessage,
+            [],
+            routing with
+            {
+                FallbackReason = routing.MissingTelemetryFields.Count > 0
+                    ? $"car_name missing ({string.Join(", ", routing.MissingTelemetryFields)})"
+                    : "No car field is available from telemetry or prep."
             });
     }
 

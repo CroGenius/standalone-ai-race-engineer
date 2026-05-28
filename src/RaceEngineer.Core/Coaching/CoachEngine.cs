@@ -101,6 +101,15 @@ public sealed class CoachEngine : ICoachEngine
                         context?.RaceContext,
                         RaceAwarenessQueryClassifier.Classify(userMessage, context?.RaceContext),
                         context?.RacePrepPlan?.Track));
+            case CoachQueryTopic.CarIdentity:
+                return ToRaceAwarenessCoachMessage(
+                    RaceAwarenessAnswerBuilder.Build(
+                        RaceAwarenessSubtopic.CarIdentity,
+                        session,
+                        context?.RaceContext,
+                        RaceAwarenessQueryClassifier.Classify(userMessage, context?.RaceContext),
+                        prepTrack: null,
+                        prepCar: context?.RacePrepPlan?.Car));
             case CoachQueryTopic.Position:
                 return ToRaceAwarenessCoachMessage(
                     RaceAwarenessAnswerBuilder.Build(
@@ -226,7 +235,8 @@ public sealed class CoachEngine : ICoachEngine
             session,
             context?.RaceContext,
             routing,
-            context?.RacePrepPlan?.Track);
+            context?.RacePrepPlan?.Track,
+            context?.RacePrepPlan?.Car);
         return ToRaceAwarenessCoachMessage(answer);
     }
 

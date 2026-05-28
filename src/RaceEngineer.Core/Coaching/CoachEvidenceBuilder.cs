@@ -463,6 +463,20 @@ public sealed class CoachEvidenceBuilder
                 $"Track is {track}."));
         }
 
+        if (!string.IsNullOrWhiteSpace(raceContext.CarName))
+        {
+            packets.Add(new CoachEvidencePacket(
+                "RaceAwareness",
+                "Car identity",
+                "Info",
+                0.96,
+                CoachEvidenceSourceType.Session,
+                raceContext.CurrentLap,
+                [],
+                null,
+                $"{raceContext.CarName}."));
+        }
+
         if (raceContext.Position is { } position)
         {
             packets.Add(new CoachEvidencePacket(

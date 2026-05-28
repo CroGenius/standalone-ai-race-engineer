@@ -164,8 +164,8 @@ public sealed class HybridCoachEngine : ICoachEngine
         }
 
         if (topic is CoachQueryTopic.PushConfidence or CoachQueryTopic.Tyre or CoachQueryTopic.FuelStrategy
-            or CoachQueryTopic.TrackIdentity or CoachQueryTopic.Position or CoachQueryTopic.RaceAwareness
-            or CoachQueryTopic.TrackMemory)
+            or CoachQueryTopic.TrackIdentity or CoachQueryTopic.CarIdentity or CoachQueryTopic.Position
+            or CoachQueryTopic.RaceAwareness or CoachQueryTopic.TrackMemory)
         {
             return false;
         }

@@ -69,6 +69,7 @@ public static class EngineerAiContextBuilder
     {
         if (primaryTopic is CoachQueryTopic.Position
             or CoachQueryTopic.TrackIdentity
+            or CoachQueryTopic.CarIdentity
             or CoachQueryTopic.Tyre
             or CoachQueryTopic.PushConfidence
             or CoachQueryTopic.LapTime
@@ -121,6 +122,9 @@ public static class EngineerAiContextBuilder
             CoachQueryTopic.TrackIdentity => packets.Where(packet =>
                 packet.Category == "RaceAwareness"
                     && packet.Summary.Equals("Track identity", StringComparison.Ordinal)),
+            CoachQueryTopic.CarIdentity => packets.Where(packet =>
+                packet.Category == "RaceAwareness"
+                    && packet.Summary.Equals("Car identity", StringComparison.Ordinal)),
             CoachQueryTopic.RaceAwareness => packets.Where(packet => packet.Category == "RaceAwareness"),
             CoachQueryTopic.Position => packets.Where(packet =>
                 packet.Category == "RaceAwareness"

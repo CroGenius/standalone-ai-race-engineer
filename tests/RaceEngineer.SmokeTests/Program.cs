@@ -137,6 +137,7 @@ CoachRaceAwarenessMissingGapSaysUnavailable();
 CoachTrackIdentityRoutingDoesNotFallbackToPosition();
 RaceAwarenessRoutingDiagnosticsCoverTrackAndPosition();
 RaceAwarenessValidatorBlocksCrossTopicFallback();
+ProviderDiagMapsTrackAndCarIntoRaceAwareness();
 CoachHistoricalLapComparisonUsesStoredData();
 TelemetryTraceBuilderCreatesDeterministicTimeline();
 EndToEndFixtureReplayVerifiesPipeline();
@@ -2239,6 +2240,55 @@ static void RaceAwarenessValidatorBlocksCrossTopicFallback()
     Assert(
         !positionAnswer.Content.Contains("You are on Monza", StringComparison.OrdinalIgnoreCase),
         "Position question must not mention track name.");
+}
+
+static void ProviderDiagMapsTrackAndCarIntoRaceAwareness()
+{
+    var json =
+        """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"speed_kmh":180,"provider_diag":{"pm_last_track_id":"Monza-GP","pm_last_car_id":"Ferrari F2004","pm_game_name":"Assetto Corsa"}}""";
+    var valid = SimHubPacketParser.TryParse(json, out var snapshot, out var warning);
+    Assert(valid, $"Provider diag packet should parse: {warning}");
+    Assert(snapshot!.RaceAwareness?.TrackName == "Monza-GP", "pm_last_track_id should map to track name.");
+    Assert(snapshot.RaceAwareness?.CircuitId == "Monza-GP", "pm_last_track_id should also populate circuit id fallback.");
+    Assert(snapshot.RaceAwareness?.CarName == "Ferrari F2004", "pm_last_car_id should map to car name.");
+
+    var session = new SessionState();
+    session.ApplySnapshot(snapshot, []);
+    var raceContext = RaceContextService.Build(session, snapshot);
+    Assert(raceContext.TrackName == "Monza-GP", "Race context should expose provider_diag track.");
+    Assert(raceContext.CarName == "Ferrari F2004", "Race context should expose provider_diag car.");
+    Assert(
+        raceContext.Diagnostics.PresentFields.Contains("track_name"),
+        "Race diagnostics should mark track_name present from provider_diag.");
+    Assert(
+        raceContext.Diagnostics.PresentFields.Contains("car_name"),
+        "Race diagnostics should mark car_name present from provider_diag.");
+
+    var coach = new CoachEngine();
+    var trackAnswer = coach.Answer(session, "which track am i on", new CoachContext(RaceContext: raceContext));
+    Assert(
+        trackAnswer.Content.Contains("You are on Monza-GP", StringComparison.OrdinalIgnoreCase),
+        "Track identity question should use provider_diag track id.");
+    var carAnswer = coach.Answer(session, "which car am i in", new CoachContext(RaceContext: raceContext));
+    Assert(
+        carAnswer.Content.Contains("Ferrari F2004", StringComparison.OrdinalIgnoreCase),
+        "Car identity question should use provider_diag car id.");
+
+    var dbPath = Path.Combine(Path.GetTempPath(), $"race-engineer-provider-diag-{Guid.NewGuid():N}.sqlite3");
+    var storage = new StorageService(dbPath);
+    storage.InitializeAsync().GetAwaiter().GetResult();
+    var memoryService = new TrackMemoryService();
+    var engine = new EventEngine();
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":10.0,"provider_diag":{"pm_last_track_id":"Monza-GP","pm_last_car_id":"Ferrari F2004"}}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":112.0,"fuel":8.0,"provider_diag":{"pm_last_track_id":"Monza-GP","pm_last_car_id":"Ferrari F2004"}}"""));
+    var analytics = new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session));
+    memoryService.UpsertFromSessionAsync(
+        storage,
+        new TrackMemoryInput("Monza-GP", "Ferrari F2004", session, analytics, null, null, null)).GetAwaiter().GetResult();
+    var loaded = memoryService.LoadAsync(storage, "Monza-GP", "Ferrari F2004").GetAwaiter().GetResult();
+    Assert(loaded is not null, "Track memory should key off provider_diag track/car values.");
+    Assert(loaded!.TrackName == "Monza-GP", "Stored track memory should retain provider_diag track id.");
+    Assert(loaded.CarName == "Ferrari F2004", "Stored track memory should retain provider_diag car id.");
 }
 
 static void CoachHistoricalLapComparisonUsesStoredData()

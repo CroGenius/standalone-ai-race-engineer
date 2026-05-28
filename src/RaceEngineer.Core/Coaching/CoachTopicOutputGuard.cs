@@ -37,6 +37,7 @@ public static class CoachTopicOutputGuard
             CoachQueryTopic.Throttle => SanitizeThrottle(action),
             CoachQueryTopic.Braking => SanitizeBraking(action),
             CoachQueryTopic.TrackIdentity => SanitizeTrackIdentity(action),
+            CoachQueryTopic.CarIdentity => SanitizeCarIdentity(action),
             CoachQueryTopic.Position => SanitizePosition(action),
             CoachQueryTopic.RaceAwareness => SanitizeRaceAwareness(action),
             _ => action
@@ -126,6 +127,16 @@ public static class CoachTopicOutputGuard
         return content;
     }
 
+    private static string SanitizeCarIdentity(string content)
+    {
+        if (ContainsPositionLeak(content) && !ContainsCarAnswer(content))
+        {
+            return RaceAwarenessAnswerBuilder.CarUnavailableMessage;
+        }
+
+        return content;
+    }
+
     private static string SanitizePosition(string content)
     {
         if (ContainsTrackLeak(content) && !ContainsPositionAnswer(content))
@@ -142,6 +153,10 @@ public static class CoachTopicOutputGuard
         content.Contains("You are on ", StringComparison.OrdinalIgnoreCase)
             || content.Contains("Track is ", StringComparison.OrdinalIgnoreCase)
             || content.Contains(RaceAwarenessAnswerBuilder.TrackUnavailableMessage, StringComparison.OrdinalIgnoreCase);
+
+    private static bool ContainsCarAnswer(string content) =>
+        content.Contains(RaceAwarenessAnswerBuilder.CarUnavailableMessage, StringComparison.OrdinalIgnoreCase)
+            || (content.Contains('.', StringComparison.Ordinal) && !ContainsPositionLeak(content));
 
     private static bool ContainsPositionAnswer(string content) =>
         content.Contains("You are P", StringComparison.OrdinalIgnoreCase)

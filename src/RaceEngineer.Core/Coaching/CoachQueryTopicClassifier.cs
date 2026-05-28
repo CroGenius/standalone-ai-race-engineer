@@ -23,6 +23,7 @@ public enum CoachQueryTopic
     FuelStrategy,
     RaceAwareness,
     TrackIdentity,
+    CarIdentity,
     TrackMemory
 }
 
@@ -41,6 +42,12 @@ public static class CoachQueryTopicClassifier
             || RaceAwarenessQueryClassifier.LooksLikeTrackIdentity(text))
         {
             return CoachQueryTopic.TrackIdentity;
+        }
+
+        if (ContainsAny(text, CoachQueryPhrases.CarIdentity)
+            || RaceAwarenessQueryClassifier.LooksLikeCarIdentity(text))
+        {
+            return CoachQueryTopic.CarIdentity;
         }
 
         if (ContainsAny(text, CoachQueryPhrases.RaceAwareness))
@@ -152,6 +159,7 @@ public static class CoachQueryTopicClassifier
             CoachQueryTopic.Strategy or CoachQueryTopic.Pit => CoachEvidenceTopic.Strategy,
             CoachQueryTopic.RaceAwareness => CoachEvidenceTopic.RaceAwareness,
             CoachQueryTopic.TrackIdentity => CoachEvidenceTopic.RaceAwareness,
+            CoachQueryTopic.CarIdentity => CoachEvidenceTopic.RaceAwareness,
             CoachQueryTopic.TrackMemory => CoachEvidenceTopic.TrackMemory,
             _ => null
         };

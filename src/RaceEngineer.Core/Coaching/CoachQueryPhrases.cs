@@ -102,6 +102,16 @@ public static class CoachQueryPhrases
         "which track am i driving"
     ];
 
+    public static readonly string[] CarIdentity =
+    [
+        "which car am i in",
+        "what car am i in",
+        "which car am i driving",
+        "what car am i driving",
+        "what car is this",
+        "which car is this"
+    ];
+
     public static readonly string[] RaceAwareness =
     [
         "gap ahead",
@@ -284,6 +294,7 @@ public static class CoachQueryPhrases
             .Concat(FuelStrategy)
             .Concat(RaceAwareness)
             .Concat(TrackIdentity)
+            .Concat(CarIdentity)
             .Concat(TrackMemory)
             .Concat(Fuel)
             .Concat(Strategy)

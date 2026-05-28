@@ -3,6 +3,7 @@ namespace RaceEngineer.Core.RaceAwareness;
 public enum RaceAwarenessSubtopic
 {
     TrackIdentity,
+    CarIdentity,
     Position,
     GapAhead,
     GapBehind,
@@ -44,7 +45,8 @@ public sealed record RaceAwarenessRoutingResult(
     private static IReadOnlyList<string> FieldsForSubtopic(RaceAwarenessSubtopic subtopic) =>
         subtopic switch
         {
-            RaceAwarenessSubtopic.TrackIdentity => ["track_name", "circuit_id"],
+            RaceAwarenessSubtopic.TrackIdentity => ["track_name", "circuit_id", "provider_diag.pm_last_track_id"],
+            RaceAwarenessSubtopic.CarIdentity => ["car_name", "provider_diag.pm_last_car_id"],
             RaceAwarenessSubtopic.Position => ["position", "total_cars"],
             RaceAwarenessSubtopic.GapAhead => ["gap_ahead_s", "car_ahead"],
             RaceAwarenessSubtopic.GapBehind => ["gap_behind_s", "car_behind"],
@@ -72,7 +74,9 @@ public sealed record RaceAwarenessRoutingResult(
             {
                 "track_name" => !string.IsNullOrWhiteSpace(race.TrackName),
                 "circuit_id" => !string.IsNullOrWhiteSpace(race.CircuitId),
+                "provider_diag.pm_last_track_id" => !string.IsNullOrWhiteSpace(race.TrackName) || !string.IsNullOrWhiteSpace(race.CircuitId),
                 "car_name" => !string.IsNullOrWhiteSpace(race.CarName),
+                "provider_diag.pm_last_car_id" => !string.IsNullOrWhiteSpace(race.CarName),
                 "session_type" => !string.IsNullOrWhiteSpace(race.SessionType),
                 "position" => race.Position.HasValue,
                 "total_cars" => race.TotalCars.HasValue,

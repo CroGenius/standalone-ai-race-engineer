@@ -135,10 +135,19 @@ public static class SimHubPacketParser
 
     private static RaceAwarenessState ParseRaceAwareness(JsonElement root, JsonElement raceElement)
     {
+        var (providerTrackId, providerCarId, _) = ParseProviderDiagnostics(root);
+        var trackName = StringOrNull(root, "track_name")
+            ?? StringOrNull(root, "track")
+            ?? providerTrackId;
+        var circuitId = StringOrNull(root, "circuit_id") ?? providerTrackId;
+        var carName = StringOrNull(root, "car_name")
+            ?? StringOrNull(root, "car")
+            ?? providerCarId;
+
         return new RaceAwarenessState(
-            StringOrNull(root, "track_name") ?? StringOrNull(root, "track"),
-            StringOrNull(root, "circuit_id"),
-            StringOrNull(root, "car_name") ?? StringOrNull(root, "car"),
+            trackName,
+            circuitId,
+            carName,
             StringOrNull(root, "car_class"),
             StringOrNull(root, "session_type"),
             IntOrNull(root, "lap_number") ?? IntOrNull(root, "current_lap"),
@@ -154,6 +163,20 @@ public static class SimHubPacketParser
             IntOrNull(root, "sector"),
             DoubleOrNull(root, "session_time_remaining_s") ?? DoubleOrNull(root, "session_remaining_s"),
             IntOrNull(root, "laps_remaining"));
+    }
+
+    private static (string? TrackId, string? CarId, string? GameName) ParseProviderDiagnostics(JsonElement root)
+    {
+        if (!root.TryGetProperty("provider_diag", out var providerDiag)
+            || providerDiag.ValueKind != JsonValueKind.Object)
+        {
+            return (null, null, null);
+        }
+
+        return (
+            StringOrNull(providerDiag, "pm_last_track_id"),
+            StringOrNull(providerDiag, "pm_last_car_id"),
+            StringOrNull(providerDiag, "pm_game_name"));
     }
 
     private static double? DoubleOrNull(JsonElement root, string name)

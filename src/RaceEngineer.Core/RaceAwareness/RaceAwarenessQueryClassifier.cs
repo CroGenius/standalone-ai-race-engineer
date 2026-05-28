@@ -4,6 +4,16 @@ namespace RaceEngineer.Core.RaceAwareness;
 
 public static class RaceAwarenessQueryClassifier
 {
+    private static readonly string[] CarIdentityPhrases =
+    [
+        "which car am i in",
+        "what car am i in",
+        "which car am i driving",
+        "what car am i driving",
+        "what car is this",
+        "which car is this"
+    ];
+
     private static readonly string[] TrackIdentityPhrases =
     [
         "which track am i on",
@@ -102,6 +112,11 @@ public static class RaceAwarenessQueryClassifier
             return RaceAwarenessSubtopic.TrackIdentity;
         }
 
+        if (ContainsAny(text, CarIdentityPhrases) || LooksLikeCarIdentity(text))
+        {
+            return RaceAwarenessSubtopic.CarIdentity;
+        }
+
         if (ContainsAny(text, GapAheadPhrases))
         {
             return RaceAwarenessSubtopic.GapAhead;
@@ -159,6 +174,22 @@ public static class RaceAwarenessQueryClassifier
             && !ContainsPositionIntent(normalized);
     }
 
+    public static bool LooksLikeCarIdentity(string text)
+    {
+        var normalized = text.Trim().ToLowerInvariant();
+        if (ContainsAny(normalized, CarIdentityPhrases))
+        {
+            return true;
+        }
+
+        return (normalized.Contains("which car", StringComparison.Ordinal)
+                || normalized.Contains("what car", StringComparison.Ordinal)
+                || normalized.Contains("car am i in", StringComparison.Ordinal)
+                || normalized.Contains("car am i driving", StringComparison.Ordinal))
+            && !normalized.Contains("car ahead", StringComparison.Ordinal)
+            && !normalized.Contains("car behind", StringComparison.Ordinal);
+    }
+
     public static bool LooksLikeTrackRelatedQuery(string question)
     {
         var text = question.Trim().ToLowerInvariant();
@@ -186,6 +217,7 @@ public static class RaceAwarenessQueryClassifier
         subtopic switch
         {
             RaceAwarenessSubtopic.TrackIdentity => CoachQueryTopic.TrackIdentity,
+            RaceAwarenessSubtopic.CarIdentity => CoachQueryTopic.CarIdentity,
             RaceAwarenessSubtopic.Position => CoachQueryTopic.Position,
             RaceAwarenessSubtopic.HistoricalComparison => CoachQueryTopic.TrackMemory,
             _ => CoachQueryTopic.RaceAwareness
