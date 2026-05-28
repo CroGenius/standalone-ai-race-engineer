@@ -89,15 +89,36 @@ public static class CoachQueryPhrases
         "pozicija"
     ];
 
-    public static readonly string[] Fuel =
+    public static readonly string[] FuelAmount =
     [
         "fuel status",
+        "fuel level",
         "how much fuel",
         "how much fuel do i have",
+        "koliko goriva imam",
+        "koliko imam goriva",
+        "koliko goriva"
+    ];
+
+    public static readonly string[] FuelConsumption =
+    [
+        "fuel consumption",
+        "koliko trošim",
+        "koliko trosim",
+        "potrošnja goriva",
+        "potrosnja goriva"
+    ];
+
+    public static readonly string[] FuelStrategy =
+    [
+        "can i finish",
+        "imam li dovoljno goriva"
+    ];
+
+    public static readonly string[] Fuel =
+    [
         "fuel plan",
-        "fuel strategy",
-        "koliko goriva",
-        "koliko goriva imam"
+        "fuel strategy"
     ];
 
     public static readonly string[] Strategy =
@@ -113,7 +134,6 @@ public static class CoachQueryPhrases
         "strategija",
         "koliko još mogu voziti",
         "koliko jos mogu voziti",
-        "imam li dovoljno goriva",
         "kakva je strategija",
         "kada u boks",
         "trebam li u boks"
@@ -206,6 +226,9 @@ public static class CoachQueryPhrases
             .Concat(RacePace)
             .Concat(Tyre)
             .Concat(Position)
+            .Concat(FuelAmount)
+            .Concat(FuelConsumption)
+            .Concat(FuelStrategy)
             .Concat(Fuel)
             .Concat(Strategy)
             .Concat(Pit)

@@ -108,8 +108,12 @@ public sealed class CoachEngine : ICoachEngine
             case CoachQueryTopic.Pit:
             case CoachQueryTopic.Strategy:
                 return AttachEvidence(StrategyAnswer(evidence, context?.SessionContext), evidence, CoachEvidenceTopic.Strategy);
-            case CoachQueryTopic.Fuel:
-                return AttachEvidence(FuelAnswer(session, recentEvents, context?.SessionContext), evidence, CoachEvidenceTopic.Fuel);
+            case CoachQueryTopic.FuelAmount:
+                return AttachEvidence(FuelAmountAnswer(session, recentEvents, context?.SessionContext), evidence, CoachEvidenceTopic.Fuel);
+            case CoachQueryTopic.FuelConsumption:
+                return AttachEvidence(FuelConsumptionAnswer(session, context?.SessionContext), evidence, CoachEvidenceTopic.Fuel);
+            case CoachQueryTopic.FuelStrategy:
+                return AttachEvidence(FuelStrategyAnswer(session, recentEvents, context?.SessionContext, evidence), evidence, CoachEvidenceTopic.Fuel);
         }
 
         if (text.Contains("brake", StringComparison.Ordinal))
@@ -292,7 +296,7 @@ public sealed class CoachEngine : ICoachEngine
         return Message(action, evidence, brakeEvents.Select(item => item.Id));
     }
 
-    private static CoachMessage FuelAnswer(
+    private static CoachMessage FuelAmountAnswer(
         SessionState session,
         IReadOnlyList<TelemetryEvent> events,
         SessionContextAssessment? context)
@@ -302,39 +306,120 @@ public sealed class CoachEngine : ICoachEngine
             return Unavailable("Fuel status is unavailable.", "Latest snapshot has no fuel value.");
         }
 
-        var action = $"You have {FormatNumber(fuel, "0.0")} L fuel.";
+        var action = $"You have {FormatNumber(fuel, "0.0")} liters.";
         var evidence = new List<string> { $"latest fuel: {FormatNumber(fuel, "0.0")}" };
+
+        if (session.FuelUsedPerLap is { } fuelPerLap)
+        {
+            action += $" Fuel use is about {FormatNumber(fuelPerLap, "0.0")} L/lap.";
+            evidence.Add($"fuel used per lap: {FormatNumber(fuelPerLap, "0.00")}");
+        }
+        else
+        {
+            evidence.Add("fuel used per lap: unavailable until enough valid laps are completed");
+        }
 
         if (context is { HasStableLapSamples: false })
         {
             action += " Not enough race data yet for finish projections.";
-            return Message(action, evidence, []);
         }
-
-        if (context is { Activity: VehicleActivity.Stationary or VehicleActivity.PitLane })
+        else if (context is { Activity: VehicleActivity.Stationary or VehicleActivity.PitLane })
         {
             action += " Stationary — waiting for stable on-track laps before race fuel estimates.";
-            return Message(action, evidence, []);
         }
 
-        evidence.Add(session.FuelUsedPerLap.HasValue
-            ? $"fuel used per lap: {FormatNumber(session.FuelUsedPerLap.Value, "0.00")}"
-            : "fuel used per lap: unavailable until enough valid laps are completed");
-        evidence.Add(session.EstimatedLapsRemaining.HasValue
-            ? $"estimated laps remaining: {FormatNumber(session.EstimatedLapsRemaining.Value, "0.0")}"
-            : "estimated laps remaining: unavailable");
+        return Message(action, evidence, []);
+    }
+
+    private static CoachMessage FuelConsumptionAnswer(
+        SessionState session,
+        SessionContextAssessment? context)
+    {
+        if (session.FuelUsedPerLap is not { } fuelPerLap)
+        {
+            return Unavailable(
+                "Fuel consumption is unavailable.",
+                context is { HasStableLapSamples: false }
+                    ? "Waiting for stable valid laps before fuel-per-lap can be estimated."
+                    : "Need at least two completed fuel samples on valid laps.");
+        }
+
+        var action = $"Fuel use is about {FormatNumber(fuelPerLap, "0.0")} L/lap.";
+        var evidence = new List<string> { $"fuel used per lap: {FormatNumber(fuelPerLap, "0.00")}" };
+
+        if (session.LatestFuelLevel is { } fuel)
+        {
+            evidence.Add($"latest fuel: {FormatNumber(fuel, "0.0")}");
+        }
+
+        return Message(action, evidence, []);
+    }
+
+    private static CoachMessage FuelStrategyAnswer(
+        SessionState session,
+        IReadOnlyList<TelemetryEvent> events,
+        SessionContextAssessment? context,
+        CoachEvidenceBundle? evidence)
+    {
+        if (session.LatestFuelLevel is not { } fuel)
+        {
+            return Unavailable("Fuel strategy is unavailable.", "Latest snapshot has no fuel value.");
+        }
+
+        if (context is { HasStableLapSamples: false })
+        {
+            return Unavailable(
+                "Not enough race data yet.",
+                "Waiting for stable lap samples before finish fuel projections can be computed.");
+        }
+
+        var strategyPackets = evidence?.Select(CoachEvidenceTopic.Strategy).ToArray() ?? [];
+        var actionParts = new List<string>();
+        var evidenceLines = new List<string> { $"latest fuel: {FormatNumber(fuel, "0.0")}" };
+
+        if (session.EstimatedLapsRemaining is { } lapsRemaining)
+        {
+            actionParts.Add($"About {FormatNumber(lapsRemaining, "0.0")} laps remaining on current fuel.");
+            evidenceLines.Add($"estimated laps remaining: {FormatNumber(lapsRemaining, "0.0")}");
+        }
+        else
+        {
+            actionParts.Add("Finish projection is not reliable yet.");
+            evidenceLines.Add("estimated laps remaining: unavailable");
+        }
+
+        var riskPacket = strategyPackets.FirstOrDefault(packet => packet.Summary == "Fuel risk")
+            ?? evidence?.Select(CoachEvidenceTopic.Fuel).FirstOrDefault(packet => packet.Summary == "Fuel risk");
+        if (riskPacket is not null)
+        {
+            actionParts.Add(riskPacket.Explanation.TrimEnd('.'));
+            evidenceLines.Add($"fuel risk: {riskPacket.Explanation}");
+        }
 
         var lowFuelEvents = events.Where(item => item.Type == EventType.LowFuel).ToArray();
         if (context?.AllowFuelRiskCallouts == true && lowFuelEvents.Length > 0)
         {
-            action += " Fuel is tight for this stint.";
-        }
-        else if (session.EstimatedLapsRemaining.HasValue)
-        {
-            action += $" Estimated {FormatNumber(session.EstimatedLapsRemaining.Value, "0.0")} laps remaining on current fuel.";
+            actionParts.Add("Fuel is tight for this stint.");
         }
 
-        return Message(action, evidence, lowFuelEvents.Select(item => item.Id));
+        if (session.FuelUsedPerLap is { } fuelPerLap)
+        {
+            evidenceLines.Add($"fuel used per lap: {FormatNumber(fuelPerLap, "0.00")}");
+        }
+
+        var action = actionParts.Count == 0
+            ? "Fuel strategy is unavailable until more lap data is collected."
+            : string.Join(" ", actionParts);
+
+        return Message(action, evidenceLines, lowFuelEvents.Select(item => item.Id));
+    }
+
+    private static CoachMessage FuelAnswer(
+        SessionState session,
+        IReadOnlyList<TelemetryEvent> events,
+        SessionContextAssessment? context)
+    {
+        return FuelAmountAnswer(session, events, context);
     }
 
     private static CoachMessage StrategyAnswer(CoachEvidenceBundle? evidence, SessionContextAssessment? context)

@@ -34,7 +34,9 @@ public sealed class MockEngineerAiProvider : IEngineerAiProvider
             CoachQueryTopic.Throttle => BuildTopicAnswer("Throttle from telemetry:", topicFacts),
             CoachQueryTopic.RacePace => BuildTopicAnswer("Race pace from telemetry:", topicFacts),
             CoachQueryTopic.Improvement => BuildTopicAnswer("Improve next on", topicFacts),
-            CoachQueryTopic.Fuel => FormatFuelOnly(request.Context, FilterFactsByTopic(request.Context.Facts, CoachQueryTopic.Fuel)),
+            CoachQueryTopic.FuelAmount => FormatFuelAmountAnswer(request.Context, FilterFactsByTopic(request.Context.Facts, CoachQueryTopic.FuelAmount)),
+            CoachQueryTopic.FuelConsumption => FormatFuelConsumptionAnswer(request.Context, FilterFactsByTopic(request.Context.Facts, CoachQueryTopic.FuelConsumption)),
+            CoachQueryTopic.FuelStrategy => FormatFuelStrategyAnswer(request.Context, FilterFactsByTopic(request.Context.Facts, CoachQueryTopic.FuelStrategy)),
             CoachQueryTopic.Strategy or CoachQueryTopic.Pit => FormatStrategyAnswer(request, topicFacts),
             _ => BuildTopicAnswer("Telemetry shows", topicFacts)
         };
@@ -84,14 +86,15 @@ public sealed class MockEngineerAiProvider : IEngineerAiProvider
     {
         if (!request.Context.StrategyCalloutsAllowed)
         {
-            return ContainsAny(request.Question.ToLowerInvariant(), CoachQueryPhrases.Fuel)
+            return ContainsAny(request.Question.ToLowerInvariant(), CoachQueryPhrases.FuelAmount)
+                || ContainsAny(request.Question.ToLowerInvariant(), CoachQueryPhrases.FuelConsumption)
                 || request.Question.Contains("goriv", StringComparison.OrdinalIgnoreCase)
-                ? FormatFuelOnly(request.Context, FilterFactsByTopic(request.Context.Facts, CoachQueryTopic.Fuel))
+                ? FormatFuelAmountAnswer(request.Context, FilterFactsByTopic(request.Context.Facts, CoachQueryTopic.FuelAmount))
                 : "Strategy confidence is too low for a pit call.";
         }
 
         var strategyFacts = facts.Where(IsStrategyFact).ToArray();
-        var fuelFacts = FilterFactsByTopic(request.Context.Facts, CoachQueryTopic.Fuel);
+        var fuelFacts = FilterFactsByTopic(request.Context.Facts, CoachQueryTopic.FuelStrategy);
         if (strategyFacts.Length == 0 && fuelFacts.Count == 0)
         {
             return "Strategy is unavailable.";
@@ -99,12 +102,12 @@ public sealed class MockEngineerAiProvider : IEngineerAiProvider
 
         if (strategyFacts.Length == 0)
         {
-            return FormatFuelOnly(request.Context, fuelFacts);
+            return FormatFuelStrategyAnswer(request.Context, fuelFacts);
         }
 
         var strategy = strategyFacts[0];
         return fuelFacts.Count > 0
-            ? $"{FormatFuelOnly(request.Context, fuelFacts)} {strategy.Summary}: {strategy.Detail}."
+            ? $"{FormatFuelStrategyAnswer(request.Context, fuelFacts)} {strategy.Summary}: {strategy.Detail}."
             : $"{strategy.Summary}: {strategy.Detail}.";
     }
 
@@ -119,26 +122,69 @@ public sealed class MockEngineerAiProvider : IEngineerAiProvider
         return $"{lead} {factText}.";
     }
 
-    private static string FormatFuelOnly(EngineerAiContext context, IReadOnlyList<EngineerAiFact> facts)
+    private static string FormatFuelAmountAnswer(EngineerAiContext context, IReadOnlyList<EngineerAiFact> facts)
     {
-        var fuelFact = facts.FirstOrDefault(IsFuelFact);
-
-        if (context.FuelLiters is { } fuel)
+        if (context.FuelLiters is not { } fuel)
         {
-            var prefix = $"You currently have {fuel.ToString("0.0", CultureInfo.InvariantCulture)} L fuel.";
-            return fuelFact is null ? prefix : $"{prefix} {fuelFact.Summary}: {fuelFact.Detail}.";
+            return "Fuel data is unavailable.";
         }
 
-        return fuelFact is null
-            ? "Fuel data is unavailable."
-            : $"{fuelFact.Summary}: {fuelFact.Detail}.";
+        var prefix = $"You have {fuel.ToString("0.0", CultureInfo.InvariantCulture)} liters.";
+        var consumption = facts.FirstOrDefault(fact => fact.Summary.Contains("per lap", StringComparison.OrdinalIgnoreCase));
+        return consumption is null
+            ? prefix
+            : $"{prefix} Fuel use is about {ExtractNumericDetail(consumption.Detail)} L/lap.";
+    }
+
+    private static string FormatFuelConsumptionAnswer(EngineerAiContext context, IReadOnlyList<EngineerAiFact> facts)
+    {
+        var consumption = facts.FirstOrDefault(fact => fact.Summary.Contains("per lap", StringComparison.OrdinalIgnoreCase));
+        if (consumption is not null)
+        {
+            return $"Fuel use is about {ExtractNumericDetail(consumption.Detail)} L/lap.";
+        }
+
+        return "Fuel consumption is unavailable.";
+    }
+
+    private static string FormatFuelStrategyAnswer(EngineerAiContext context, IReadOnlyList<EngineerAiFact> facts)
+    {
+        var laps = facts.FirstOrDefault(fact => fact.Summary.Contains("Laps remaining", StringComparison.OrdinalIgnoreCase));
+        var risk = facts.FirstOrDefault(fact => fact.Summary.Contains("Fuel risk", StringComparison.OrdinalIgnoreCase));
+        var parts = new List<string>();
+        if (laps is not null)
+        {
+            parts.Add(laps.Detail.TrimEnd('.'));
+        }
+
+        if (risk is not null)
+        {
+            parts.Add(risk.Detail.TrimEnd('.'));
+        }
+
+        return parts.Count == 0
+            ? "Fuel strategy is unavailable."
+            : string.Join(" ", parts);
+    }
+
+    private static string FormatFuelOnly(EngineerAiContext context, IReadOnlyList<EngineerAiFact> facts)
+    {
+        return FormatFuelAmountAnswer(context, facts);
+    }
+
+    private static string ExtractNumericDetail(string detail)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(detail, @"\d+(?:\.\d+)?");
+        return match.Success ? match.Value : detail;
     }
 
     private static IReadOnlyList<EngineerAiFact> FilterFactsByTopic(IReadOnlyList<EngineerAiFact> facts, CoachQueryTopic topic)
     {
         return topic switch
         {
-            CoachQueryTopic.Fuel => facts.Where(IsFuelFact).ToArray(),
+            CoachQueryTopic.FuelAmount => facts.Where(IsFuelLevelFact).Concat(facts.Where(IsFuelFact)).DistinctBy(f => f.Summary).ToArray(),
+            CoachQueryTopic.FuelConsumption => facts.Where(IsFuelConsumptionFact).ToArray(),
+            CoachQueryTopic.FuelStrategy => facts.Where(fact => IsFuelStrategyFact(fact) || IsFuelConsumptionFact(fact)).ToArray(),
             CoachQueryTopic.Strategy or CoachQueryTopic.Pit => facts.Where(fact => IsStrategyFact(fact) || IsFuelFact(fact)).ToArray(),
             CoachQueryTopic.Tyre => facts.Where(IsTyreFact).ToArray(),
             CoachQueryTopic.LapTime => facts.Where(IsLapFact).ToArray(),
@@ -150,6 +196,24 @@ public sealed class MockEngineerAiProvider : IEngineerAiProvider
             CoachQueryTopic.Position => [],
             _ => facts.Where(fact => !IsFuelFact(fact)).ToArray()
         };
+    }
+
+    private static bool IsFuelLevelFact(EngineerAiFact fact)
+    {
+        var key = $"{fact.Topic} {fact.Summary} {fact.Detail}".ToLowerInvariant();
+        return key.Contains("latest fuel") || key.Contains("fuel level");
+    }
+
+    private static bool IsFuelConsumptionFact(EngineerAiFact fact)
+    {
+        var key = $"{fact.Topic} {fact.Summary} {fact.Detail}".ToLowerInvariant();
+        return key.Contains("per lap") || key.Contains("consumption") || key.Contains("potro");
+    }
+
+    private static bool IsFuelStrategyFact(EngineerAiFact fact)
+    {
+        var key = $"{fact.Topic} {fact.Summary} {fact.Detail}".ToLowerInvariant();
+        return key.Contains("laps remaining") || key.Contains("fuel risk") || key.Contains("finish");
     }
 
     private static bool IsFuelFact(EngineerAiFact fact)

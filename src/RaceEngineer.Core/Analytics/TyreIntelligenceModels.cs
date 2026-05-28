@@ -28,6 +28,14 @@ public enum GripConfidenceLevel
     High
 }
 
+public sealed record TyreCornerAssessment(
+    string Label,
+    string ShortLabel,
+    double? TempC,
+    bool HasData,
+    TyreWarmupState WarmupState,
+    string Summary);
+
 public sealed record TyreAxleAssessment(
     string Label,
     double? AverageTempC,
@@ -45,10 +53,13 @@ public sealed record SessionTyreIntelligence(
     string GripConfidenceLabel,
     string OverheatingRisk,
     string CoachingMessage,
+    string SpokenCoachingSummary,
     string PushGuidance,
     int? EstimatedCornersUntilReady,
     bool AvoidHeavyInputs,
     bool PushSafe,
+    bool RearDataUnavailable,
+    IReadOnlyList<TyreCornerAssessment> Corners,
     IReadOnlyList<TyreAxleAssessment> Axles,
     IReadOnlyList<string> EvidenceLines)
 {
@@ -61,10 +72,13 @@ public sealed record SessionTyreIntelligence(
         "Low",
         "Unknown",
         "Tyre data is not reliable yet.",
+        "Tyre data is not reliable yet.",
         "Wait for tyre temperature telemetry before pushing.",
         null,
         true,
         false,
+        false,
+        [],
         [],
         []);
 }

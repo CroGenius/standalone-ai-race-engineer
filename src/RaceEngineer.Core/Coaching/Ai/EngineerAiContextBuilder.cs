@@ -38,7 +38,7 @@ public static class EngineerAiContextBuilder
             sessionContext.StrategyConfidenceLabel,
             sessionContext.AllowPitStrategyCallouts && sessionContext.StrategyConfidence != StrategyConfidenceLevel.Low,
             latest?.Lap.LapNumber ?? session.LastLap?.LapNumber,
-            primaryTopic is CoachQueryTopic.Fuel or CoachQueryTopic.Strategy or CoachQueryTopic.Pit
+            primaryTopic is CoachQueryTopic.FuelAmount or CoachQueryTopic.FuelStrategy or CoachQueryTopic.Strategy or CoachQueryTopic.Pit
                 ? latest?.Condition.Fuel
                 : null,
             facts,
@@ -69,7 +69,7 @@ public static class EngineerAiContextBuilder
         if (evidenceTopic == CoachEvidenceTopic.Strategy
             && sessionContext is { AllowPitStrategyCallouts: false })
         {
-            return FilterByPrimaryTopic(evidence.Packets, CoachQueryTopic.Fuel);
+            return FilterByPrimaryTopic(evidence.Packets, CoachQueryTopic.FuelAmount);
         }
 
         var selected = evidence.Select(evidenceTopic.Value).ToArray();
@@ -90,7 +90,9 @@ public static class EngineerAiContextBuilder
             CoachQueryTopic.Tyre => packets.Where(packet =>
                 LooksLikeTyrePacket(packet) || packet.Category.Contains("TyreIntelligence", StringComparison.Ordinal)),
             CoachQueryTopic.LapTime => packets.Where(LooksLikeLapTimePacket),
-            CoachQueryTopic.Fuel => packets.Where(LooksLikeFuelPacket),
+            CoachQueryTopic.FuelAmount => packets.Where(LooksLikeFuelLevelPacket),
+            CoachQueryTopic.FuelConsumption => packets.Where(LooksLikeFuelConsumptionPacket),
+            CoachQueryTopic.FuelStrategy => packets.Where(p => LooksLikeFuelStrategyPacket(p) || LooksLikeFuelConsumptionPacket(p)),
             CoachQueryTopic.Strategy or CoachQueryTopic.Pit => packets.Where(p => LooksLikeStrategyPacket(p) || LooksLikeFuelPacket(p)),
             CoachQueryTopic.Braking => packets.Where(LooksLikeBrakingPacket),
             CoachQueryTopic.Throttle => packets.Where(LooksLikeThrottlePacket),
@@ -117,6 +119,24 @@ public static class EngineerAiContextBuilder
             packet.Confidence,
             packet.SourceType.ToString(),
             packet.RelatedLapNumber);
+
+    private static bool LooksLikeFuelLevelPacket(CoachEvidencePacket packet)
+    {
+        var key = $"{packet.Category} {packet.Summary} {packet.Explanation}".ToLowerInvariant();
+        return key.Contains("latest fuel") || key.Contains("fuel level");
+    }
+
+    private static bool LooksLikeFuelConsumptionPacket(CoachEvidencePacket packet)
+    {
+        var key = $"{packet.Category} {packet.Summary} {packet.Explanation}".ToLowerInvariant();
+        return key.Contains("per lap") || key.Contains("consumption") || key.Contains("potro");
+    }
+
+    private static bool LooksLikeFuelStrategyPacket(CoachEvidencePacket packet)
+    {
+        var key = $"{packet.Category} {packet.Summary} {packet.Explanation}".ToLowerInvariant();
+        return key.Contains("laps remaining") || key.Contains("fuel risk") || key.Contains("finish");
+    }
 
     private static bool LooksLikeFuelPacket(CoachEvidencePacket packet)
     {

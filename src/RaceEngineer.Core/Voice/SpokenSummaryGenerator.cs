@@ -108,7 +108,9 @@ public static class SpokenSummaryGenerator
             CoachQueryTopic.Position => BuildPositionSummary(action, english),
             CoachQueryTopic.Tyre => BuildTyreSummary(action, packets, english),
             CoachQueryTopic.LapTime => BuildLapTimeSummary(action, packets, english),
-            CoachQueryTopic.Fuel => BuildFuelSummary(action, packets, english),
+            CoachQueryTopic.FuelAmount => BuildFuelAmountSummary(action, packets, english),
+            CoachQueryTopic.FuelConsumption => BuildFuelConsumptionSummary(action, packets, english),
+            CoachQueryTopic.FuelStrategy => BuildFuelStrategySummary(action, packets, english),
             CoachQueryTopic.Strategy or CoachQueryTopic.Pit => BuildStrategySummary(action, packets, english),
             CoachQueryTopic.Braking => BuildBrakingSummary(action, packets, english),
             CoachQueryTopic.Throttle => BuildGenericSummary(action, packets, english, "Throttle"),
@@ -153,14 +155,18 @@ public static class SpokenSummaryGenerator
             return "Tyre data is not reliable yet.";
         }
 
-        if (action.Contains("tyres are still cold", StringComparison.OrdinalIgnoreCase)
-            || action.Contains("Front tyres", StringComparison.OrdinalIgnoreCase)
-            || action.Contains("Tyres are", StringComparison.OrdinalIgnoreCase)
-            || action.Contains("overheating", StringComparison.OrdinalIgnoreCase)
-            || action.Contains("warming", StringComparison.OrdinalIgnoreCase)
-            || action.Contains("push", StringComparison.OrdinalIgnoreCase))
+        var spokenPacket = packets.FirstOrDefault(packet => packet.Summary == "Spoken tyre summary");
+        if (spokenPacket is not null && !string.IsNullOrWhiteSpace(spokenPacket.Explanation))
         {
-            return ExtractFirstActionableSentence(action);
+            return spokenPacket.Explanation;
+        }
+
+        if (action.Contains("Front-left", StringComparison.OrdinalIgnoreCase)
+            || action.Contains("Front-right", StringComparison.OrdinalIgnoreCase)
+            || action.Contains("Rear-left", StringComparison.OrdinalIgnoreCase)
+            || action.Contains("Rear-right", StringComparison.OrdinalIgnoreCase))
+        {
+            return BuildTyreSpokenFromAction(action);
         }
 
         var packet = packets.FirstOrDefault(item =>
@@ -169,6 +175,121 @@ public static class SpokenSummaryGenerator
         return packet is null
             ? "Tyre data is not reliable yet."
             : ExtractFirstActionableSentence(packet.Explanation);
+    }
+
+    private static string? BuildTyreSpokenFromAction(string action)
+    {
+        var sentences = Regex.Split(CleanForSpeech(action), @"(?<=[.!?;])\s+")
+            .Select(CleanForSpeech)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .ToArray();
+        if (sentences.Length == 0)
+        {
+            return null;
+        }
+
+        var cornerSentences = sentences
+            .Where(sentence =>
+                sentence.Contains("Front-left", StringComparison.OrdinalIgnoreCase)
+                    || sentence.Contains("Front-right", StringComparison.OrdinalIgnoreCase)
+                    || sentence.Contains("Rear-left", StringComparison.OrdinalIgnoreCase)
+                    || sentence.Contains("Rear-right", StringComparison.OrdinalIgnoreCase)
+                    || sentence.Contains("Rear tyre data is unavailable", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var actionSentence = sentences.LastOrDefault(sentence =>
+            sentence.Contains("push", StringComparison.OrdinalIgnoreCase)
+                || sentence.Contains("half lap", StringComparison.OrdinalIgnoreCase)
+                || sentence.Contains("corners", StringComparison.OrdinalIgnoreCase)
+                || sentence.Contains("Protect", StringComparison.OrdinalIgnoreCase)
+                || sentence.Contains("gradually", StringComparison.OrdinalIgnoreCase));
+
+        if (cornerSentences.Length == 0)
+        {
+            return ExtractFirstActionableSentence(action);
+        }
+
+        return actionSentence is null
+            ? string.Join(" ", cornerSentences)
+            : $"{string.Join(" ", cornerSentences)} {actionSentence}";
+    }
+
+    private static string? BuildFuelAmountSummary(string action, IReadOnlyList<CoachEvidencePacket> packets, bool english)
+    {
+        var fuelMatch = Regex.Match(action, @"You have\s+([0-9.]+)\s+liters", RegexOptions.IgnoreCase);
+        if (!fuelMatch.Success)
+        {
+            fuelMatch = Regex.Match(action, @"You have\s+([0-9.]+)\s+L fuel", RegexOptions.IgnoreCase);
+        }
+
+        if (fuelMatch.Success)
+        {
+            var consumptionMatch = Regex.Match(action, @"Fuel use is about\s+([0-9.]+)\s+L/lap", RegexOptions.IgnoreCase);
+            return consumptionMatch.Success
+                ? $"You have {fuelMatch.Groups[1].Value} liters. Fuel use is about {consumptionMatch.Groups[1].Value} L/lap."
+                : $"You have {fuelMatch.Groups[1].Value} liters.";
+        }
+
+        var packet = packets.FirstOrDefault(packet => packet.Summary.Contains("fuel", StringComparison.OrdinalIgnoreCase) && !packet.Summary.Contains("per lap", StringComparison.OrdinalIgnoreCase))
+            ?? packets.FirstOrDefault(IsFuelLevelPacket);
+        if (packet is not null)
+        {
+            var value = ExtractMetricValue(packet.Explanation) ?? ExtractMetricValue(packet.Summary);
+            return value is null
+                ? ExtractFirstActionableSentence(packet.Explanation)
+                : $"You have {value} liters.";
+        }
+
+        return ExtractFirstActionableSentence(action);
+    }
+
+    private static string? BuildFuelConsumptionSummary(string action, IReadOnlyList<CoachEvidencePacket> packets, bool english)
+    {
+        var consumptionMatch = Regex.Match(action, @"Fuel use is about\s+([0-9.]+)\s+L/lap", RegexOptions.IgnoreCase);
+        if (consumptionMatch.Success)
+        {
+            return $"Fuel use is about {consumptionMatch.Groups[1].Value} L/lap.";
+        }
+
+        var packet = packets.FirstOrDefault(packet => packet.Summary.Contains("per lap", StringComparison.OrdinalIgnoreCase))
+            ?? packets.FirstOrDefault(IsFuelConsumptionPacket);
+        if (packet is not null)
+        {
+            if (packet.MetricValue is { } metricValue)
+            {
+                return $"Fuel use is about {metricValue.ToString("0.0", CultureInfo.InvariantCulture)} L/lap.";
+            }
+
+            var parsed = ExtractMetricValue(packet.Explanation);
+            return parsed is null
+                ? ExtractFirstActionableSentence(packet.Explanation)
+                : $"Fuel use is about {parsed} L/lap.";
+        }
+
+        return ExtractFirstActionableSentence(action);
+    }
+
+    private static string? BuildFuelStrategySummary(string action, IReadOnlyList<CoachEvidencePacket> packets, bool english)
+    {
+        var lapsMatch = Regex.Match(action, @"About\s+([0-9.]+)\s+laps remaining", RegexOptions.IgnoreCase);
+        var riskMatch = Regex.Match(action, @"Fuel risk level is\s+(\w+)", RegexOptions.IgnoreCase);
+        if (lapsMatch.Success && riskMatch.Success)
+        {
+            return $"About {lapsMatch.Groups[1].Value} laps remaining. Fuel risk is {riskMatch.Groups[1].Value}.";
+        }
+
+        if (lapsMatch.Success)
+        {
+            return $"About {lapsMatch.Groups[1].Value} laps remaining on current fuel.";
+        }
+
+        var riskPacket = packets.FirstOrDefault(packet => packet.Summary == "Fuel risk")
+            ?? packets.FirstOrDefault(packet => packet.Summary == "Laps remaining");
+        if (riskPacket is not null)
+        {
+            return ExtractFirstActionableSentence(riskPacket.Explanation);
+        }
+
+        return ExtractFirstActionableSentence(action);
     }
 
     private static string? BuildLapTimeSummary(string action, IReadOnlyList<CoachEvidencePacket> packets, bool english)
@@ -190,29 +311,6 @@ public static class SpokenSummaryGenerator
         if (packet is not null)
         {
             return ExtractFirstActionableSentence($"{packet.Summary}. {packet.Explanation}");
-        }
-
-        return ExtractFirstActionableSentence(action);
-    }
-
-    private static string? BuildFuelSummary(string action, IReadOnlyList<CoachEvidencePacket> packets, bool english)
-    {
-        var fuelMatch = Regex.Match(action, @"You have\s+([0-9.]+)\s+L fuel", RegexOptions.IgnoreCase);
-        if (fuelMatch.Success)
-        {
-            var lapsMatch = Regex.Match(action, @"Estimated\s+([0-9.]+)\s+laps remaining", RegexOptions.IgnoreCase);
-            return lapsMatch.Success
-                ? $"You have {fuelMatch.Groups[1].Value} liters fuel, about {lapsMatch.Groups[1].Value} laps remaining."
-                : $"You have {fuelMatch.Groups[1].Value} liters fuel.";
-        }
-
-        var packet = packets.FirstOrDefault(IsFuelPacket);
-        if (packet is not null)
-        {
-            var value = ExtractMetricValue(packet.Explanation);
-            return value is null
-                ? ExtractFirstActionableSentence(packet.Explanation)
-                : $"You have {value} liters fuel.";
         }
 
         return ExtractFirstActionableSentence(action);
@@ -340,7 +438,9 @@ public static class SpokenSummaryGenerator
 
         return topic switch
         {
-            CoachQueryTopic.Fuel => packets.Where(IsFuelPacket).ToArray(),
+            CoachQueryTopic.FuelAmount => packets.Where(IsFuelLevelPacket).Concat(packets.Where(IsFuelPacket)).DistinctBy(p => p.Summary).ToArray(),
+            CoachQueryTopic.FuelConsumption => packets.Where(IsFuelConsumptionPacket).ToArray(),
+            CoachQueryTopic.FuelStrategy => packets.Where(packet => IsFuelStrategyPacket(packet) || IsFuelConsumptionPacket(packet)).DistinctBy(p => p.Summary).ToArray(),
             CoachQueryTopic.Strategy or CoachQueryTopic.Pit => packets.Where(IsStrategyPacket).Concat(packets.Where(IsFuelPacket)).DistinctBy(p => p.Summary).ToArray(),
             CoachQueryTopic.Braking => packets.Where(IsBrakingPacket).ToArray(),
             CoachQueryTopic.Throttle => packets.Where(IsThrottlePacket).ToArray(),
@@ -360,6 +460,24 @@ public static class SpokenSummaryGenerator
     {
         var key = $"{packet.Category} {packet.Summary} {packet.Explanation}".ToLowerInvariant();
         return key.Contains("fuel") || key.Contains("goriv");
+    }
+
+    private static bool IsFuelLevelPacket(CoachEvidencePacket packet)
+    {
+        var key = $"{packet.Category} {packet.Summary} {packet.Explanation}".ToLowerInvariant();
+        return key.Contains("latest fuel") || packet.Summary.Contains("fuel level", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsFuelConsumptionPacket(CoachEvidencePacket packet)
+    {
+        var key = $"{packet.Category} {packet.Summary} {packet.Explanation}".ToLowerInvariant();
+        return key.Contains("per lap") || key.Contains("consumption") || key.Contains("potro");
+    }
+
+    private static bool IsFuelStrategyPacket(CoachEvidencePacket packet)
+    {
+        var key = $"{packet.Category} {packet.Summary} {packet.Explanation}".ToLowerInvariant();
+        return key.Contains("laps remaining") || key.Contains("fuel risk") || key.Contains("finish");
     }
 
     private static bool IsStrategyPacket(CoachEvidencePacket packet)

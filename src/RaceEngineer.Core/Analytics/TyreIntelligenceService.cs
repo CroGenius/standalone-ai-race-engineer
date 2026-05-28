@@ -32,6 +32,8 @@ public sealed class TyreIntelligenceService
         }
 
         var axles = BuildAxleAssessments(temps);
+        var corners = BuildCornerAssessments(temps);
+        var rearDataUnavailable = corners.Any(item => (item.Label is "Rear-left" or "Rear-right") && !item.HasData);
         var front = axles.FirstOrDefault(item => item.Label == "Front");
         var rear = axles.FirstOrDefault(item => item.Label == "Rear");
         var avgTemp = temps.Average();
@@ -58,6 +60,9 @@ public sealed class TyreIntelligenceService
         var avoidHeavyInputs = readiness is TyreReadiness.NotReady or TyreReadiness.Building or TyreReadiness.Overheated;
         var pushSafe = readiness is TyreReadiness.ReadyToPush or TyreReadiness.PushNow;
         var coachingMessage = BuildCoachingMessage(
+            corners,
+            axles,
+            rearDataUnavailable,
             front,
             rear,
             warmupState,
@@ -69,10 +74,18 @@ public sealed class TyreIntelligenceService
             tractionLoss,
             avoidHeavyInputs,
             pushSafe);
+        var spokenCoachingSummary = BuildSpokenCoachingSummary(
+            corners,
+            rearDataUnavailable,
+            readiness,
+            cornersUntilReady,
+            pushSafe);
         var pushGuidance = BuildPushGuidance(readiness, cornersUntilReady, avoidHeavyInputs, pushSafe);
 
         var evidence = BuildEvidenceLines(
+            corners,
             axles,
+            rearDataUnavailable,
             snapshot,
             overheatingEvents.Length,
             tractionLoss,
@@ -91,12 +104,52 @@ public sealed class TyreIntelligenceService
             gripConfidence.ToString(),
             overheatingRisk,
             coachingMessage,
+            spokenCoachingSummary,
             pushGuidance,
             cornersUntilReady,
             avoidHeavyInputs,
             pushSafe,
+            rearDataUnavailable,
+            corners,
             axles,
             evidence);
+    }
+
+    private IReadOnlyList<TyreCornerAssessment> BuildCornerAssessments(IReadOnlyList<double> temps)
+    {
+        var definitions = new (string Label, string ShortLabel, int Index)[]
+        {
+            ("Front-left", "FL", 0),
+            ("Front-right", "FR", 1),
+            ("Rear-left", "RL", 2),
+            ("Rear-right", "RR", 3)
+        };
+
+        return definitions
+            .Select(definition =>
+            {
+                if (definition.Index >= temps.Count)
+                {
+                    return new TyreCornerAssessment(
+                        definition.Label,
+                        definition.ShortLabel,
+                        null,
+                        false,
+                        TyreWarmupState.Unknown,
+                        $"{definition.Label} data unavailable.");
+                }
+
+                var temp = temps[definition.Index];
+                var state = ClassifyAxleWarmup(temp, temp);
+                return new TyreCornerAssessment(
+                    definition.Label,
+                    definition.ShortLabel,
+                    Round(temp),
+                    true,
+                    state,
+                    $"{definition.Label} {FormatReadinessState(state).ToLowerInvariant()} ({Round(temp):0.0} C).");
+            })
+            .ToArray();
     }
 
     private IReadOnlyList<TyreAxleAssessment> BuildAxleAssessments(IReadOnlyList<double> temps)
@@ -274,6 +327,9 @@ public sealed class TyreIntelligenceService
     }
 
     private static string BuildCoachingMessage(
+        IReadOnlyList<TyreCornerAssessment> corners,
+        IReadOnlyList<TyreAxleAssessment> axles,
+        bool rearDataUnavailable,
         TyreAxleAssessment? front,
         TyreAxleAssessment? rear,
         TyreWarmupState warmupState,
@@ -286,48 +342,145 @@ public sealed class TyreIntelligenceService
         bool avoidHeavyInputs,
         bool pushSafe)
     {
+        var cornerLines = corners
+            .Where(corner => corner.HasData)
+            .Select(corner => corner.Summary.TrimEnd('.'))
+            .ToArray();
+        var messageParts = new List<string>();
+        if (cornerLines.Length > 0)
+        {
+            messageParts.Add(string.Join(". ", cornerLines) + ".");
+        }
+
+        if (rearDataUnavailable)
+        {
+            messageParts.Add("Rear tyre data is unavailable.");
+        }
+
+        if (axles.Count > 0)
+        {
+            var axleSummary = string.Join(
+                "; ",
+                axles.Select(axle => $"{axle.Label} axle {FormatReadinessState(axle.WarmupState).ToLowerInvariant()}"));
+            messageParts.Add($"{axleSummary}.");
+        }
+
+        messageParts.Add(BuildActionMessage(
+            front,
+            rear,
+            warmupState,
+            readiness,
+            gripConfidence,
+            cornersUntilReady,
+            onOutLap,
+            tractionLoss,
+            avoidHeavyInputs,
+            pushSafe));
+
+        return string.Join(" ", messageParts.Where(part => !string.IsNullOrWhiteSpace(part)));
+    }
+
+    private static string BuildActionMessage(
+        TyreAxleAssessment? front,
+        TyreAxleAssessment? rear,
+        TyreWarmupState warmupState,
+        TyreReadiness readiness,
+        GripConfidenceLevel gripConfidence,
+        int? cornersUntilReady,
+        bool onOutLap,
+        int tractionLoss,
+        bool avoidHeavyInputs,
+        bool pushSafe)
+    {
         if (warmupState == TyreWarmupState.Overheating || readiness == TyreReadiness.Overheated)
         {
-            return rear?.WarmupState == TyreWarmupState.Overheating
-                ? "Rear tyres are overheating under throttle. Ease exits and protect grip."
-                : "Tyres are overheating. Back off sliding and protect entry speed.";
+            if (rear?.WarmupState == TyreWarmupState.Overheating)
+            {
+                return "Protect the rears under throttle and ease exits.";
+            }
+
+            if (front?.WarmupState == TyreWarmupState.Overheating)
+            {
+                return "Protect the fronts under braking and entry speed.";
+            }
+
+            return "Tyres are overheating. Back off sliding and protect grip.";
         }
 
         if (readiness == TyreReadiness.Fading)
         {
-            return "Tyres look like they are fading. Protect pace and plan for a stop if grip keeps dropping.";
+            return rear?.WarmupState == TyreWarmupState.Fading
+                ? "Rears look like they are fading. Protect pace and plan for a stop if grip keeps dropping."
+                : "Tyres look like they are fading. Protect pace and plan for a stop if grip keeps dropping.";
         }
 
-        if (readiness == TyreReadiness.NotReady || front?.WarmupState == TyreWarmupState.Cold)
+        if (readiness is TyreReadiness.NotReady or TyreReadiness.Building || onOutLap || avoidHeavyInputs)
         {
             var waitText = cornersUntilReady is > 0 and <= 3
                 ? $"Give them another {cornersUntilReady} corners before pushing."
                 : "Give them another half lap before pushing.";
-            return front is not null
-                ? $"Front tyres are still cold. {waitText}"
-                : $"Tyres are still cold. {waitText}";
-        }
-
-        if (readiness == TyreReadiness.Building || onOutLap)
-        {
-            return warmupState == TyreWarmupState.Warming
-                ? "Tyres are warming. Build pace smoothly and avoid heavy braking or full throttle."
-                : "Tyres are near operating window. You can start increasing pace.";
+            return warmupState == TyreWarmupState.Warming || readiness == TyreReadiness.Building
+                ? $"Build pace gradually and avoid heavy braking or full throttle. {waitText}"
+                : waitText;
         }
 
         if (pushSafe && readiness == TyreReadiness.PushNow)
         {
-            return "Tyres are in the window with good grip confidence. You can push now.";
+            return "Tyres are in the window with good grip confidence. Safe to push now.";
         }
 
         if (tractionLoss > 0)
         {
-            return "Tyres are warm but traction is unsettled. Wait for cleaner exits before a full attack.";
+            return "Tyres are warm but traction is unsettled. Push gradually and wait for cleaner exits.";
         }
 
         return gripConfidence == GripConfidenceLevel.High
-            ? "Tyres are ready with stable grip. You can push."
-            : "Tyres are usable, but grip confidence is only moderate. Build pace gradually.";
+            ? "Tyres are ready with stable grip. Safe to push."
+            : "Tyres are usable, but grip confidence is only moderate. Push gradually.";
+    }
+
+    private static string BuildSpokenCoachingSummary(
+        IReadOnlyList<TyreCornerAssessment> corners,
+        bool rearDataUnavailable,
+        TyreReadiness readiness,
+        int? cornersUntilReady,
+        bool pushSafe)
+    {
+        var available = corners.Where(corner => corner.HasData).ToArray();
+        if (available.Length == 0)
+        {
+            return "Tyre data is not reliable yet.";
+        }
+
+        if (available.All(corner => corner.WarmupState == available[0].WarmupState))
+        {
+            var state = FormatReadinessState(available[0].WarmupState).ToLowerInvariant();
+            var countText = available.Length == 4 ? "All four tyres" : "Tyres";
+            var rearNote = rearDataUnavailable ? " Rear data unavailable." : "";
+            return $"{countText} {state}.{rearNote} {BuildSpokenAction(readiness, cornersUntilReady, pushSafe)}".Trim();
+        }
+
+        var cornerText = string.Join(
+            ", ",
+            available.Select(corner => $"{corner.ShortLabel} {FormatReadinessState(corner.WarmupState).ToLowerInvariant()}"));
+        var unavailableNote = rearDataUnavailable ? " Rear data unavailable." : "";
+        return $"{cornerText}.{unavailableNote} {BuildSpokenAction(readiness, cornersUntilReady, pushSafe)}".Trim();
+    }
+
+    private static string BuildSpokenAction(TyreReadiness readiness, int? cornersUntilReady, bool pushSafe)
+    {
+        return readiness switch
+        {
+            TyreReadiness.NotReady or TyreReadiness.Building =>
+                cornersUntilReady is > 0 and <= 3
+                    ? $"Wait {cornersUntilReady} corners."
+                    : "Wait half lap.",
+            TyreReadiness.Overheated => "Protect grip.",
+            TyreReadiness.Fading => "Protect pace.",
+            TyreReadiness.PushNow when pushSafe => "Safe to push.",
+            TyreReadiness.ReadyToPush when pushSafe => "Push gradually.",
+            _ => "Push gradually."
+        };
     }
 
     private static string BuildPushGuidance(
@@ -349,7 +502,9 @@ public sealed class TyreIntelligenceService
     }
 
     private static IReadOnlyList<string> BuildEvidenceLines(
+        IReadOnlyList<TyreCornerAssessment> corners,
         IReadOnlyList<TyreAxleAssessment> axles,
+        bool rearDataUnavailable,
         TelemetrySnapshot? snapshot,
         int overheatingEvents,
         int tractionLoss,
@@ -359,7 +514,12 @@ public sealed class TyreIntelligenceService
         GripConfidenceLevel gripConfidence,
         TyreReadiness readiness)
     {
-        var lines = axles.Select(axle => axle.Summary).ToList();
+        var lines = corners.Where(corner => corner.HasData).Select(corner => corner.Summary).ToList();
+        lines.AddRange(axles.Select(axle => axle.Summary));
+        if (rearDataUnavailable)
+        {
+            lines.Add("rear tyre data: unavailable");
+        }
         lines.Add($"grip confidence: {gripConfidence}");
         lines.Add($"tyre readiness: {readiness}");
         lines.Add($"current lap: {currentLap}");
@@ -397,16 +557,18 @@ public sealed class TyreIntelligenceService
         return TyreWarmupState.OptimalWindow;
     }
 
-    private static string FormatWarmupState(TyreWarmupState state) =>
+    private static string FormatReadinessState(TyreWarmupState state) =>
         state switch
         {
             TyreWarmupState.Cold => "Cold",
             TyreWarmupState.Warming => "Warming",
-            TyreWarmupState.OptimalWindow => "In window",
+            TyreWarmupState.OptimalWindow => "Ready",
             TyreWarmupState.Overheating => "Overheating",
             TyreWarmupState.Fading => "Fading",
             _ => "Unknown"
         };
+
+    private static string FormatWarmupState(TyreWarmupState state) => FormatReadinessState(state);
 
     private static double Round(double value) => Math.Round(value, 1, MidpointRounding.AwayFromZero);
 }

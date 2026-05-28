@@ -112,6 +112,10 @@ FuelQuestionStillReturnsFuel();
 CroatianInputProducesEnglishSpokenSummary();
 TyreIntelligenceCoachesColdTyreWarmup();
 TraceProgressSurvivesLapWrapBleed();
+FuelAmountQuestionLeadsWithLiters();
+FuelConsumptionQuestionReportsPerLap();
+FuelStrategyQuestionReportsRiskAndLapsRemaining();
+TyreAnswerIncludesAllCornersOrUnavailableRear();
 TelemetryTraceBuilderCreatesDeterministicTimeline();
 EndToEndFixtureReplayVerifiesPipeline();
 await ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint();
@@ -370,7 +374,7 @@ static void CoachFuelStatusUsesLatestFuelAndEstimate()
 
     var answer = coach.Answer(session, "fuel status");
 
-    Assert(answer.Content.Contains("You have 5.0 L fuel.", StringComparison.Ordinal), "Fuel answer should lead with the actual fuel level.");
+    Assert(answer.Content.Contains("You have 5.0 liters.", StringComparison.Ordinal), "Fuel answer should lead with the actual fuel level.");
     Assert(answer.Content.Contains("latest fuel: 5.0", StringComparison.Ordinal), "Fuel answer should include latest fuel evidence.");
 }
 
@@ -735,7 +739,7 @@ static void CoachFuelAnswerLeadsWithActualFuelLevel()
             false,
             "Waiting for stable lap samples.")));
 
-    Assert(answer.Content.Contains("You have 30.0 L fuel.", StringComparison.Ordinal), "Fuel question should answer with actual telemetry fuel first.");
+    Assert(answer.Content.Contains("You have 30.0 liters.", StringComparison.Ordinal), "Fuel question should answer with actual telemetry fuel first.");
     Assert(answer.Content.Contains("Not enough race data yet", StringComparison.OrdinalIgnoreCase), "Insufficient context should be stated explicitly.");
 }
 
@@ -1539,6 +1543,74 @@ static void TraceProgressSurvivesLapWrapBleed()
         "Trace should preserve early progress after wrap without clearing the lap.");
 }
 
+static void FuelAmountQuestionLeadsWithLiters()
+{
+    var coach = new CoachEngine();
+    var (session, _) = SessionWithFuelEstimate();
+    var answer = coach.Answer(session, "koliko goriva imam");
+
+    Assert(
+        answer.Content.StartsWith("You have", StringComparison.Ordinal)
+            && answer.Content.Contains("liters.", StringComparison.Ordinal),
+        "Fuel amount question should start with current liters.");
+    Assert(
+        !answer.Content.StartsWith("Fuel use", StringComparison.Ordinal)
+            && !answer.Content.StartsWith("About", StringComparison.Ordinal),
+        "Fuel amount question should not lead with consumption or laps remaining.");
+}
+
+static void FuelConsumptionQuestionReportsPerLap()
+{
+    var coach = new CoachEngine();
+    var (session, _) = SessionWithFuelEstimate();
+    var answer = coach.Answer(session, "potrošnja goriva");
+
+    Assert(
+        answer.Content.Contains("L/lap", StringComparison.Ordinal),
+        "Fuel consumption question should report L/lap.");
+    Assert(
+        answer.Content.StartsWith("Fuel use", StringComparison.Ordinal),
+        "Fuel consumption question should lead with consumption, not tank level.");
+}
+
+static void FuelStrategyQuestionReportsRiskAndLapsRemaining()
+{
+    var coach = new CoachEngine();
+    var (session, _) = SessionWithFuelEstimate();
+    var evidence = BuildSampleCoachEvidence(session);
+    var answer = coach.Answer(session, "imam li dovoljno goriva", evidence: evidence);
+
+    Assert(
+        answer.Content.Contains("laps remaining", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("Fuel risk", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("fuel risk", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("tight", StringComparison.OrdinalIgnoreCase),
+        "Fuel strategy question should report laps remaining and/or risk.");
+    Assert(
+        !answer.Content.StartsWith("Fuel use", StringComparison.Ordinal),
+        "Fuel strategy question should not lead with consumption.");
+}
+
+static void TyreAnswerIncludesAllCornersOrUnavailableRear()
+{
+    var coach = new CoachEngine();
+    var session = new SessionState();
+    session.ApplySnapshot(Packet("""{"lap_progress":0.2,"tyre_temp_c":[88,91,90,89],"tyre_pressure":[26.1,26.4,26.0,26.2],"tyre_wear":[0.01,0.02,0.01,0.01]}"""), []);
+
+    var fullData = coach.Answer(session, "kakve su gume");
+    Assert(fullData.Content.Contains("Front-left", StringComparison.OrdinalIgnoreCase), "Tyre answer should include front-left.");
+    Assert(fullData.Content.Contains("Front-right", StringComparison.OrdinalIgnoreCase), "Tyre answer should include front-right.");
+    Assert(fullData.Content.Contains("Rear-left", StringComparison.OrdinalIgnoreCase), "Tyre answer should include rear-left.");
+    Assert(fullData.Content.Contains("Rear-right", StringComparison.OrdinalIgnoreCase), "Tyre answer should include rear-right.");
+
+    var partialSession = new SessionState();
+    partialSession.ApplySnapshot(Packet("""{"lap_progress":0.2,"tyre_temp_c":[52,54]}"""), []);
+    var partial = coach.Answer(partialSession, "how are my tyres");
+    Assert(
+        partial.Content.Contains("Rear tyre data is unavailable", StringComparison.OrdinalIgnoreCase),
+        "Missing rear tyre data should be explicit.");
+}
+
 static TelemetrySnapshot StampTraceSnapshot(double progress, int lapNumber)
 {
     return Packet($$$"""{"lap_progress":{{{progress.ToString(CultureInfo.InvariantCulture)}}},"speed_kmh":140,"throttle":0.6,"brake":0.1,"tyre_temp_c":[80,81,79,80]}""")
@@ -1552,6 +1624,7 @@ static TelemetrySnapshot StampTraceSnapshot(double progress, int lapNumber)
 static bool LooksLikeFuelAnswer(string content)
 {
     return content.Contains(" L fuel", StringComparison.Ordinal)
+        || content.Contains("liters.", StringComparison.OrdinalIgnoreCase)
         || content.Contains("liters fuel", StringComparison.OrdinalIgnoreCase)
         || content.Contains("goriv", StringComparison.OrdinalIgnoreCase)
         || content.Contains("latest fuel:", StringComparison.OrdinalIgnoreCase);

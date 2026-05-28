@@ -326,6 +326,45 @@ public sealed class CoachEvidenceBuilder
             null,
             $"Overheating risk is {intelligence.OverheatingRisk}. {intelligence.PushGuidance}"));
 
+        packets.Add(new CoachEvidencePacket(
+            "TyreIntelligence",
+            "Spoken tyre summary",
+            "Info",
+            0.90,
+            CoachEvidenceSourceType.Analytics,
+            null,
+            [],
+            null,
+            intelligence.SpokenCoachingSummary));
+
+        foreach (var corner in intelligence.Corners.Where(corner => corner.HasData))
+        {
+            packets.Add(new CoachEvidencePacket(
+                "Tyre",
+                corner.ShortLabel,
+                corner.WarmupState is TyreWarmupState.Overheating or TyreWarmupState.Cold ? "Warning" : "Info",
+                0.85,
+                CoachEvidenceSourceType.Telemetry,
+                null,
+                [],
+                corner.TempC,
+                corner.Summary));
+        }
+
+        if (intelligence.RearDataUnavailable)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "TyreIntelligence",
+                "Rear tyre data",
+                "Warning",
+                0.80,
+                CoachEvidenceSourceType.Telemetry,
+                null,
+                [],
+                null,
+                "Rear tyre data is unavailable."));
+        }
+
         foreach (var axle in intelligence.Axles)
         {
             packets.Add(new CoachEvidencePacket(

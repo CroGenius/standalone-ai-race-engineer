@@ -15,7 +15,9 @@ public enum CoachQueryTopic
     Incidents,
     Pit,
     Strategy,
-    Fuel
+    FuelAmount,
+    FuelConsumption,
+    FuelStrategy
 }
 
 public static class CoachQueryTopicClassifier
@@ -81,17 +83,27 @@ public static class CoachQueryTopicClassifier
             return CoachQueryTopic.Pit;
         }
 
-        if (ContainsAny(text, CoachQueryPhrases.Strategy))
+        if (ContainsAny(text, CoachQueryPhrases.FuelStrategy))
         {
-            return CoachQueryTopic.Strategy;
+            return CoachQueryTopic.FuelStrategy;
         }
 
-        if (ContainsAny(text, CoachQueryPhrases.Fuel) || text.Contains("goriv", StringComparison.Ordinal))
+        if (ContainsAny(text, CoachQueryPhrases.FuelConsumption))
+        {
+            return CoachQueryTopic.FuelConsumption;
+        }
+
+        if (ContainsAny(text, CoachQueryPhrases.FuelAmount) || text.Contains("goriv", StringComparison.Ordinal))
         {
             if (!ContainsAny(text, "fuel plan", "fuel strategy"))
             {
-                return CoachQueryTopic.Fuel;
+                return CoachQueryTopic.FuelAmount;
             }
+        }
+
+        if (ContainsAny(text, CoachQueryPhrases.Strategy))
+        {
+            return CoachQueryTopic.Strategy;
         }
 
         return CoachQueryTopic.Unknown;
@@ -107,14 +119,17 @@ public static class CoachQueryTopicClassifier
             CoachQueryTopic.LapComparison => CoachEvidenceTopic.LapComparison,
             CoachQueryTopic.RacePace => CoachEvidenceTopic.RacePace,
             CoachQueryTopic.Incidents => CoachEvidenceTopic.Incidents,
-            CoachQueryTopic.Fuel => CoachEvidenceTopic.Fuel,
+            CoachQueryTopic.FuelAmount or CoachQueryTopic.FuelConsumption or CoachQueryTopic.FuelStrategy => CoachEvidenceTopic.Fuel,
             CoachQueryTopic.Tyre => CoachEvidenceTopic.Tyres,
             CoachQueryTopic.Strategy or CoachQueryTopic.Pit => CoachEvidenceTopic.Strategy,
             _ => null
         };
 
+    public static bool IsFuelTopic(CoachQueryTopic topic) =>
+        topic is CoachQueryTopic.FuelAmount or CoachQueryTopic.FuelConsumption or CoachQueryTopic.FuelStrategy;
+
     public static bool AllowsFuelEvidence(CoachQueryTopic topic) =>
-        topic is CoachQueryTopic.Fuel or CoachQueryTopic.Strategy or CoachQueryTopic.Pit or CoachQueryTopic.Unknown;
+        IsFuelTopic(topic) || topic is CoachQueryTopic.Strategy or CoachQueryTopic.Pit or CoachQueryTopic.Unknown;
 
     private static bool ContainsAny(string text, params string[] phrases)
     {
