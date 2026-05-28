@@ -38,14 +38,12 @@ public static class CoachQueryTopicClassifier
             return CoachQueryTopic.TrackMemory;
         }
 
-        if (ContainsAny(text, CoachQueryPhrases.TrackIdentity)
-            || RaceAwarenessQueryClassifier.LooksLikeTrackIdentity(text))
+        if (RaceAwarenessQueryClassifier.IsTrackIdentityQuery(text))
         {
             return CoachQueryTopic.TrackIdentity;
         }
 
-        if (ContainsAny(text, CoachQueryPhrases.CarIdentity)
-            || RaceAwarenessQueryClassifier.LooksLikeCarIdentity(text))
+        if (RaceAwarenessQueryClassifier.IsCarIdentityQuery(text))
         {
             return CoachQueryTopic.CarIdentity;
         }

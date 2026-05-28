@@ -21,4 +21,6 @@ public sealed record CoachQueryRuntimeTrace(
     RaceAwarenessSubtopic? RaceAwarenessSubtopic = null,
     string? RaceAwarenessSelectedFields = null,
     string? RaceAwarenessMissingFields = null,
-    string? RaceAwarenessFallbackReason = null);
+    string? RaceAwarenessFallbackReason = null,
+    string? RaceAwarenessSelectedField = null,
+    string? RaceAwarenessSelectedValue = null);

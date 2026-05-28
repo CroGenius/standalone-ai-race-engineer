@@ -138,6 +138,7 @@ CoachTrackIdentityRoutingDoesNotFallbackToPosition();
 RaceAwarenessRoutingDiagnosticsCoverTrackAndPosition();
 RaceAwarenessValidatorBlocksCrossTopicFallback();
 ProviderDiagMapsTrackAndCarIntoRaceAwareness();
+TrackCarIdentityRoutingKeepsFieldsSeparate();
 CoachHistoricalLapComparisonUsesStoredData();
 TelemetryTraceBuilderCreatesDeterministicTimeline();
 EndToEndFixtureReplayVerifiesPipeline();
@@ -2289,6 +2290,119 @@ static void ProviderDiagMapsTrackAndCarIntoRaceAwareness()
     Assert(loaded is not null, "Track memory should key off provider_diag track/car values.");
     Assert(loaded!.TrackName == "Monza-GP", "Stored track memory should retain provider_diag track id.");
     Assert(loaded.CarName == "Ferrari F2004", "Stored track memory should retain provider_diag car id.");
+}
+
+static void TrackCarIdentityRoutingKeepsFieldsSeparate()
+{
+    var session = new SessionState();
+    session.ApplySnapshot(
+        SimHubPacketParser.Parse(
+            """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"speed_kmh":180,"provider_diag":{"pm_last_track_id":"Monza-GP","pm_last_car_id":"Ferrari F2004"}}"""),
+        []);
+    var raceContext = RaceContextService.Build(session, session.LatestSnapshot);
+    var coach = new CoachEngine();
+    var context = new CoachContext(RaceContext: raceContext);
+
+    var trackRouting = RaceAwarenessQueryClassifier.Classify("which track am i on", raceContext);
+    Assert(trackRouting.Subtopic == RaceAwarenessSubtopic.TrackIdentity, "Track question should classify as TrackIdentity.");
+    Assert(trackRouting.SelectedField == "track_name", "Track routing should select track_name field.");
+    Assert(trackRouting.SelectedValue == "Monza-GP", "Track routing should expose track field value.");
+
+    var carRouting = RaceAwarenessQueryClassifier.Classify("which car am i in", raceContext);
+    Assert(carRouting.Subtopic == RaceAwarenessSubtopic.CarIdentity, "Car question should classify as CarIdentity.");
+    Assert(carRouting.SelectedField == "car_name", "Car routing should select car_name field.");
+    Assert(carRouting.SelectedValue == "Ferrari F2004", "Car routing should expose car field value.");
+
+    var trackAnswer = coach.Answer(session, "which track am i on", context);
+    Assert(
+        trackAnswer.Content.Contains("You are on Monza-GP", StringComparison.OrdinalIgnoreCase),
+        "Track question should answer with track only.");
+    Assert(
+        !trackAnswer.Content.Contains("Ferrari", StringComparison.OrdinalIgnoreCase),
+        "Track question must not answer with car identity.");
+
+    var carAnswer = coach.Answer(session, "which car am i in", context);
+    Assert(
+        carAnswer.Content.Contains("Ferrari F2004", StringComparison.OrdinalIgnoreCase),
+        "Car question should answer with car only.");
+    Assert(
+        !carAnswer.Content.Contains("Monza-GP", StringComparison.OrdinalIgnoreCase),
+        "Car question must not answer with track identity.");
+    Assert(
+        !carAnswer.Content.Contains("You are on", StringComparison.OrdinalIgnoreCase),
+        "Car question must not use track phrasing.");
+
+    var trackOnlySession = new SessionState();
+    trackOnlySession.ApplySnapshot(
+        SimHubPacketParser.Parse(
+            """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"provider_diag":{"pm_last_track_id":"Monza-GP"}}"""),
+        []);
+    var trackOnlyContext = RaceContextService.Build(trackOnlySession, trackOnlySession.LatestSnapshot);
+    var missingCarAnswer = coach.Answer(
+        trackOnlySession,
+        "which car am i in",
+        new CoachContext(RaceContext: trackOnlyContext));
+    Assert(
+        missingCarAnswer.Content.Contains(RaceAwarenessAnswerBuilder.CarUnavailableMessage, StringComparison.OrdinalIgnoreCase),
+        "Missing car must not fallback to track.");
+    Assert(
+        !missingCarAnswer.Content.Contains("Monza-GP", StringComparison.OrdinalIgnoreCase),
+        "Missing car answer must not mention track name.");
+
+    var carOnlySession = new SessionState();
+    carOnlySession.ApplySnapshot(
+        SimHubPacketParser.Parse(
+            """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"provider_diag":{"pm_last_car_id":"Ferrari F2004"}}"""),
+        []);
+    var carOnlyContext = RaceContextService.Build(carOnlySession, carOnlySession.LatestSnapshot);
+    var missingTrackAnswer = coach.Answer(
+        carOnlySession,
+        "which track am i on",
+        new CoachContext(RaceContext: carOnlyContext));
+    Assert(
+        missingTrackAnswer.Content.Contains(RaceAwarenessAnswerBuilder.TrackUnavailableMessage, StringComparison.OrdinalIgnoreCase),
+        "Missing track must not fallback to car.");
+    Assert(
+        !missingTrackAnswer.Content.Contains("Ferrari", StringComparison.OrdinalIgnoreCase),
+        "Missing track answer must not mention car name.");
+
+    var leakedCar = new CoachMessage("coach", "Ferrari F2004.", [], null, []);
+    var correctedTrack = RaceAwarenessAnswerValidator.Enforce(
+        "which track am i on",
+        leakedCar,
+        session,
+        context);
+    Assert(
+        correctedTrack.Content.Contains("You are on Monza-GP", StringComparison.OrdinalIgnoreCase),
+        "Validator must replace car leak on track question with track identity answer.");
+    Assert(
+        !correctedTrack.Content.Contains("Ferrari", StringComparison.OrdinalIgnoreCase),
+        "Validator must remove car field from track question answer.");
+
+    var leakedTrack = new CoachMessage("coach", "You are on Monza-GP.", [], null, []);
+    var correctedCar = RaceAwarenessAnswerValidator.Enforce(
+        "which car am i in",
+        leakedTrack,
+        session,
+        context);
+    Assert(
+        correctedCar.Content.Contains("Ferrari F2004", StringComparison.OrdinalIgnoreCase),
+        "Validator must replace track leak on car question with car identity answer.");
+    Assert(
+        !correctedCar.Content.Contains("You are on", StringComparison.OrdinalIgnoreCase),
+        "Validator must remove track field from car question answer.");
+
+    var hybrid = new HybridCoachEngine(new MockEngineerAiProvider(), new EngineerAiOptions(true, "mock", "", "", 40, 3));
+    var evidence = new CoachEvidenceBuilder().Build(new CoachEvidenceInput(session, [session.LatestSnapshot!], [], null, null, null, null, null, null, raceContext));
+    var pipelineTrack = CoachQueryPipeline.Resolve(session, "which track am i on", hybrid, context, evidence);
+    Assert(
+        pipelineTrack.FinalDisplayedText.Contains("Monza-GP", StringComparison.OrdinalIgnoreCase),
+        "Pipeline track question must display track answer only.");
+    Assert(
+        !pipelineTrack.FinalDisplayedText.Contains("Ferrari", StringComparison.OrdinalIgnoreCase),
+        "Pipeline track question must not display car answer.");
+    Assert(pipelineTrack.Trace.RaceAwarenessSubtopic == RaceAwarenessSubtopic.TrackIdentity, "Pipeline trace should include track subtopic.");
+    Assert(pipelineTrack.Trace.RaceAwarenessSelectedValue == "Monza-GP", "Pipeline trace should include selected track value.");
 }
 
 static void CoachHistoricalLapComparisonUsesStoredData()

@@ -95,21 +95,16 @@ public sealed class CoachEngine : ICoachEngine
         {
             case CoachQueryTopic.TrackIdentity:
                 return ToRaceAwarenessCoachMessage(
-                    RaceAwarenessAnswerBuilder.Build(
-                        RaceAwarenessSubtopic.TrackIdentity,
-                        session,
+                    RaceAwarenessAnswerBuilder.BuildTrackIdentity(
                         context?.RaceContext,
-                        RaceAwarenessQueryClassifier.Classify(userMessage, context?.RaceContext),
+                        RaceAwarenessRoutingResult.ForSubtopic(RaceAwarenessSubtopic.TrackIdentity, context?.RaceContext),
                         context?.RacePrepPlan?.Track));
             case CoachQueryTopic.CarIdentity:
                 return ToRaceAwarenessCoachMessage(
-                    RaceAwarenessAnswerBuilder.Build(
-                        RaceAwarenessSubtopic.CarIdentity,
-                        session,
+                    RaceAwarenessAnswerBuilder.BuildCarIdentity(
                         context?.RaceContext,
-                        RaceAwarenessQueryClassifier.Classify(userMessage, context?.RaceContext),
-                        prepTrack: null,
-                        prepCar: context?.RacePrepPlan?.Car));
+                        RaceAwarenessRoutingResult.ForSubtopic(RaceAwarenessSubtopic.CarIdentity, context?.RaceContext),
+                        context?.RacePrepPlan?.Car));
             case CoachQueryTopic.Position:
                 return ToRaceAwarenessCoachMessage(
                     RaceAwarenessAnswerBuilder.Build(

@@ -17,7 +17,9 @@ public sealed record RaceAwarenessRoutingResult(
     RaceAwarenessSubtopic Subtopic,
     IReadOnlyList<string> SelectedTelemetryFields,
     IReadOnlyList<string> MissingTelemetryFields,
-    string? FallbackReason)
+    string? FallbackReason,
+    string? SelectedField = null,
+    string? SelectedValue = null)
 {
     public static RaceAwarenessRoutingResult ForSubtopic(
         RaceAwarenessSubtopic subtopic,
@@ -39,7 +41,14 @@ public sealed record RaceAwarenessRoutingResult(
             }
         }
 
-        return new RaceAwarenessRoutingResult(subtopic, selected, missing, fallbackReason);
+        var (selectedField, selectedValue) = ResolveSelectedField(subtopic, raceContext);
+        return new RaceAwarenessRoutingResult(
+            subtopic,
+            selected,
+            missing,
+            fallbackReason,
+            selectedField,
+            selectedValue);
     }
 
     private static IReadOnlyList<string> FieldsForSubtopic(RaceAwarenessSubtopic subtopic) =>
@@ -64,6 +73,25 @@ public sealed record RaceAwarenessRoutingResult(
             ],
             RaceAwarenessSubtopic.HistoricalComparison => [],
             _ => []
+        };
+
+    private static (string? Field, string? Value) ResolveSelectedField(
+        RaceAwarenessSubtopic subtopic,
+        LiveRaceContext? raceContext) =>
+        raceContext switch
+        {
+            null => (null, null),
+            var race when subtopic == RaceAwarenessSubtopic.TrackIdentity =>
+                !string.IsNullOrWhiteSpace(race.TrackName)
+                    ? ("track_name", race.TrackName.Trim())
+                    : !string.IsNullOrWhiteSpace(race.CircuitId)
+                        ? ("circuit_id", race.CircuitId.Trim())
+                        : (null, null),
+            var race when subtopic == RaceAwarenessSubtopic.CarIdentity =>
+                !string.IsNullOrWhiteSpace(race.CarName)
+                    ? ("car_name", race.CarName.Trim())
+                    : (null, null),
+            _ => (null, null)
         };
 
     private static bool HasField(LiveRaceContext? raceContext, string field) =>

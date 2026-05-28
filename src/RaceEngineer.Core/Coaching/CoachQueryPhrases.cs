@@ -99,7 +99,11 @@ public static class CoachQueryPhrases
         "what circuit is this",
         "where am i racing",
         "what track am i driving",
-        "which track am i driving"
+        "which track am i driving",
+        "koja je staza",
+        "koja je ova staza",
+        "na kojoj sam stazi",
+        "na kojoj stazi sam"
     ];
 
     public static readonly string[] CarIdentity =
@@ -109,7 +113,11 @@ public static class CoachQueryPhrases
         "which car am i driving",
         "what car am i driving",
         "what car is this",
-        "which car is this"
+        "which car is this",
+        "koji auto vozim",
+        "koji auto je ovo",
+        "u kojem sam autu",
+        "koje auto vozim"
     ];
 
     public static readonly string[] RaceAwareness =

@@ -156,7 +156,9 @@ public static class CoachTopicOutputGuard
 
     private static bool ContainsCarAnswer(string content) =>
         content.Contains(RaceAwarenessAnswerBuilder.CarUnavailableMessage, StringComparison.OrdinalIgnoreCase)
-            || (content.Contains('.', StringComparison.Ordinal) && !ContainsPositionLeak(content));
+            || (content.Contains('.', StringComparison.Ordinal)
+                && !ContainsTrackAnswer(content)
+                && !ContainsPositionAnswer(content));
 
     private static bool ContainsPositionAnswer(string content) =>
         content.Contains("You are P", StringComparison.OrdinalIgnoreCase)
@@ -168,7 +170,12 @@ public static class CoachTopicOutputGuard
 
     private static bool ContainsTrackLeak(string content) =>
         content.Contains("You are on ", StringComparison.OrdinalIgnoreCase)
-            || content.Contains("Track is ", StringComparison.OrdinalIgnoreCase);
+            || content.Contains("Track is ", StringComparison.OrdinalIgnoreCase)
+            || content.Contains("track:", StringComparison.OrdinalIgnoreCase);
+
+    private static bool ContainsCarLeak(string content) =>
+        content.Contains("car:", StringComparison.OrdinalIgnoreCase)
+            || content.Contains("Car is ", StringComparison.OrdinalIgnoreCase);
 
     private static bool ContainsAny(string content, params string[] terms)
     {

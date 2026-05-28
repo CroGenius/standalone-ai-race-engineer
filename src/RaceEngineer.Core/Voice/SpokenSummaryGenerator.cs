@@ -107,6 +107,8 @@ public static class SpokenSummaryGenerator
         return topic switch
         {
             CoachQueryTopic.Position => BuildPositionSummary(action, english),
+            CoachQueryTopic.TrackIdentity => BuildTrackIdentitySummary(action, english),
+            CoachQueryTopic.CarIdentity => BuildCarIdentitySummary(action, english),
             CoachQueryTopic.Tyre => BuildTyreSummary(action, packets, english),
             CoachQueryTopic.PushConfidence => BuildPushConfidenceSummary(action, english),
             CoachQueryTopic.LapTime => BuildLapTimeSummary(action, packets, english),
@@ -123,6 +125,43 @@ public static class SpokenSummaryGenerator
             CoachQueryTopic.Incidents => BuildGenericSummary(action, packets, english, "Incident"),
             _ => BuildGenericSummary(action, packets, english, null)
         };
+    }
+
+    private static string? BuildTrackIdentitySummary(string action, bool english)
+    {
+        if (action.Contains(RaceEngineer.Core.RaceAwareness.RaceAwarenessAnswerBuilder.TrackUnavailableMessage, StringComparison.OrdinalIgnoreCase))
+        {
+            return RaceEngineer.Core.RaceAwareness.RaceAwarenessAnswerBuilder.TrackUnavailableMessage;
+        }
+
+        if (action.Contains("You are on ", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExtractFirstActionableSentence(action);
+        }
+
+        return english
+            ? RaceEngineer.Core.RaceAwareness.RaceAwarenessAnswerBuilder.TrackUnavailableMessage
+            : ExtractFirstActionableSentence(action);
+    }
+
+    private static string? BuildCarIdentitySummary(string action, bool english)
+    {
+        if (action.Contains(RaceEngineer.Core.RaceAwareness.RaceAwarenessAnswerBuilder.CarUnavailableMessage, StringComparison.OrdinalIgnoreCase))
+        {
+            return RaceEngineer.Core.RaceAwareness.RaceAwarenessAnswerBuilder.CarUnavailableMessage;
+        }
+
+        var sentence = ExtractFirstActionableSentence(action);
+        if (!string.IsNullOrWhiteSpace(sentence)
+            && !sentence.Contains("You are on ", StringComparison.OrdinalIgnoreCase)
+            && !sentence.Contains("Track is ", StringComparison.OrdinalIgnoreCase))
+        {
+            return sentence;
+        }
+
+        return english
+            ? RaceEngineer.Core.RaceAwareness.RaceAwarenessAnswerBuilder.CarUnavailableMessage
+            : null;
     }
 
     private static string? BuildPositionSummary(string action, bool english)
@@ -505,6 +544,12 @@ public static class SpokenSummaryGenerator
             CoachQueryTopic.Tyre => packets.Where(packet =>
                 IsTyrePacket(packet) || packet.Category.Contains("TyreIntelligence", StringComparison.Ordinal)).ToArray(),
             CoachQueryTopic.LapTime => packets.Where(IsLapTimePacket).ToArray(),
+            CoachQueryTopic.TrackIdentity => packets.Where(packet =>
+                packet.Category == "RaceAwareness"
+                    && packet.Summary.Equals("Track identity", StringComparison.Ordinal)).ToArray(),
+            CoachQueryTopic.CarIdentity => packets.Where(packet =>
+                packet.Category == "RaceAwareness"
+                    && packet.Summary.Equals("Car identity", StringComparison.Ordinal)).ToArray(),
             CoachQueryTopic.Position => [],
             _ => packets.Where(packet => !IsFuelPacket(packet)).ToArray()
         };

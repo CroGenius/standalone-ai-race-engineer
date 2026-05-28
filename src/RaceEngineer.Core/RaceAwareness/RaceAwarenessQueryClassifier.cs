@@ -4,16 +4,6 @@ namespace RaceEngineer.Core.RaceAwareness;
 
 public static class RaceAwarenessQueryClassifier
 {
-    private static readonly string[] CarIdentityPhrases =
-    [
-        "which car am i in",
-        "what car am i in",
-        "which car am i driving",
-        "what car am i driving",
-        "what car is this",
-        "which car is this"
-    ];
-
     private static readonly string[] TrackIdentityPhrases =
     [
         "which track am i on",
@@ -26,7 +16,25 @@ public static class RaceAwarenessQueryClassifier
         "what circuit is this",
         "where am i racing",
         "what track am i driving",
-        "which track am i driving"
+        "which track am i driving",
+        "koja je staza",
+        "koja je ova staza",
+        "na kojoj sam stazi",
+        "na kojoj stazi sam"
+    ];
+
+    private static readonly string[] CarIdentityPhrases =
+    [
+        "which car am i in",
+        "what car am i in",
+        "which car am i driving",
+        "what car am i driving",
+        "what car is this",
+        "which car is this",
+        "koji auto vozim",
+        "koji auto je ovo",
+        "u kojem sam autu",
+        "koje auto vozim"
     ];
 
     private static readonly string[] GapAheadPhrases =
@@ -93,8 +101,7 @@ public static class RaceAwarenessQueryClassifier
 
     public static RaceAwarenessRoutingResult Classify(string question, LiveRaceContext? raceContext = null)
     {
-        var text = question.Trim().ToLowerInvariant();
-        var subtopic = ClassifySubtopic(text);
+        var subtopic = ClassifySubtopic(question);
         return RaceAwarenessRoutingResult.ForSubtopic(subtopic, raceContext);
     }
 
@@ -107,12 +114,12 @@ public static class RaceAwarenessQueryClassifier
             return RaceAwarenessSubtopic.HistoricalComparison;
         }
 
-        if (ContainsAny(text, TrackIdentityPhrases) || LooksLikeTrackIdentity(text))
+        if (IsTrackIdentityQuery(text))
         {
             return RaceAwarenessSubtopic.TrackIdentity;
         }
 
-        if (ContainsAny(text, CarIdentityPhrases) || LooksLikeCarIdentity(text))
+        if (IsCarIdentityQuery(text))
         {
             return RaceAwarenessSubtopic.CarIdentity;
         }
@@ -127,7 +134,7 @@ public static class RaceAwarenessQueryClassifier
             return RaceAwarenessSubtopic.GapBehind;
         }
 
-        if (ContainsAny(text, PositionPhrases) && !LooksLikeTrackIdentity(text))
+        if (ContainsAny(text, PositionPhrases) && !IsTrackIdentityQuery(text))
         {
             return RaceAwarenessSubtopic.Position;
         }
@@ -150,10 +157,44 @@ public static class RaceAwarenessQueryClassifier
         return RaceAwarenessSubtopic.RaceContext;
     }
 
-    public static bool LooksLikeTrackIdentity(string text)
+    public static bool IsTrackIdentityQuery(string text)
     {
         var normalized = text.Trim().ToLowerInvariant();
         if (ContainsAny(normalized, NonIdentityTrackPhrases))
+        {
+            return false;
+        }
+
+        if (ContainsAny(normalized, TrackIdentityPhrases)
+            || ContainsAny(normalized, CoachQueryPhrases.TrackIdentity))
+        {
+            return true;
+        }
+
+        return LooksLikeTrackIdentity(normalized);
+    }
+
+    public static bool IsCarIdentityQuery(string text)
+    {
+        var normalized = text.Trim().ToLowerInvariant();
+        if (IsTrackIdentityQuery(normalized))
+        {
+            return false;
+        }
+
+        if (ContainsAny(normalized, CarIdentityPhrases)
+            || ContainsAny(normalized, CoachQueryPhrases.CarIdentity))
+        {
+            return true;
+        }
+
+        return LooksLikeCarIdentity(normalized);
+    }
+
+    public static bool LooksLikeTrackIdentity(string text)
+    {
+        var normalized = text.Trim().ToLowerInvariant();
+        if (ContainsAny(normalized, NonIdentityTrackPhrases) || ContainsCarIdentityKeyword(normalized))
         {
             return false;
         }
@@ -170,13 +211,22 @@ public static class RaceAwarenessQueryClassifier
                 || normalized.Contains("where am i racing", StringComparison.Ordinal)
                 || normalized.Contains("track am i on", StringComparison.Ordinal)
                 || normalized.Contains("circuit am i on", StringComparison.Ordinal)
-                || normalized.Contains("track am i driving", StringComparison.Ordinal))
+                || normalized.Contains("track am i driving", StringComparison.Ordinal)
+                || normalized.Contains("koja je staza", StringComparison.Ordinal)
+                || normalized.Contains("na kojoj sam stazi", StringComparison.Ordinal)
+                || normalized.Contains("na kojoj stazi sam", StringComparison.Ordinal))
+            && ContainsTrackIdentityKeyword(normalized)
             && !ContainsPositionIntent(normalized);
     }
 
     public static bool LooksLikeCarIdentity(string text)
     {
         var normalized = text.Trim().ToLowerInvariant();
+        if (IsTrackIdentityQuery(normalized))
+        {
+            return false;
+        }
+
         if (ContainsAny(normalized, CarIdentityPhrases))
         {
             return true;
@@ -185,33 +235,22 @@ public static class RaceAwarenessQueryClassifier
         return (normalized.Contains("which car", StringComparison.Ordinal)
                 || normalized.Contains("what car", StringComparison.Ordinal)
                 || normalized.Contains("car am i in", StringComparison.Ordinal)
-                || normalized.Contains("car am i driving", StringComparison.Ordinal))
+                || normalized.Contains("car am i driving", StringComparison.Ordinal)
+                || normalized.Contains("koji auto", StringComparison.Ordinal)
+                || normalized.Contains("u kojem sam autu", StringComparison.Ordinal))
+            && ContainsCarIdentityKeyword(normalized)
             && !normalized.Contains("car ahead", StringComparison.Ordinal)
             && !normalized.Contains("car behind", StringComparison.Ordinal);
     }
 
-    public static bool LooksLikeTrackRelatedQuery(string question)
-    {
-        var text = question.Trim().ToLowerInvariant();
-        if (ContainsAny(text, NonIdentityTrackPhrases))
-        {
-            return false;
-        }
+    public static bool LooksLikeTrackRelatedQuery(string question) =>
+        IsTrackIdentityQuery(question);
 
-        return ClassifySubtopic(text) == RaceAwarenessSubtopic.TrackIdentity
-            || LooksLikeTrackIdentity(text);
-    }
+    public static bool LooksLikeCarRelatedQuery(string question) =>
+        IsCarIdentityQuery(question);
 
-    public static bool LooksLikePositionQuery(string question)
-    {
-        var text = question.Trim().ToLowerInvariant();
-        return ClassifySubtopic(text) == RaceAwarenessSubtopic.Position;
-    }
-
-    private static bool ContainsPositionIntent(string text) =>
-        text.Contains("position", StringComparison.Ordinal)
-            || text.Contains("pozicija", StringComparison.Ordinal)
-            || text.Contains("place am i", StringComparison.Ordinal);
+    public static bool LooksLikePositionQuery(string question) =>
+        ClassifySubtopic(question) == RaceAwarenessSubtopic.Position;
 
     public static CoachQueryTopic ToPrimaryTopic(RaceAwarenessSubtopic subtopic) =>
         subtopic switch
@@ -222,6 +261,22 @@ public static class RaceAwarenessQueryClassifier
             RaceAwarenessSubtopic.HistoricalComparison => CoachQueryTopic.TrackMemory,
             _ => CoachQueryTopic.RaceAwareness
         };
+
+    private static bool ContainsTrackIdentityKeyword(string text) =>
+        text.Contains("track", StringComparison.Ordinal)
+            || text.Contains("circuit", StringComparison.Ordinal)
+            || text.Contains("staza", StringComparison.Ordinal)
+            || text.Contains("stazi", StringComparison.Ordinal);
+
+    private static bool ContainsCarIdentityKeyword(string text) =>
+        text.Contains(" car", StringComparison.Ordinal)
+            || text.StartsWith("car ", StringComparison.Ordinal)
+            || text.Contains("auto", StringComparison.Ordinal);
+
+    private static bool ContainsPositionIntent(string text) =>
+        text.Contains("position", StringComparison.Ordinal)
+            || text.Contains("pozicija", StringComparison.Ordinal)
+            || text.Contains("place am i", StringComparison.Ordinal);
 
     private static bool ContainsAny(string text, IEnumerable<string> phrases)
     {

@@ -106,7 +106,9 @@ public static class CoachQueryPipeline
             raceRouting.MissingTelemetryFields.Count > 0
                 ? string.Join(", ", raceRouting.MissingTelemetryFields)
                 : null,
-            raceRouting.FallbackReason);
+            raceRouting.FallbackReason,
+            raceRouting.SelectedField,
+            raceRouting.SelectedValue);
 
         CoachQueryDiagnosticLog.RaiseRuntime(trace);
         CoachQueryDiagnosticLog.Raise(new CoachAnswerTrace(
