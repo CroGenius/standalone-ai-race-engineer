@@ -171,6 +171,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         voiceInputService.TranscriptPendingConfirmation += OnVoiceTranscriptPendingConfirmation;
         voiceInputService.DiagnosticRaised += OnVoiceDiagnosticRaised;
         voiceInputService.StateChanged += (_, _) => RaiseVoiceProperties();
+        CoachQueryDiagnosticLog.TraceRaised += OnCoachQueryTraceRaised;
+        CoachQueryDiagnosticLog.RuntimeTraceRaised += OnCoachQueryRuntimeTraceRaised;
         pushToTalkHotkey = ParsePushToTalkHotkeySafely(settings.PushToTalkHotkey);
         storageService = new StorageService(settings.DatabasePath);
         profilePreferencesService = new ProfilePreferencesService(storageService);
@@ -805,6 +807,24 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         return events.Count;
     }
 
+    private void OnCoachQueryTraceRaised(CoachAnswerTrace trace)
+    {
+        Application.Current?.Dispatcher.Invoke(() =>
+        {
+            ChatMessages.Add(
+                $"Coach diag: topic={trace.Topic} gate={(trace.GateBlocked ? "blocked" : "open")} source={trace.AnswerSource} evidence={trace.SelectedEvidenceType ?? "none"} fallback={trace.FallbackReason ?? "none"}");
+        });
+    }
+
+    private void OnCoachQueryRuntimeTraceRaised(CoachQueryRuntimeTrace trace)
+    {
+        Application.Current?.Dispatcher.Invoke(() =>
+        {
+            ChatMessages.Add(
+                $"Coach trace: transcript='{trace.Transcript}' topic={trace.Topic} mode={trace.SessionMode} laps={trace.CompletedLaps} gate={(trace.GateBlocked ? "blocked" : "open")} gateMsg='{trace.GateMessage ?? "none"}' det='{trace.DeterministicAnswer}' ai='{trace.PrimaryAnswer}' spoken='{trace.SpokenSummary}' tts='{trace.FinalTtsPayload}' ui='{trace.FinalDisplayedText}' source={trace.AnswerSource} build={trace.AssemblyVersion}");
+        });
+    }
+
     private void SendChat()
     {
         var message = ChatInput.Trim();
@@ -815,9 +835,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         ChatInput = "";
         ChatMessages.Add(isReviewMode ? $"You (review): {message}" : $"You: {message}");
-        var evidence = BuildCoachEvidence();
-        var answer = coachEngine.Answer(ActiveSession, message, CurrentCoachContext(), evidence);
-        AppendCoachChatLines(answer);
+        var pipeline = CoachQueryPipeline.Resolve(
+            ActiveSession,
+            message,
+            coachEngine,
+            CurrentCoachContext(),
+            BuildCoachEvidence(),
+            userPreferences.Coach);
+        AppendCoachChatLines(pipeline.FinalWritten);
     }
 
     private CoachEvidenceBundle BuildCoachEvidence()
@@ -1288,8 +1313,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             preferences: userPreferences.Coach);
         AppendCoachChatLines(result.WrittenResponse);
         ChatMessages.Add(result.Spoken
-            ? $"Voice diag: spoken — original='{result.OriginalAnswer}' summary='{result.GeneratedSummary}' tts='{result.FinalTtsPayload}'"
-            : $"Voice diag: not spoken — {result.SpeechDiagnostic} original='{result.OriginalAnswer}' summary='{result.GeneratedSummary}'");
+            ? $"Voice diag: spoken — ui='{result.FinalDisplayedText}' summary='{result.GeneratedSummary}' tts='{result.FinalTtsPayload}'"
+            : $"Voice diag: not spoken — {result.SpeechDiagnostic} ui='{result.FinalDisplayedText}' summary='{result.GeneratedSummary}'");
         LastCallout = result.Spoken ? result.SpokenResponse : voiceService.LastSpokenCallout;
         RaiseVoiceProperties();
     }

@@ -29,7 +29,8 @@ public sealed record VoiceQueryResult(
     string SpeechDiagnostic,
     string OriginalAnswer = "",
     string GeneratedSummary = "",
-    string FinalTtsPayload = "");
+    string FinalTtsPayload = "",
+    string FinalDisplayedText = "");
 
 public sealed class VoiceService
 {
@@ -117,37 +118,33 @@ public sealed class VoiceService
         CoachPreferencesRecord? preferences = null)
     {
         interactionGate.BeginUserQuestionQuietWindow(DateTimeOffset.UtcNow);
-        var effectivePreferences = preferences ?? context?.Preferences;
-        var written = coachEngine.Answer(session, query, context, evidence);
-        var summaryResult = BuildSpokenSummary(
-            written,
-            coachEngine,
+        var pipeline = CoachQueryPipeline.Resolve(
             session,
             query,
+            coachEngine,
             context,
             evidence,
-            effectivePreferences);
-        var payload = SpokenSummaryGenerator.ComposeSpokenPayload(
-            summaryResult.Summary,
-            confirmQuery,
-            SpokenSummaryGenerator.ResolveMaxWords(effectivePreferences));
+            preferences,
+            confirmQuery);
 
+        var payload = pipeline.FinalTtsPayload;
         if (string.IsNullOrWhiteSpace(payload))
         {
-            var diagnostic = $"summary empty: {summaryResult.Diagnostic}; original='{summaryResult.OriginalAnswer}'";
+            var diagnostic = $"summary empty: {pipeline.SpokenSummary.Diagnostic}; original='{pipeline.SpokenSummary.OriginalAnswer}'";
             interactionGate.LogDirectAnswerNotSpoken(diagnostic);
             return new VoiceQueryResult(
-                written,
+                pipeline.FinalWritten,
                 "",
                 false,
                 diagnostic,
-                summaryResult.OriginalAnswer,
-                summaryResult.GeneratedSummary,
-                "");
+                pipeline.Trace.PrimaryAnswer,
+                pipeline.SpokenSummary.GeneratedSummary,
+                "",
+                pipeline.FinalDisplayedText);
         }
 
         var speech = SpeakInternal(payload);
-        var speechDiagnostic = SpokenSummaryGenerator.BuildDiagnostic(summaryResult, payload);
+        var speechDiagnostic = SpokenSummaryGenerator.BuildDiagnostic(pipeline.SpokenSummary, payload);
         if (!speech.Spoken)
         {
             speechDiagnostic = $"{speech.Diagnostic}; {speechDiagnostic}";
@@ -159,44 +156,14 @@ public sealed class VoiceService
         }
 
         return new VoiceQueryResult(
-            written,
+            pipeline.FinalWritten,
             payload,
             speech.Spoken,
             speechDiagnostic,
-            summaryResult.OriginalAnswer,
-            summaryResult.GeneratedSummary,
-            payload);
-    }
-
-    private static SpokenSummaryResult BuildSpokenSummary(
-        CoachMessage written,
-        ICoachEngine coachEngine,
-        SessionState session,
-        string query,
-        CoachContext? context,
-        CoachEvidenceBundle? evidence,
-        CoachPreferencesRecord? preferences)
-    {
-        var summaryResult = SpokenSummaryGenerator.GenerateSpokenSummary(written, preferences, query);
-        if (!string.IsNullOrWhiteSpace(summaryResult.Summary))
-        {
-            return summaryResult;
-        }
-
-        var deterministic = coachEngine.BuildDeterministicAnswer(session, query, context, evidence);
-        var fallback = SpokenSummaryGenerator.GenerateSpokenSummary(deterministic, preferences, query);
-        if (string.IsNullOrWhiteSpace(fallback.Summary))
-        {
-            return fallback with
-            {
-                Diagnostic = $"primary={summaryResult.Diagnostic}; fallback={fallback.Diagnostic}"
-            };
-        }
-
-        return fallback with
-        {
-            Diagnostic = $"deterministic fallback used; primary={summaryResult.Diagnostic}"
-        };
+            pipeline.Trace.PrimaryAnswer,
+            pipeline.SpokenSummary.GeneratedSummary,
+            payload,
+            pipeline.FinalDisplayedText);
     }
 
     private SpeechAttemptResult SpeakInternal(string text, bool skipFinalLimit = false)

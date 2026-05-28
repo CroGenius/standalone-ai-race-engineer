@@ -92,17 +92,17 @@ public sealed class CoachEngine : ICoachEngine
             case CoachQueryTopic.LapTime:
                 return RouteLapTimeAnswer(session, text);
             case CoachQueryTopic.LosingTime:
-                return AnswerDrivingTechniqueFromEvidence(session, context, CoachQueryTopic.LosingTime, "Focus on the sector with the largest loss versus your best lap.", "No sector delta or delta trace evidence is available.", evidence, CoachEvidenceTopic.LosingTime);
+                return AnswerDrivingTechniqueFromEvidence(userMessage, session, context, CoachQueryTopic.LosingTime, "Focus on the sector with the largest loss versus your best lap.", "No sector delta or delta trace evidence is available.", evidence, CoachEvidenceTopic.LosingTime);
             case CoachQueryTopic.Braking:
-                return AnswerDrivingTechnique(session, context, CoachQueryTopic.Braking, () => BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
+                return AnswerDrivingTechnique(userMessage, session, context, CoachQueryTopic.Braking, () => BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
             case CoachQueryTopic.Throttle:
-                return AnswerDrivingTechniqueFromEvidence(session, context, CoachQueryTopic.Throttle, "Work on smoother exit throttle and reduce hesitation.", "No throttle smoothness or trace evidence is available.", evidence, CoachEvidenceTopic.Throttle);
+                return AnswerDrivingTechniqueFromEvidence(userMessage, session, context, CoachQueryTopic.Throttle, "Work on smoother exit throttle and reduce hesitation.", "No throttle smoothness or trace evidence is available.", evidence, CoachEvidenceTopic.Throttle);
             case CoachQueryTopic.Improvement:
-                return AnswerDrivingTechniqueFromEvidence(session, context, CoachQueryTopic.Improvement, "Address the highest-priority weakness first.", "No improvement evidence is available.", evidence, CoachEvidenceTopic.Improvement);
+                return AnswerDrivingTechniqueFromEvidence(userMessage, session, context, CoachQueryTopic.Improvement, "Address the highest-priority weakness first.", "No improvement evidence is available.", evidence, CoachEvidenceTopic.Improvement);
             case CoachQueryTopic.LapComparison:
-                return AnswerDrivingTechniqueFromEvidence(session, context, CoachQueryTopic.LapComparison, "Use the best lap as the reference and close the largest gap.", "No lap comparison evidence is available.", evidence, CoachEvidenceTopic.LapComparison);
+                return AnswerDrivingTechniqueFromEvidence(userMessage, session, context, CoachQueryTopic.LapComparison, "Use the best lap as the reference and close the largest gap.", "No lap comparison evidence is available.", evidence, CoachEvidenceTopic.LapComparison);
             case CoachQueryTopic.RacePace:
-                return AnswerDrivingTechniqueFromEvidence(session, context, CoachQueryTopic.RacePace, "Protect race pace by managing tyre, fuel, and repeat incidents.", "No race pace evidence is available.", evidence, CoachEvidenceTopic.RacePace);
+                return AnswerDrivingTechniqueFromEvidence(userMessage, session, context, CoachQueryTopic.RacePace, "Protect race pace by managing tyre, fuel, and repeat incidents.", "No race pace evidence is available.", evidence, CoachEvidenceTopic.RacePace);
             case CoachQueryTopic.Incidents:
                 return AttachEvidence(RecentMistakesAnswer(recentEvents), evidence, CoachEvidenceTopic.Incidents);
             case CoachQueryTopic.Pit:
@@ -118,7 +118,7 @@ public sealed class CoachEngine : ICoachEngine
 
         if (text.Contains("brake", StringComparison.Ordinal))
         {
-            return AnswerDrivingTechnique(session, context, CoachQueryTopic.Braking, () => BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
+            return AnswerDrivingTechnique(userMessage, session, context, CoachQueryTopic.Braking, () => BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
         }
 
         if (ContainsAny(text, "mistake", "mistakes", "recent event", "recent events", "issues"))
@@ -734,6 +734,7 @@ public sealed class CoachEngine : ICoachEngine
     }
 
     private static CoachMessage AnswerDrivingTechnique(
+        string query,
         SessionState session,
         CoachContext? context,
         CoachQueryTopic topic,
@@ -741,15 +742,18 @@ public sealed class CoachEngine : ICoachEngine
         CoachEvidenceBundle? evidence,
         CoachEvidenceTopic evidenceTopic)
     {
-        if (DrivingTechniqueGate.BuildUnavailableMessage(topic, session, context?.SessionContext) is { } unavailable)
+        var gate = DrivingTechniqueGate.Evaluate(topic, session, context?.SessionContext);
+        if (!gate.Allowed)
         {
-            return Unavailable(unavailable, DrivingTechniqueGate.BuildEvidenceReason(topic, session, context?.SessionContext));
+            LogGateTrace(query, topic, gate, "deterministic-gate");
+            return Unavailable(gate.UnavailableMessage!, gate.EvidenceReason);
         }
 
         return AttachEvidence(answerFactory(), evidence, evidenceTopic);
     }
 
     private static CoachMessage AnswerDrivingTechniqueFromEvidence(
+        string query,
         SessionState session,
         CoachContext? context,
         CoachQueryTopic topic,
@@ -758,12 +762,30 @@ public sealed class CoachEngine : ICoachEngine
         CoachEvidenceBundle? evidence,
         CoachEvidenceTopic evidenceTopic)
     {
-        if (DrivingTechniqueGate.BuildUnavailableMessage(topic, session, context?.SessionContext) is { } unavailable)
+        var gate = DrivingTechniqueGate.Evaluate(topic, session, context?.SessionContext);
+        if (!gate.Allowed)
         {
-            return Unavailable(unavailable, DrivingTechniqueGate.BuildEvidenceReason(topic, session, context?.SessionContext));
+            LogGateTrace(query, topic, gate, "deterministic-gate");
+            return Unavailable(gate.UnavailableMessage!, gate.EvidenceReason);
         }
 
         return AnswerFromEvidence(action, unavailableReason, evidence, evidenceTopic);
+    }
+
+    private static void LogGateTrace(
+        string query,
+        CoachQueryTopic topic,
+        DrivingTechniqueGateResult gate,
+        string answerSource)
+    {
+        CoachQueryDiagnosticLog.Raise(new CoachAnswerTrace(
+            query,
+            topic,
+            true,
+            gate.UnavailableMessage,
+            answerSource,
+            null,
+            gate.EvidenceReason));
     }
 
     private static CoachMessage AnswerFromEvidence(

@@ -84,6 +84,8 @@ CoachEngineRoutesCroatianBrakingPhrase();
 CoachStationaryPitBrakingReturnsNoDataYet();
 CoachBrakingAnswersAfterValidLap();
 SpokenBrakingSummaryWhenNoDataYet();
+HybridCoachStationaryPitBrakingDoesNotUseInvalidLapFlags();
+PttPipelineStationaryPitBrakingUsesUnifiedGateMessage();
 VoiceInputAcceptsRecognitionAfterPttReleaseGrace();
 VoiceInputReportsNoSpeechAfterGraceTimeout();
 VoiceCalloutContainsNoFakeTelemetryValues();
@@ -1036,7 +1038,7 @@ static void CoachStationaryPitBrakingReturnsNoDataYet()
         new CoachEvidenceBuilder().Build(new CoachEvidenceInput(session, null, session.Events)));
 
     Assert(
-        answer.Content.Contains("Not enough braking data yet", StringComparison.OrdinalIgnoreCase),
+        answer.Content.Contains("No braking data yet", StringComparison.OrdinalIgnoreCase),
         "Stationary pit with no completed laps should not provide braking technique feedback.");
     Assert(
         !answer.Content.Contains("No recent braking problem is active", StringComparison.OrdinalIgnoreCase),
@@ -1056,7 +1058,7 @@ static void CoachBrakingAnswersAfterValidLap()
     var answer = coach.Answer(session, "how is my braking", new CoachContext(SessionContext: context));
 
     Assert(
-        !answer.Content.Contains("Not enough braking data yet", StringComparison.OrdinalIgnoreCase),
+        !answer.Content.Contains("No braking data yet", StringComparison.OrdinalIgnoreCase),
         "Braking feedback should be available after at least one valid completed lap.");
 }
 
@@ -1089,6 +1091,139 @@ static void SpokenBrakingSummaryWhenNoDataYet()
     Assert(
         spoken.Summary.Contains("clean lap", StringComparison.OrdinalIgnoreCase),
         "Spoken braking summary should tell the driver to complete a clean lap first.");
+}
+
+static void HybridCoachStationaryPitBrakingDoesNotUseInvalidLapFlags()
+{
+    var hybrid = new HybridCoachEngine(
+        new MockEngineerAiProvider(),
+        new EngineerAiOptions(true, "mock", "", "", 40, 3));
+    var engine = new EventEngine();
+    var session = new SessionState();
+    Apply(session, engine, Packet("""{"speed_kmh":0,"fuel":30.0,"lap_progress":0.05,"race":{"flags":"pit"}}"""));
+    var context = new SessionContextClassifier().Classify(new SessionContextInput(session, [session.LatestSnapshot!]));
+    var coachContext = new CoachContext(SessionContext: context);
+    var evidence = new CoachEvidenceBuilder().Build(new CoachEvidenceInput(session, null, session.Events));
+
+    var answer = hybrid.Answer(session, "how is my braking", coachContext, evidence);
+    Assert(
+        !answer.Content.Contains("InvalidLapOrFlags", StringComparison.OrdinalIgnoreCase),
+        "Hybrid coach answer must not leak InvalidLapOrFlags for blocked technique queries.");
+    Assert(
+        answer.Content.Contains("No braking data yet", StringComparison.OrdinalIgnoreCase),
+        "Hybrid coach answer should use the driving technique gate message.");
+
+    var pipeline = CoachQueryPipeline.Resolve(session, "how is my braking", hybrid, coachContext, evidence);
+    Assert(
+        pipeline.Trace.GateBlocked,
+        "Pipeline trace should record the driving technique gate as blocked.");
+    Assert(
+        pipeline.FinalDisplayedText == CoachQueryPipeline.ExpectedStationaryBrakingGateMessage,
+        "Pipeline final displayed text should use the braking gate message.");
+    Assert(
+        pipeline.SpokenSummary.Summary == CoachQueryPipeline.ExpectedStationaryBrakingGateMessage,
+        "Pipeline spoken summary should use the braking gate message.");
+    Assert(
+        pipeline.FinalWritten.Content == CoachQueryPipeline.ExpectedStationaryBrakingGateMessage,
+        "Pipeline final written content should match the unified gate message.");
+
+    var voice = new VoiceService(new RecordingVoiceOutput());
+    voice.SetVoiceEnabled(true);
+    voice.SetMuted(false);
+    var spoken = voice.HandleSpokenQuery(session, "how is my braking", hybrid, coachContext, evidence);
+    Assert(
+        !spoken.WrittenResponse.Content.Contains("InvalidLapOrFlags", StringComparison.OrdinalIgnoreCase),
+        "Spoken query written response must not leak InvalidLapOrFlags.");
+    Assert(
+        !spoken.SpokenResponse.Contains("InvalidLapOrFlags", StringComparison.OrdinalIgnoreCase),
+        "Spoken query TTS must not leak InvalidLapOrFlags.");
+    Assert(
+        spoken.FinalDisplayedText == CoachQueryPipeline.ExpectedStationaryBrakingGateMessage,
+        "Spoken query final displayed text should use the braking gate message.");
+    Assert(
+        spoken.WrittenResponse.Content == CoachQueryPipeline.ExpectedStationaryBrakingGateMessage,
+        "Spoken query written response should match the unified gate message.");
+    Assert(
+        spoken.SpokenResponse == CoachQueryPipeline.ExpectedStationaryBrakingGateMessage,
+        "Spoken query TTS should use the no-data-yet braking message.");
+    Assert(
+        spoken.FinalDisplayedText == spoken.WrittenResponse.Content,
+        "Spoken query UI and written response must use the same final string.");
+}
+
+static void PttPipelineStationaryPitBrakingUsesUnifiedGateMessage()
+{
+    var hybrid = new HybridCoachEngine(
+        new MockEngineerAiProvider(),
+        new EngineerAiOptions(true, "mock", "", "", 40, 3));
+    var engine = new EventEngine();
+    var session = new SessionState();
+    Apply(session, engine, Packet("""{"speed_kmh":0,"fuel":30.0,"lap_progress":0.05,"race":{"flags":"pit"}}"""));
+    var context = new SessionContextClassifier().Classify(new SessionContextInput(session, [session.LatestSnapshot!]));
+    var coachContext = new CoachContext(SessionContext: context);
+    var evidence = new CoachEvidenceBuilder().Build(new CoachEvidenceInput(session, null, session.Events));
+    const string query = "how is my braking";
+
+    CoachQueryRuntimeTrace? runtimeTrace = null;
+    void CaptureTrace(CoachQueryRuntimeTrace trace) => runtimeTrace = trace;
+    CoachQueryDiagnosticLog.RuntimeTraceRaised += CaptureTrace;
+
+    try
+    {
+        var chatPipeline = CoachQueryPipeline.Resolve(session, query, hybrid, coachContext, evidence);
+        var voice = new VoiceService(new RecordingVoiceOutput());
+        voice.SetVoiceEnabled(true);
+        voice.SetMuted(false);
+        var voiceResult = voice.HandleSpokenQuery(session, query, hybrid, coachContext, evidence);
+
+        Assert(runtimeTrace is not null, "Runtime trace should be raised for the PTT pipeline.");
+        Assert(
+            runtimeTrace!.Transcript == query,
+            "Runtime trace should capture the braking transcript.");
+        Assert(
+            runtimeTrace.Topic == CoachQueryTopic.Braking,
+            "Runtime trace should classify the braking topic.");
+        Assert(
+            runtimeTrace.CompletedLaps == 0,
+            "Runtime trace should record zero completed laps.");
+        Assert(
+            runtimeTrace.GateBlocked,
+            "Runtime trace should record the gate as blocked.");
+        Assert(
+            !string.IsNullOrWhiteSpace(runtimeTrace.PrimaryAnswer),
+            "Runtime trace should capture the primary answer for debugging.");
+        Assert(
+            !runtimeTrace.PrimaryAnswer.Contains("InvalidLapOrFlags", StringComparison.OrdinalIgnoreCase),
+            "Runtime trace primary answer must not leak InvalidLapOrFlags.");
+        Assert(
+            runtimeTrace.DeterministicAnswer.Contains("No braking data yet", StringComparison.OrdinalIgnoreCase),
+            "Runtime trace deterministic answer should use the gate message.");
+        Assert(
+            chatPipeline.FinalDisplayedText == CoachQueryPipeline.ExpectedStationaryBrakingGateMessage,
+            "Chat pipeline final displayed text should use the gate message.");
+        Assert(
+            voiceResult.FinalDisplayedText == CoachQueryPipeline.ExpectedStationaryBrakingGateMessage,
+            "Voice pipeline final displayed text should use the gate message.");
+        Assert(
+            voiceResult.WrittenResponse.Content == voiceResult.FinalDisplayedText,
+            "Voice written response and displayed text must match.");
+        Assert(
+            voiceResult.SpokenResponse == CoachQueryPipeline.ExpectedStationaryBrakingGateMessage,
+            "Voice TTS payload should use the gate message.");
+        Assert(
+            chatPipeline.FinalDisplayedText == voiceResult.FinalDisplayedText,
+            "Chat and voice must expose the same final answer string.");
+        Assert(
+            !chatPipeline.FinalDisplayedText.Contains("InvalidLapOrFlags", StringComparison.OrdinalIgnoreCase),
+            "Final displayed answer must not contain InvalidLapOrFlags.");
+        Assert(
+            !voiceResult.SpokenResponse.Contains("telemetry", StringComparison.OrdinalIgnoreCase),
+            "Final spoken answer must not contain telemetry leak phrasing.");
+    }
+    finally
+    {
+        CoachQueryDiagnosticLog.RuntimeTraceRaised -= CaptureTrace;
+    }
 }
 
 static void VoiceInputAcceptsRecognitionAfterPttReleaseGrace()

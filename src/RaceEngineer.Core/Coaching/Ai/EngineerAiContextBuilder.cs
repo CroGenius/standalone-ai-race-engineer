@@ -23,15 +23,30 @@ public static class EngineerAiContextBuilder
         CoachEvidenceBundle evidence)
     {
         var primaryTopic = CoachQueryTopicClassifier.ClassifyPrimary(question);
+        var latest = session.LatestSnapshot;
+        var sessionContext = context?.SessionContext ?? SessionContextAssessment.InitialLive;
+
+        if (!DrivingTechniqueGate.Evaluate(primaryTopic, session, sessionContext).Allowed)
+        {
+            return new EngineerAiContext(
+                question.Trim(),
+                sessionContext.SessionModeLabel,
+                sessionContext.StrategyConfidenceLabel,
+                sessionContext.AllowPitStrategyCallouts && sessionContext.StrategyConfidence != StrategyConfidenceLevel.Low,
+                latest?.Lap.LapNumber ?? session.LastLap?.LapNumber,
+                primaryTopic is CoachQueryTopic.FuelAmount or CoachQueryTopic.FuelStrategy or CoachQueryTopic.Strategy or CoachQueryTopic.Pit
+                    ? latest?.Condition.Fuel
+                    : null,
+                [],
+                Guardrails);
+        }
+
         var evidenceTopic = CoachQueryTopicClassifier.ToEvidenceTopic(primaryTopic);
-        var packets = SelectPackets(evidence, primaryTopic, evidenceTopic, context?.SessionContext);
+        var packets = SelectPackets(evidence, primaryTopic, evidenceTopic, sessionContext);
         var facts = packets
             .Select(ToFact)
             .Take(MaxFacts)
             .ToArray();
-
-        var latest = session.LatestSnapshot;
-        var sessionContext = context?.SessionContext ?? SessionContextAssessment.InitialLive;
 
         return new EngineerAiContext(
             question.Trim(),
@@ -106,11 +121,15 @@ public static class EngineerAiContextBuilder
         };
 
         return filtered
+            .Where(packet => !IsInvalidLapOrFlagsPacket(packet))
             .OrderByDescending(packet => packet.Confidence)
             .ThenBy(packet => packet.Summary, StringComparer.Ordinal)
             .Take(MaxFacts)
             .ToArray();
     }
+
+    private static bool IsInvalidLapOrFlagsPacket(CoachEvidencePacket packet) =>
+        packet.Summary == EventType.InvalidLapOrFlags.ToString();
 
     private static EngineerAiFact ToFact(CoachEvidencePacket packet) =>
         new(
@@ -165,7 +184,7 @@ public static class EngineerAiContextBuilder
 
     private static bool LooksLikeBrakingPacket(CoachEvidencePacket packet)
     {
-        if (packet.Summary == EventType.InvalidLapOrFlags.ToString())
+        if (IsInvalidLapOrFlagsPacket(packet))
         {
             return false;
         }
@@ -176,7 +195,7 @@ public static class EngineerAiContextBuilder
 
     private static bool LooksLikeThrottlePacket(CoachEvidencePacket packet)
     {
-        if (packet.Summary == EventType.InvalidLapOrFlags.ToString())
+        if (IsInvalidLapOrFlagsPacket(packet))
         {
             return false;
         }
@@ -187,18 +206,33 @@ public static class EngineerAiContextBuilder
 
     private static bool LooksLikePacePacket(CoachEvidencePacket packet)
     {
+        if (IsInvalidLapOrFlagsPacket(packet))
+        {
+            return false;
+        }
+
         var key = $"{packet.Category} {packet.Summary}".ToLowerInvariant();
         return key.Contains("pace") || key.Contains("tempo");
     }
 
     private static bool LooksLikeLapComparisonPacket(CoachEvidencePacket packet)
     {
+        if (IsInvalidLapOrFlagsPacket(packet))
+        {
+            return false;
+        }
+
         var key = $"{packet.Category} {packet.Summary}".ToLowerInvariant();
         return key.Contains("sector") || key.Contains("delta") || key.Contains("lap");
     }
 
     private static bool LooksLikeImprovementPacket(CoachEvidencePacket packet)
     {
+        if (IsInvalidLapOrFlagsPacket(packet))
+        {
+            return false;
+        }
+
         var key = $"{packet.Category} {packet.Summary}".ToLowerInvariant();
         return key.Contains("improvement") || key.Contains("weakness");
     }

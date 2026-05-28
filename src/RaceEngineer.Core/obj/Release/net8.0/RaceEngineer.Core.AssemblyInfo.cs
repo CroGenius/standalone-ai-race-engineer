@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("RaceEngineer.Core")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+8ca18162947bfd567bf915662f1e02ae20bad6ac")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+a8d9ce05969efffa9eccfa31c81fc22484d0e5bc")]
 [assembly: System.Reflection.AssemblyProductAttribute("RaceEngineer.Core")]
 [assembly: System.Reflection.AssemblyTitleAttribute("RaceEngineer.Core")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

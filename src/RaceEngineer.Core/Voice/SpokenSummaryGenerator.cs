@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using RaceEngineer.Core.Coaching;
 using RaceEngineer.Core.Profile;
+using RaceEngineer.Core.SessionContext;
 
 namespace RaceEngineer.Core.Voice;
 
@@ -331,7 +332,13 @@ public static class SpokenSummaryGenerator
 
     private static string? BuildBrakingSummary(string action, IReadOnlyList<CoachEvidencePacket> packets, bool english)
     {
-        if (action.Contains("Not enough braking data yet", StringComparison.OrdinalIgnoreCase))
+        if (action.Contains("No braking data yet", StringComparison.OrdinalIgnoreCase)
+            || action.Contains("Not enough braking data yet", StringComparison.OrdinalIgnoreCase))
+        {
+            return "No braking data yet. Drive a clean lap first.";
+        }
+
+        if (DrivingTechniqueGate.ContainsBlockedTechniqueLeak(action))
         {
             return "No braking data yet. Drive a clean lap first.";
         }
@@ -341,7 +348,7 @@ public static class SpokenSummaryGenerator
             return ExtractFirstActionableSentence(action);
         }
 
-        var packet = packets.FirstOrDefault();
+        var packet = packets.FirstOrDefault(packet => packet.Summary != "InvalidLapOrFlags");
         return packet is null ? ExtractFirstActionableSentence(action) : ExtractFirstActionableSentence(packet.Explanation);
     }
 
@@ -352,31 +359,36 @@ public static class SpokenSummaryGenerator
         string? categoryHint)
     {
         if (categoryHint == "Throttle"
-            && action.Contains("Not enough throttle data yet", StringComparison.OrdinalIgnoreCase))
+            && (action.Contains("No throttle data yet", StringComparison.OrdinalIgnoreCase)
+                || action.Contains("Not enough throttle data yet", StringComparison.OrdinalIgnoreCase)))
         {
             return "No throttle data yet. Drive a clean lap first.";
         }
 
         if (categoryHint == "Pace"
-            && action.Contains("No valid pace data yet", StringComparison.OrdinalIgnoreCase))
+            && (action.Contains("No pace data yet", StringComparison.OrdinalIgnoreCase)
+                || action.Contains("No valid pace data yet", StringComparison.OrdinalIgnoreCase)))
         {
             return "No pace data yet. Drive a clean lap first.";
         }
 
         if (categoryHint == "Sector"
-            && action.Contains("No valid sector data yet", StringComparison.OrdinalIgnoreCase))
+            && (action.Contains("No sector data yet", StringComparison.OrdinalIgnoreCase)
+                || action.Contains("No valid sector data yet", StringComparison.OrdinalIgnoreCase)))
         {
             return "No sector data yet. Drive a clean lap first.";
         }
 
         if (categoryHint == "Improvement"
-            && action.Contains("No valid improvement data yet", StringComparison.OrdinalIgnoreCase))
+            && (action.Contains("No improvement data yet", StringComparison.OrdinalIgnoreCase)
+                || action.Contains("No valid improvement data yet", StringComparison.OrdinalIgnoreCase)))
         {
             return "No improvement data yet. Drive a clean lap first.";
         }
 
         if (categoryHint == "Lap"
-            && action.Contains("No valid lap comparison data yet", StringComparison.OrdinalIgnoreCase))
+            && (action.Contains("No lap comparison data yet", StringComparison.OrdinalIgnoreCase)
+                || action.Contains("No valid lap comparison data yet", StringComparison.OrdinalIgnoreCase)))
         {
             return "No lap comparison data yet. Drive a clean lap first.";
         }

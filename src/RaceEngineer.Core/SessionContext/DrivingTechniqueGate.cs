@@ -3,29 +3,74 @@ using RaceEngineer.Core.Session;
 
 namespace RaceEngineer.Core.SessionContext;
 
+public sealed record DrivingTechniqueGateResult(
+    bool Allowed,
+    string? UnavailableMessage,
+    string EvidenceReason);
+
 public static class DrivingTechniqueGate
 {
     public static bool HasValidDrivingTechniqueSamples(SessionState session) =>
         session.CompletedLaps.Any(lap => lap.IsValid && lap.Duration.HasValue);
+
+    public static bool MustBlockTechniqueCoaching(SessionState session, SessionContextAssessment? context)
+    {
+        if (HasValidDrivingTechniqueSamples(session))
+        {
+            return false;
+        }
+
+        if (session.CompletedLaps.Count == 0)
+        {
+            return true;
+        }
+
+        if (context is { Activity: VehicleActivity.Stationary or VehicleActivity.PitLane })
+        {
+            return true;
+        }
+
+        return true;
+    }
+
+    public static DrivingTechniqueGateResult Evaluate(
+        CoachQueryTopic topic,
+        SessionState session,
+        SessionContextAssessment? context)
+    {
+        if (!IsDrivingTechniqueTopic(topic))
+        {
+            return new DrivingTechniqueGateResult(true, null, "");
+        }
+
+        if (!MustBlockTechniqueCoaching(session, context))
+        {
+            return new DrivingTechniqueGateResult(true, null, "");
+        }
+
+        var unavailable = BuildUnavailableMessage(topic, session, context)
+            ?? "Not enough driving data yet. Drive a clean lap first.";
+        return new DrivingTechniqueGateResult(false, unavailable, BuildEvidenceReason(topic, session, context));
+    }
 
     public static string? BuildUnavailableMessage(
         CoachQueryTopic topic,
         SessionState session,
         SessionContextAssessment? context)
     {
-        if (HasValidDrivingTechniqueSamples(session))
+        if (!IsDrivingTechniqueTopic(topic) || !MustBlockTechniqueCoaching(session, context))
         {
             return null;
         }
 
         return topic switch
         {
-            CoachQueryTopic.Braking => "Not enough braking data yet. Drive a clean lap first.",
-            CoachQueryTopic.Throttle => "Not enough throttle data yet. Drive a clean lap first.",
-            CoachQueryTopic.RacePace => "No valid pace data yet. Drive a clean lap first.",
-            CoachQueryTopic.LosingTime => "No valid sector data yet. Drive a clean lap first.",
-            CoachQueryTopic.Improvement => "No valid improvement data yet. Drive a clean lap first.",
-            CoachQueryTopic.LapComparison => "No valid lap comparison data yet. Drive a clean lap first.",
+            CoachQueryTopic.Braking => "No braking data yet. Drive a clean lap first.",
+            CoachQueryTopic.Throttle => "No throttle data yet. Drive a clean lap first.",
+            CoachQueryTopic.RacePace => "No pace data yet. Drive a clean lap first.",
+            CoachQueryTopic.LosingTime => "No sector data yet. Drive a clean lap first.",
+            CoachQueryTopic.Improvement => "No improvement data yet. Drive a clean lap first.",
+            CoachQueryTopic.LapComparison => "No lap comparison data yet. Drive a clean lap first.",
             _ => null
         };
     }
@@ -55,4 +100,18 @@ public static class DrivingTechniqueGate
             or CoachQueryTopic.LosingTime
             or CoachQueryTopic.Improvement
             or CoachQueryTopic.LapComparison;
+
+    public static bool ContainsBlockedTechniqueLeak(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return false;
+        }
+
+        return content.Contains("InvalidLapOrFlags", StringComparison.OrdinalIgnoreCase)
+            || content.Contains("Braking from telemetry:", StringComparison.OrdinalIgnoreCase)
+            || content.Contains("Throttle from telemetry:", StringComparison.OrdinalIgnoreCase)
+            || content.Contains("Race pace from telemetry:", StringComparison.OrdinalIgnoreCase)
+            || content.Contains("Telemetry shows", StringComparison.OrdinalIgnoreCase);
+    }
 }

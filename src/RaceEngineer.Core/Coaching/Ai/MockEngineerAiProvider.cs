@@ -1,4 +1,5 @@
 using System.Globalization;
+using RaceEngineer.Core.SessionContext;
 
 namespace RaceEngineer.Core.Coaching.Ai;
 
@@ -21,7 +22,15 @@ public sealed class MockEngineerAiProvider : IEngineerAiProvider
         var topicFacts = FilterFactsByTopic(request.Context.Facts, topic).Take(3).ToArray();
         if (topicFacts.Length == 0)
         {
-            topicFacts = request.Context.Facts.Take(3).ToArray();
+            if (DrivingTechniqueGate.IsDrivingTechniqueTopic(topic))
+            {
+                return Task.FromResult(EngineerAiResult.Failed("No technique evidence available."));
+            }
+
+            topicFacts = request.Context.Facts
+                .Where(fact => !IsInvalidLapOrFlagsFact(fact))
+                .Take(3)
+                .ToArray();
         }
 
         var answer = topic switch
@@ -242,33 +251,62 @@ public sealed class MockEngineerAiProvider : IEngineerAiProvider
 
     private static bool IsBrakingFact(EngineerAiFact fact)
     {
+        if (IsInvalidLapOrFlagsFact(fact))
+        {
+            return false;
+        }
+
         var key = $"{fact.Topic} {fact.Summary} {fact.Detail}".ToLowerInvariant();
         return key.Contains("brak");
     }
 
     private static bool IsThrottleFact(EngineerAiFact fact)
     {
+        if (IsInvalidLapOrFlagsFact(fact))
+        {
+            return false;
+        }
+
         var key = $"{fact.Topic} {fact.Summary} {fact.Detail}".ToLowerInvariant();
         return key.Contains("throttle") || key.Contains("gas");
     }
 
     private static bool IsPaceFact(EngineerAiFact fact)
     {
+        if (IsInvalidLapOrFlagsFact(fact))
+        {
+            return false;
+        }
+
         var key = $"{fact.Topic} {fact.Summary}".ToLowerInvariant();
         return key.Contains("pace") || key.Contains("tempo");
     }
 
     private static bool IsLapComparisonFact(EngineerAiFact fact)
     {
+        if (IsInvalidLapOrFlagsFact(fact))
+        {
+            return false;
+        }
+
         var key = $"{fact.Topic} {fact.Summary}".ToLowerInvariant();
         return key.Contains("sector") || key.Contains("delta") || key.Contains("lap");
     }
 
     private static bool IsImprovementFact(EngineerAiFact fact)
     {
+        if (IsInvalidLapOrFlagsFact(fact))
+        {
+            return false;
+        }
+
         var key = $"{fact.Topic} {fact.Summary}".ToLowerInvariant();
         return key.Contains("improvement") || key.Contains("weakness");
     }
+
+    private static bool IsInvalidLapOrFlagsFact(EngineerAiFact fact) =>
+        fact.Summary.Contains("InvalidLapOrFlags", StringComparison.OrdinalIgnoreCase)
+            || fact.Detail.Contains("InvalidLapOrFlags", StringComparison.OrdinalIgnoreCase);
 
     private static bool ContainsAny(string text, params string[] phrases)
     {
