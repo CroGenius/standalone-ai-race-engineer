@@ -67,7 +67,13 @@ public static class EngineerAiContextBuilder
         CoachEvidenceTopic? evidenceTopic,
         SessionContextAssessment? sessionContext)
     {
-        if (primaryTopic is CoachQueryTopic.Position or CoachQueryTopic.Tyre or CoachQueryTopic.LapTime)
+        if (primaryTopic is CoachQueryTopic.Position
+            or CoachQueryTopic.Tyre
+            or CoachQueryTopic.PushConfidence
+            or CoachQueryTopic.LapTime
+            or CoachQueryTopic.FuelStrategy
+            or CoachQueryTopic.RaceAwareness
+            or CoachQueryTopic.TrackMemory)
         {
             return FilterByPrimaryTopic(evidence.Packets, primaryTopic);
         }
@@ -105,10 +111,16 @@ public static class EngineerAiContextBuilder
         {
             CoachQueryTopic.Tyre => packets.Where(packet =>
                 LooksLikeTyrePacket(packet) || packet.Category.Contains("TyreIntelligence", StringComparison.Ordinal)),
+            CoachQueryTopic.PushConfidence => packets.Where(packet =>
+                LooksLikeTyrePacket(packet)
+                    || packet.Category is "Braking" or "Throttle" or "Pace" or "Incident"
+                    || packet.Category.Contains("TyreIntelligence", StringComparison.Ordinal)),
+            CoachQueryTopic.FuelStrategy => packets.Where(LooksLikeFuelStrategyPacket),
+            CoachQueryTopic.TrackMemory => packets.Where(packet => packet.Category == "TrackMemory"),
+            CoachQueryTopic.RaceAwareness => packets.Where(packet => packet.Category == "RaceAwareness"),
             CoachQueryTopic.LapTime => packets.Where(LooksLikeLapTimePacket),
             CoachQueryTopic.FuelAmount => packets.Where(LooksLikeFuelLevelPacket),
             CoachQueryTopic.FuelConsumption => packets.Where(LooksLikeFuelConsumptionPacket),
-            CoachQueryTopic.FuelStrategy => packets.Where(p => LooksLikeFuelStrategyPacket(p) || LooksLikeFuelConsumptionPacket(p)),
             CoachQueryTopic.Strategy or CoachQueryTopic.Pit => packets.Where(p => LooksLikeStrategyPacket(p) || LooksLikeFuelPacket(p)),
             CoachQueryTopic.Braking => packets.Where(LooksLikeBrakingPacket),
             CoachQueryTopic.Throttle => packets.Where(LooksLikeThrottlePacket),

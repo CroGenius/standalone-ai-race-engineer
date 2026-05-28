@@ -5,6 +5,7 @@ using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.Strategy;
 using RaceEngineer.Core.Telemetry;
+using RaceEngineer.Core.RaceAwareness;
 using RaceEngineer.Core.TelemetryVisualization;
 
 namespace RaceEngineer.Core.Coaching;
@@ -51,6 +52,8 @@ public sealed class CoachEvidenceBuilder
             null,
             events));
         AddStrategyPackets(packets, strategy);
+        AddRaceAwarenessPackets(packets, input.RaceContext);
+        AddTrackMemoryPackets(packets, input.TrackMemory, input.TrackMemoryComparison);
         AddTracePackets(packets, timeline);
         AddKnowledgePackets(packets, input.KnowledgeSources);
 
@@ -435,6 +438,137 @@ public sealed class CoachEvidenceBuilder
                 [],
                 null,
                 TrimKnowledge(source.Content)));
+        }
+    }
+
+    private static void AddRaceAwarenessPackets(List<CoachEvidencePacket> packets, LiveRaceContext? raceContext)
+    {
+        if (raceContext is null)
+        {
+            return;
+        }
+
+        if (raceContext.Position is { } position)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "RaceAwareness",
+                "Race position",
+                "Info",
+                0.95,
+                CoachEvidenceSourceType.Session,
+                raceContext.CurrentLap,
+                [],
+                position,
+                raceContext.TotalCars is { } total
+                    ? $"Race position is P{position} of {total}."
+                    : $"Race position is P{position}."));
+        }
+
+        if (raceContext.GapAheadSeconds is { } gapAhead)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "RaceAwareness",
+                "Gap ahead",
+                "Info",
+                0.90,
+                CoachEvidenceSourceType.Session,
+                raceContext.CurrentLap,
+                [],
+                gapAhead,
+                raceContext.CarAhead is { Length: > 0 } carAhead
+                    ? $"Gap ahead to {carAhead} is {gapAhead.ToString("0.000", CultureInfo.InvariantCulture)}s."
+                    : $"Gap ahead is {gapAhead.ToString("0.000", CultureInfo.InvariantCulture)}s."));
+        }
+
+        if (raceContext.GapBehindSeconds is { } gapBehind)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "RaceAwareness",
+                "Gap behind",
+                "Info",
+                0.90,
+                CoachEvidenceSourceType.Session,
+                raceContext.CurrentLap,
+                [],
+                gapBehind,
+                raceContext.CarBehind is { Length: > 0 } carBehind
+                    ? $"Gap behind to {carBehind} is {gapBehind.ToString("0.000", CultureInfo.InvariantCulture)}s."
+                    : $"Gap behind is {gapBehind.ToString("0.000", CultureInfo.InvariantCulture)}s."));
+        }
+
+        packets.Add(new CoachEvidencePacket(
+            "RaceAwareness",
+            "Race context confidence",
+            raceContext.Confidence == RaceContextConfidence.Good ? "Info" : "Warning",
+            0.80,
+            CoachEvidenceSourceType.Session,
+            raceContext.CurrentLap,
+            [],
+            null,
+            $"Race context confidence is {raceContext.Confidence}. {raceContext.Diagnostics.Summary}"));
+    }
+
+    private static void AddTrackMemoryPackets(
+        List<CoachEvidencePacket> packets,
+        TrackMemoryRecord? memory,
+        TrackMemoryComparison? comparison)
+    {
+        if (memory is { SessionCount: > 0 })
+        {
+            packets.Add(new CoachEvidencePacket(
+                "TrackMemory",
+                "Stored best lap",
+                "Info",
+                0.85,
+                CoachEvidenceSourceType.Session,
+                null,
+                [],
+                memory.BestLapSeconds,
+                memory.BestLapSeconds is { } best
+                    ? $"Stored session data for {memory.TrackName}: previous best lap {TrackMemoryService.FormatLapTime(best)}."
+                    : $"Stored session data exists for {memory.TrackName}, but no best lap is recorded yet."));
+
+            if (memory.AverageCleanLapSeconds is { } average)
+            {
+                packets.Add(new CoachEvidencePacket(
+                    "TrackMemory",
+                    "Stored average clean lap",
+                    "Info",
+                    0.85,
+                    CoachEvidenceSourceType.Session,
+                    null,
+                    [],
+                    average,
+                    $"Stored session data for {memory.TrackName}: average clean lap {TrackMemoryService.FormatLapTime(average)}."));
+            }
+
+            if (memory.FuelUsedPerLap is { } fuelPerLap)
+            {
+                packets.Add(new CoachEvidencePacket(
+                    "TrackMemory",
+                    "Stored fuel use",
+                    "Info",
+                    0.80,
+                    CoachEvidenceSourceType.Session,
+                    null,
+                    [],
+                    fuelPerLap,
+                    $"Stored session data for {memory.TrackName}: fuel use was about {fuelPerLap.ToString("0.00", CultureInfo.InvariantCulture)} L/lap."));
+            }
+        }
+
+        if (comparison is not null && comparison.HasHistoricalData)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "TrackMemory",
+                "Historical comparison",
+                "Info",
+                0.85,
+                CoachEvidenceSourceType.Session,
+                null,
+                [],
+                comparison.BestLapDeltaSeconds,
+                comparison.Summary));
         }
     }
 

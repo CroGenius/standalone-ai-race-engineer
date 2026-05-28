@@ -55,6 +55,23 @@ public static class CoachQueryPhrases
         "kakvo mi je tempo"
     ];
 
+    public static readonly string[] PushConfidence =
+    [
+        "can i push",
+        "can i push now",
+        "should i push",
+        "should i push now",
+        "can i push harder",
+        "mogu li gurnuti",
+        "smijem li gurnuti",
+        "mogu li povecati tempo",
+        "are the tyres ready",
+        "are tires ready",
+        "tyres ready",
+        "tires ready",
+        "tyre readiness"
+    ];
+
     public static readonly string[] Tyre =
     [
         "tyre status",
@@ -66,22 +83,42 @@ public static class CoachQueryPhrases
         "kakve su gume",
         "stanje guma",
         "kakvo je stanje guma",
-        "are the tyres ready",
-        "are tires ready",
-        "tyres ready",
-        "tires ready",
-        "tyre readiness",
-        "can i push",
-        "can i push now",
         "jesu li gume zagrijane",
         "jesu li gume zagrete"
+    ];
+
+    public static readonly string[] RaceAwareness =
+    [
+        "gap ahead",
+        "gap behind",
+        "car ahead",
+        "car behind",
+        "am i gaining",
+        "closing on",
+        "who is ahead",
+        "who is behind",
+        "race position",
+        "opponent gap"
+    ];
+
+    public static readonly string[] TrackMemory =
+    [
+        "am i faster than last time",
+        "faster than last time",
+        "how did i drive this track before",
+        "how did i drive here before",
+        "what was my fuel use here",
+        "fuel use here",
+        "last session at",
+        "previous session at",
+        "my history at",
+        "compare to last time"
     ];
 
     public static readonly string[] Position =
     [
         "what is my position",
         "my position",
-        "race position",
         "what position am i",
         "koja mi je pozicija",
         "koja je pozicija",
@@ -224,11 +261,14 @@ public static class CoachQueryPhrases
             .Concat(Throttle)
             .Concat(Improvement)
             .Concat(RacePace)
+            .Concat(PushConfidence)
             .Concat(Tyre)
             .Concat(Position)
             .Concat(FuelAmount)
             .Concat(FuelConsumption)
             .Concat(FuelStrategy)
+            .Concat(RaceAwareness)
+            .Concat(TrackMemory)
             .Concat(Fuel)
             .Concat(Strategy)
             .Concat(Pit)

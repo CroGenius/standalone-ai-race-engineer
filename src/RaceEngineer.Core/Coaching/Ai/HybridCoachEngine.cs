@@ -163,6 +163,11 @@ public sealed class HybridCoachEngine : ICoachEngine
             return false;
         }
 
+        if (topic is CoachQueryTopic.PushConfidence or CoachQueryTopic.Tyre or CoachQueryTopic.FuelStrategy)
+        {
+            return false;
+        }
+
         if (!DrivingTechniqueGate.Evaluate(topic, session, context?.SessionContext).Allowed)
         {
             return false;

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using RaceEngineer.Core.RaceAwareness;
 
 namespace RaceEngineer.Core.Telemetry;
 
@@ -97,6 +98,10 @@ public static class SimHubPacketParser
 
     private static TelemetrySnapshot ParseValidated(JsonElement root, string schema, int? schemaVersion)
     {
+        var raceElement = root.TryGetProperty("race", out var race) && race.ValueKind == JsonValueKind.Object
+            ? race
+            : default;
+
         return new TelemetrySnapshot(
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
@@ -114,17 +119,41 @@ public static class SimHubPacketParser
                 IntOrNull(root, "lap_time_ms"),
                 DoubleOrNull(root, "lap_time_s"),
                 DoubleOrNull(root, "lap_progress"),
-                null,
-                null),
+                IntOrNull(root, "lap_number"),
+                BoolOrNull(root, "valid_lap")),
             new RaceState(
-                IntOrNull(root, "position"),
-                RawOrNull(root, "flags")),
+                IntOrNull(root, "position") ?? (raceElement.ValueKind == JsonValueKind.Object ? IntOrNull(raceElement, "position") : null),
+                RawOrNull(root, "flags") ?? (raceElement.ValueKind == JsonValueKind.Object ? RawOrNull(raceElement, "flags") : null)),
             new TyreBrakeFuelState(
                 DoubleOrNull(root, "fuel"),
                 DoubleListOrNull(root, "tyre_temp_c"),
                 DoubleListOrNull(root, "tyre_pressure"),
                 DoubleListOrNull(root, "brake_temp_c"),
-                DoubleListOrNull(root, "tyre_wear")));
+                DoubleListOrNull(root, "tyre_wear")),
+            ParseRaceAwareness(root, raceElement));
+    }
+
+    private static RaceAwarenessState ParseRaceAwareness(JsonElement root, JsonElement raceElement)
+    {
+        return new RaceAwarenessState(
+            StringOrNull(root, "track_name") ?? StringOrNull(root, "track"),
+            StringOrNull(root, "circuit_id"),
+            StringOrNull(root, "car_name") ?? StringOrNull(root, "car"),
+            StringOrNull(root, "car_class"),
+            StringOrNull(root, "session_type"),
+            IntOrNull(root, "lap_number") ?? IntOrNull(root, "current_lap"),
+            IntOrNull(root, "total_laps"),
+            IntOrNull(root, "position") ?? (raceElement.ValueKind == JsonValueKind.Object ? IntOrNull(raceElement, "position") : null),
+            IntOrNull(root, "total_cars") ?? IntOrNull(root, "opponents"),
+            DoubleOrNull(root, "gap_ahead_s") ?? DoubleOrNull(root, "gap_ahead"),
+            DoubleOrNull(root, "gap_behind_s") ?? DoubleOrNull(root, "gap_behind"),
+            StringOrNull(root, "car_ahead"),
+            StringOrNull(root, "car_behind"),
+            StringOrNull(root, "pit_state"),
+            StringOrNull(root, "flags") ?? (raceElement.ValueKind == JsonValueKind.Object ? StringOrNull(raceElement, "flags") : null),
+            IntOrNull(root, "sector"),
+            DoubleOrNull(root, "session_time_remaining_s") ?? DoubleOrNull(root, "session_remaining_s"),
+            IntOrNull(root, "laps_remaining"));
     }
 
     private static double? DoubleOrNull(JsonElement root, string name)
@@ -155,6 +184,22 @@ public static class SimHubPacketParser
         }
 
         return value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out number) ? number : null;
+    }
+
+    private static bool? BoolOrNull(JsonElement root, string name)
+    {
+        if (!root.TryGetProperty(name, out var value) || value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.String when bool.TryParse(value.GetString(), out var parsed) => parsed,
+            _ => null
+        };
     }
 
     private static string? StringOrNull(JsonElement root, string name)

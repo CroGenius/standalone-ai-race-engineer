@@ -108,13 +108,14 @@ public static class SpokenSummaryGenerator
         {
             CoachQueryTopic.Position => BuildPositionSummary(action, english),
             CoachQueryTopic.Tyre => BuildTyreSummary(action, packets, english),
+            CoachQueryTopic.PushConfidence => BuildPushConfidenceSummary(action, english),
             CoachQueryTopic.LapTime => BuildLapTimeSummary(action, packets, english),
             CoachQueryTopic.FuelAmount => BuildFuelAmountSummary(action, packets, english),
             CoachQueryTopic.FuelConsumption => BuildFuelConsumptionSummary(action, packets, english),
             CoachQueryTopic.FuelStrategy => BuildFuelStrategySummary(action, packets, english),
             CoachQueryTopic.Strategy or CoachQueryTopic.Pit => BuildStrategySummary(action, packets, english),
             CoachQueryTopic.Braking => BuildBrakingSummary(action, packets, english),
-            CoachQueryTopic.Throttle => BuildGenericSummary(action, packets, english, "Throttle"),
+            CoachQueryTopic.Throttle => BuildThrottleSummary(action, packets, english),
             CoachQueryTopic.RacePace => BuildGenericSummary(action, packets, english, "Pace"),
             CoachQueryTopic.LosingTime => BuildGenericSummary(action, packets, english, "Sector"),
             CoachQueryTopic.Improvement => BuildGenericSummary(action, packets, english, "Improvement"),
@@ -178,40 +179,46 @@ public static class SpokenSummaryGenerator
             : ExtractFirstActionableSentence(packet.Explanation);
     }
 
+    private static string? BuildPushConfidenceSummary(string action, bool english)
+    {
+        if (string.IsNullOrWhiteSpace(action))
+        {
+            return null;
+        }
+
+        return ExtractFirstActionableSentence(action);
+    }
+
+    private static string? BuildThrottleSummary(string action, IReadOnlyList<CoachEvidencePacket> packets, bool english)
+    {
+        if (action.Contains("No throttle data yet", StringComparison.OrdinalIgnoreCase))
+        {
+            return "No throttle data yet. Drive a clean lap first.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(action))
+        {
+            return ExtractFirstActionableSentence(action);
+        }
+
+        var packet = packets.FirstOrDefault(packet => packet.Category == "Throttle");
+        return packet is null ? null : ExtractFirstActionableSentence(packet.Explanation);
+    }
+
     private static string? BuildTyreSpokenFromAction(string action)
     {
         var sentences = Regex.Split(CleanForSpeech(action), @"(?<=[.!?;])\s+")
             .Select(CleanForSpeech)
             .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Where(s => !s.Contains("push", StringComparison.OrdinalIgnoreCase)
+                && !s.Contains("Safe to push", StringComparison.OrdinalIgnoreCase))
             .ToArray();
         if (sentences.Length == 0)
-        {
-            return null;
-        }
-
-        var cornerSentences = sentences
-            .Where(sentence =>
-                sentence.Contains("Front-left", StringComparison.OrdinalIgnoreCase)
-                    || sentence.Contains("Front-right", StringComparison.OrdinalIgnoreCase)
-                    || sentence.Contains("Rear-left", StringComparison.OrdinalIgnoreCase)
-                    || sentence.Contains("Rear-right", StringComparison.OrdinalIgnoreCase)
-                    || sentence.Contains("Rear tyre data is unavailable", StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-        var actionSentence = sentences.LastOrDefault(sentence =>
-            sentence.Contains("push", StringComparison.OrdinalIgnoreCase)
-                || sentence.Contains("half lap", StringComparison.OrdinalIgnoreCase)
-                || sentence.Contains("corners", StringComparison.OrdinalIgnoreCase)
-                || sentence.Contains("Protect", StringComparison.OrdinalIgnoreCase)
-                || sentence.Contains("gradually", StringComparison.OrdinalIgnoreCase));
-
-        if (cornerSentences.Length == 0)
         {
             return ExtractFirstActionableSentence(action);
         }
 
-        return actionSentence is null
-            ? string.Join(" ", cornerSentences)
-            : $"{string.Join(" ", cornerSentences)} {actionSentence}";
+        return string.Join(" ", sentences.Take(2));
     }
 
     private static string? BuildFuelAmountSummary(string action, IReadOnlyList<CoachEvidencePacket> packets, bool english)

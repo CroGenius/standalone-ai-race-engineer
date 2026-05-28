@@ -5,6 +5,7 @@ using RaceEngineer.Core.Coaching;
 using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Session;
+using RaceEngineer.Core.RaceAwareness;
 using RaceEngineer.Core.Telemetry;
 
 namespace RaceEngineer.Core.Storage;
@@ -37,7 +38,7 @@ public sealed record SessionReviewBundle(
 
 public sealed class StorageService
 {
-    private const int SchemaVersion = 4;
+    private const int SchemaVersion = 5;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = false
@@ -150,6 +151,13 @@ public sealed class StorageService
               session_type TEXT,
               category TEXT,
               payload_json TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS track_car_memory (
+              track TEXT NOT NULL,
+              car TEXT NOT NULL,
+              payload_json TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (track, car)
             );
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -476,6 +484,36 @@ public sealed class StorageService
     public Task SaveTrackMetadataAsync(string id, string name, object metadata, CancellationToken cancellationToken = default)
     {
         return UpsertNamedJsonAsync("track_metadata", id, name, metadata, cancellationToken);
+    }
+
+    public async Task<TrackMemoryRecord?> LoadTrackCarMemoryAsync(
+        string track,
+        string car,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT payload_json FROM track_car_memory WHERE track = $track AND car = $car LIMIT 1";
+        command.Parameters.AddWithValue("$track", track);
+        command.Parameters.AddWithValue("$car", car);
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return value is string json ? JsonSerializer.Deserialize<TrackMemoryRecord>(json, JsonOptions) : null;
+    }
+
+    public async Task SaveTrackCarMemoryAsync(TrackMemoryRecord memory, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            INSERT OR REPLACE INTO track_car_memory (track, car, payload_json, updated_at)
+            VALUES ($track, $car, $payload_json, $updated_at)
+            """;
+        command.Parameters.AddWithValue("$track", memory.TrackName);
+        command.Parameters.AddWithValue("$car", memory.CarName);
+        command.Parameters.AddWithValue("$payload_json", JsonSerializer.Serialize(memory, JsonOptions));
+        command.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.ToString("O"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public Task SaveCoachingPreferencesAsync(string id, object preferences, CancellationToken cancellationToken = default)

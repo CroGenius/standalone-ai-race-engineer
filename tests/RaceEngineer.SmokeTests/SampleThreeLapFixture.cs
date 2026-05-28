@@ -71,7 +71,7 @@ internal static class SampleThreeLapFixture
         Add("""{"lap_progress":0.72,"speed_kmh":135,"throttle":0.65,"brake":0.08,"steering":0.11,"fuel":22.5,"gear":4}""");
         Add("""{"lap_progress":0.92,"speed_kmh":115,"throttle":0.55,"brake":0.04,"steering":0.05,"fuel":22.1,"gear":3}""");
         Add("""{"lap_progress":0.99,"speed_kmh":101,"throttle":0.38,"brake":0.91,"steering":0.03,"fuel":22.0,"gear":3}""");
-        Add("""{"lap_progress":0.05,"lap_time_s":88.0,"speed_kmh":108,"throttle":0.48,"brake":0.00,"steering":0.02,"fuel":21.0,"gear":3}""");
+        Add("""{"lap_progress":0.05,"lap_time_s":88.0,"speed_kmh":108,"throttle":0.48,"brake":0.00,"steering":0.02,"fuel":21.0,"gear":3,"track_name":"Spa","car_name":"GT3","session_type":"practice","position":8,"total_cars":18,"sector":2}""");
 
         return lines;
     }

@@ -14,6 +14,7 @@ using RaceEngineer.Core.Coaching.Ai;
 using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Profile;
+using RaceEngineer.Core.RaceAwareness;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.SessionContext;
 using RaceEngineer.Core.Storage;
@@ -118,6 +119,21 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private SessionLapIntelligence sessionLapIntelligence = SessionLapIntelligence.Empty;
     private SessionTyreIntelligence sessionTyreIntelligence = SessionTyreIntelligence.Unavailable("No tyre analysis yet.");
     private SessionStrategy sessionStrategy = SessionStrategy.Empty;
+    private LiveRaceContext liveRaceContext = LiveRaceContext.Unavailable("initial");
+    private TrackMemoryRecord? trackMemoryRecord;
+    private TrackMemoryComparison? trackMemoryComparison;
+    private readonly TrackMemoryService trackMemoryService = new();
+    private string raceAwarenessPanelTitle = "Race Awareness (Live Session)";
+    private string raceTrackLabel = "-";
+    private string raceCarLabel = "-";
+    private string raceSessionTypeLabel = "-";
+    private string racePositionLabel = "-";
+    private string raceGapAheadLabel = "-";
+    private string raceGapBehindLabel = "-";
+    private string raceContextConfidenceLabel = "-";
+    private string raceFieldDiagnosticsLabel = "-";
+    private string raceMemoryPreviousBestLabel = "-";
+    private string raceMemoryPreviousAverageLabel = "-";
     private SessionContextAssessment sessionContextAssessment = SessionContextAssessment.InitialLive;
     private string sessionModeLabel = SessionContextAssessment.InitialLive.SessionModeLabel;
     private string strategyConfidenceLabel = SessionContextAssessment.InitialLive.StrategyConfidenceLabel;
@@ -253,6 +269,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string TyreWarmupState => tyreWarmupState;
     public string TyreReadiness => tyreReadiness;
     public string TyreOverheatingRisk => tyreOverheatingRisk;
+
+    public string RaceAwarenessPanelTitle => raceAwarenessPanelTitle;
+    public string RaceTrackLabel => raceTrackLabel;
+    public string RaceCarLabel => raceCarLabel;
+    public string RaceSessionTypeLabel => raceSessionTypeLabel;
+    public string RacePositionLabel => racePositionLabel;
+    public string RaceGapAheadLabel => raceGapAheadLabel;
+    public string RaceGapBehindLabel => raceGapBehindLabel;
+    public string RaceContextConfidenceLabel => raceContextConfidenceLabel;
+    public string RaceFieldDiagnosticsLabel => raceFieldDiagnosticsLabel;
+    public string RaceMemoryPreviousBestLabel => raceMemoryPreviousBestLabel;
+    public string RaceMemoryPreviousAverageLabel => raceMemoryPreviousAverageLabel;
 
     public string StrategyPanelTitle => strategyPanelTitle;
     public string StrategyFuelRisk => strategyFuelRisk;
@@ -856,7 +884,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             sessionTyreIntelligence,
             sessionStrategy,
             traceTimeline,
-            KnowledgeSources.Select(item => item.Source).ToArray()));
+            KnowledgeSources.Select(item => item.Source).ToArray(),
+            liveRaceContext,
+            trackMemoryRecord,
+            trackMemoryComparison));
     }
 
     private void AppendCoachChatLines(CoachMessage answer)
@@ -1004,6 +1035,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         await storageService.SavePostSessionReportAsync(session.SessionId, summaryMarkdown);
         await storageService.SavePostSessionSummaryAsync(session.SessionId, summaryMarkdown, CurrentSessionSummaryObject());
         await storageService.EndSessionAsync(session.SessionId, DateTimeOffset.UtcNow, summaryMarkdown, CurrentSessionSummaryObject());
+        await UpsertTrackMemoryAsync(summaryMarkdown);
         await RefreshSessionsAsync();
     }
 
@@ -1636,6 +1668,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             : $"{strategy.TyreRisk.RiskLevel} ({strategy.TyreRisk.RiskScore0To100:0}/100)";
         strategySummary = strategy.Summary;
 
+        RefreshRaceAwareness();
+        _ = RefreshTrackMemoryAsync();
+
         RaiseAnalyticsProperties();
 
         if (!isReviewMode)
@@ -1705,6 +1740,17 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(TyreWarmupState));
         OnPropertyChanged(nameof(TyreReadiness));
         OnPropertyChanged(nameof(TyreOverheatingRisk));
+        OnPropertyChanged(nameof(RaceAwarenessPanelTitle));
+        OnPropertyChanged(nameof(RaceTrackLabel));
+        OnPropertyChanged(nameof(RaceCarLabel));
+        OnPropertyChanged(nameof(RaceSessionTypeLabel));
+        OnPropertyChanged(nameof(RacePositionLabel));
+        OnPropertyChanged(nameof(RaceGapAheadLabel));
+        OnPropertyChanged(nameof(RaceGapBehindLabel));
+        OnPropertyChanged(nameof(RaceContextConfidenceLabel));
+        OnPropertyChanged(nameof(RaceFieldDiagnosticsLabel));
+        OnPropertyChanged(nameof(RaceMemoryPreviousBestLabel));
+        OnPropertyChanged(nameof(RaceMemoryPreviousAverageLabel));
         OnPropertyChanged(nameof(StrategyPanelTitle));
         OnPropertyChanged(nameof(StrategyFuelRisk));
         OnPropertyChanged(nameof(StrategyLapsRemaining));
@@ -1714,6 +1760,84 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(SessionModeLabel));
         OnPropertyChanged(nameof(StrategyConfidenceLabel));
         OnPropertyChanged(nameof(EngineerModeLabel));
+    }
+
+    private void RefreshRaceAwareness()
+    {
+        raceAwarenessPanelTitle = isReviewMode ? "Race Awareness (Review Session)" : "Race Awareness (Live Session)";
+        liveRaceContext = RaceContextService.Build(
+            ActiveSession,
+            ActiveSession.LatestSnapshot,
+            CurrentPrepPlan(),
+            sessionContextAssessment);
+        var telemetryDiagnostics = ActiveSession.LatestSnapshot is not null
+            ? RaceContextService.BuildTelemetryDiagnostics(ActiveSession.LatestSnapshot)
+            : liveRaceContext.Diagnostics;
+
+        raceTrackLabel = liveRaceContext.TrackName ?? (string.IsNullOrWhiteSpace(PrepTrack) ? "unavailable" : PrepTrack);
+        raceCarLabel = liveRaceContext.CarName ?? (string.IsNullOrWhiteSpace(PrepCar) ? "unavailable" : PrepCar);
+        raceSessionTypeLabel = liveRaceContext.SessionType ?? "unavailable";
+        racePositionLabel = liveRaceContext.Position is { } position
+            ? liveRaceContext.TotalCars is { } total ? $"P{position}/{total}" : $"P{position}"
+            : "unavailable";
+        raceGapAheadLabel = liveRaceContext.GapAheadSeconds is { } gapAhead
+            ? $"{gapAhead:0.000}s{(string.IsNullOrWhiteSpace(liveRaceContext.CarAhead) ? "" : $" ({liveRaceContext.CarAhead})")}"
+            : "unavailable";
+        raceGapBehindLabel = liveRaceContext.GapBehindSeconds is { } gapBehind
+            ? $"{gapBehind:0.000}s{(string.IsNullOrWhiteSpace(liveRaceContext.CarBehind) ? "" : $" ({liveRaceContext.CarBehind})")}"
+            : "unavailable";
+        raceContextConfidenceLabel = liveRaceContext.Confidence.ToString();
+        raceFieldDiagnosticsLabel = telemetryDiagnostics.Summary;
+        trackMemoryComparison = trackMemoryService.Compare(trackMemoryRecord, ActiveSession, sessionAnalytics);
+        raceMemoryPreviousBestLabel = trackMemoryRecord?.BestLapSeconds is { } best
+            ? TrackMemoryService.FormatLapTime(best)
+            : "no stored history";
+        raceMemoryPreviousAverageLabel = trackMemoryRecord?.AverageCleanLapSeconds is { } average
+            ? TrackMemoryService.FormatLapTime(average)
+            : "no stored history";
+    }
+
+    private async Task RefreshTrackMemoryAsync()
+    {
+        var track = liveRaceContext.TrackName ?? PrepTrack;
+        var car = liveRaceContext.CarName ?? PrepCar;
+        if (string.IsNullOrWhiteSpace(track) || string.IsNullOrWhiteSpace(car))
+        {
+            return;
+        }
+
+        trackMemoryRecord = await trackMemoryService.LoadAsync(storageService, track, car);
+        trackMemoryComparison = trackMemoryService.Compare(trackMemoryRecord, ActiveSession, sessionAnalytics);
+        raceMemoryPreviousBestLabel = trackMemoryRecord?.BestLapSeconds is { } best
+            ? TrackMemoryService.FormatLapTime(best)
+            : "no stored history";
+        raceMemoryPreviousAverageLabel = trackMemoryRecord?.AverageCleanLapSeconds is { } average
+            ? TrackMemoryService.FormatLapTime(average)
+            : "no stored history";
+        Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
+    }
+
+    private async Task UpsertTrackMemoryAsync(string summaryMarkdown)
+    {
+        var track = liveRaceContext.TrackName ?? PrepTrack;
+        var car = liveRaceContext.CarName ?? PrepCar;
+        if (string.IsNullOrWhiteSpace(track) || string.IsNullOrWhiteSpace(car))
+        {
+            return;
+        }
+
+        trackMemoryRecord = await trackMemoryService.UpsertFromSessionAsync(
+            storageService,
+            new TrackMemoryInput(
+                track,
+                car,
+                session,
+                sessionAnalytics,
+                sessionLapIntelligence,
+                sessionTyreIntelligence,
+                sessionStrategy,
+                summaryMarkdown));
+        trackMemoryComparison = trackMemoryService.Compare(trackMemoryRecord, session, sessionAnalytics);
     }
 
     private void UpdateSessionContext()
@@ -1841,7 +1965,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             false,
             userPreferences.Coach,
             sessionContextAssessment,
-            sessionTyreIntelligence);
+            sessionTyreIntelligence,
+            sessionAnalytics,
+            sessionStrategy,
+            ActiveTraceSnapshots.Count > 0 ? ActiveTraceSnapshots.TakeLast(40).ToArray() : null,
+            liveRaceContext,
+            trackMemoryRecord,
+            trackMemoryComparison);
     }
 
     private void RaiseReviewModeProperties()

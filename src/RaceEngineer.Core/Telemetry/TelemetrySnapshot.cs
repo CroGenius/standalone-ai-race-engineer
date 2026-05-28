@@ -42,7 +42,8 @@ public sealed record TelemetrySnapshot(
     DriverInputs Inputs,
     LapState Lap,
     RaceState Race,
-    TyreBrakeFuelState Condition)
+    TyreBrakeFuelState Condition,
+    RaceAwareness.RaceAwarenessState? RaceAwareness = null)
 {
     public static TelemetrySnapshot Empty(string provider = "manual") =>
         new(

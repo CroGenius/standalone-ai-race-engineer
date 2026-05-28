@@ -344,6 +344,23 @@
                         </Grid>
                     </Border>
 
+                    <TextBlock Text="{Binding RaceAwarenessPanelTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <UniformGrid Columns="2" Rows="6" Margin="0,0,0,8">
+                        <TextBlock Text="Track" /><TextBlock Text="{Binding RaceTrackLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Car" /><TextBlock Text="{Binding RaceCarLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Session type" /><TextBlock Text="{Binding RaceSessionTypeLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Position" /><TextBlock Text="{Binding RacePositionLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Gap ahead" /><TextBlock Text="{Binding RaceGapAheadLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Gap behind" /><TextBlock Text="{Binding RaceGapBehindLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
+                    <UniformGrid Columns="2" Rows="3" Margin="0,0,0,8">
+                        <TextBlock Text="Context confidence" /><TextBlock Text="{Binding RaceContextConfidenceLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Stored best lap" /><TextBlock Text="{Binding RaceMemoryPreviousBestLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Stored avg lap" /><TextBlock Text="{Binding RaceMemoryPreviousAverageLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
+                    <TextBlock Text="Race field diagnostics" Margin="0,0,0,2" />
+                    <TextBlock Text="{Binding RaceFieldDiagnosticsLabel}" TextWrapping="Wrap" Foreground="#9AA6AC" Margin="0,0,0,18" />
+
                     <TextBlock Text="{Binding AnalyticsPanelTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2" Rows="8" Margin="0,0,0,18">
                         <TextBlock Text="Lap consistency" /><TextBlock Text="{Binding AnalyticsLapConsistency}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />

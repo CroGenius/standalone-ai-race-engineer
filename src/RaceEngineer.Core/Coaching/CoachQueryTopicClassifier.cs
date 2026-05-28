@@ -5,6 +5,7 @@ public enum CoachQueryTopic
     Unknown,
     Position,
     Tyre,
+    PushConfidence,
     LapTime,
     LosingTime,
     Braking,
@@ -17,7 +18,9 @@ public enum CoachQueryTopic
     Strategy,
     FuelAmount,
     FuelConsumption,
-    FuelStrategy
+    FuelStrategy,
+    RaceAwareness,
+    TrackMemory
 }
 
 public static class CoachQueryTopicClassifier
@@ -26,9 +29,24 @@ public static class CoachQueryTopicClassifier
     {
         var text = question.ToLowerInvariant();
 
+        if (ContainsAny(text, CoachQueryPhrases.TrackMemory))
+        {
+            return CoachQueryTopic.TrackMemory;
+        }
+
+        if (ContainsAny(text, CoachQueryPhrases.RaceAwareness))
+        {
+            return CoachQueryTopic.RaceAwareness;
+        }
+
         if (ContainsAny(text, CoachQueryPhrases.Position))
         {
             return CoachQueryTopic.Position;
+        }
+
+        if (ContainsAny(text, CoachQueryPhrases.PushConfidence))
+        {
+            return CoachQueryTopic.PushConfidence;
         }
 
         if (ContainsAny(text, CoachQueryPhrases.Tyre) || text.Contains("gume", StringComparison.Ordinal))
@@ -121,7 +139,10 @@ public static class CoachQueryTopicClassifier
             CoachQueryTopic.Incidents => CoachEvidenceTopic.Incidents,
             CoachQueryTopic.FuelAmount or CoachQueryTopic.FuelConsumption or CoachQueryTopic.FuelStrategy => CoachEvidenceTopic.Fuel,
             CoachQueryTopic.Tyre => CoachEvidenceTopic.Tyres,
+            CoachQueryTopic.PushConfidence => CoachEvidenceTopic.Tyres,
             CoachQueryTopic.Strategy or CoachQueryTopic.Pit => CoachEvidenceTopic.Strategy,
+            CoachQueryTopic.RaceAwareness => CoachEvidenceTopic.RaceAwareness,
+            CoachQueryTopic.TrackMemory => CoachEvidenceTopic.TrackMemory,
             _ => null
         };
 

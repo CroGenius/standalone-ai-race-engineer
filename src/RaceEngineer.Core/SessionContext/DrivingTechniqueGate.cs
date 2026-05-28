@@ -1,5 +1,7 @@
 using RaceEngineer.Core.Coaching;
+using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Session;
+using RaceEngineer.Core.SessionContext;
 
 namespace RaceEngineer.Core.SessionContext;
 
@@ -13,9 +15,37 @@ public static class DrivingTechniqueGate
     public static bool HasValidDrivingTechniqueSamples(SessionState session) =>
         session.CompletedLaps.Any(lap => lap.IsValid && lap.Duration.HasValue);
 
-    public static bool MustBlockTechniqueCoaching(SessionState session, SessionContextAssessment? context)
+    public static bool HasLiveThrottleSignals(SessionState session, SessionContextAssessment? context)
+    {
+        if (context is { Activity: VehicleActivity.Stationary or VehicleActivity.PitLane })
+        {
+            return false;
+        }
+
+        if (session.RecentEvents.Any(item => item.Type is EventType.ThrottleHesitation or EventType.EarlyThrottleWithSteering or EventType.TractionLoss))
+        {
+            return true;
+        }
+
+        if (session.LatestSnapshot?.Inputs.Throttle.HasValue == true && session.CurrentLap >= 1)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    public static bool MustBlockTechniqueCoaching(
+        SessionState session,
+        SessionContextAssessment? context,
+        CoachQueryTopic topic = CoachQueryTopic.Unknown)
     {
         if (HasValidDrivingTechniqueSamples(session))
+        {
+            return false;
+        }
+
+        if (topic == CoachQueryTopic.Throttle && HasLiveThrottleSignals(session, context))
         {
             return false;
         }
@@ -43,7 +73,7 @@ public static class DrivingTechniqueGate
             return new DrivingTechniqueGateResult(true, null, "");
         }
 
-        if (!MustBlockTechniqueCoaching(session, context))
+        if (!MustBlockTechniqueCoaching(session, context, topic))
         {
             return new DrivingTechniqueGateResult(true, null, "");
         }
@@ -58,7 +88,7 @@ public static class DrivingTechniqueGate
         SessionState session,
         SessionContextAssessment? context)
     {
-        if (!IsDrivingTechniqueTopic(topic) || !MustBlockTechniqueCoaching(session, context))
+        if (!IsDrivingTechniqueTopic(topic) || !MustBlockTechniqueCoaching(session, context, topic))
         {
             return null;
         }
@@ -80,6 +110,11 @@ public static class DrivingTechniqueGate
         SessionState session,
         SessionContextAssessment? context)
     {
+        if (topic == CoachQueryTopic.Throttle && HasLiveThrottleSignals(session, context))
+        {
+            return "Live throttle trace signals available.";
+        }
+
         if (context is { Activity: VehicleActivity.Stationary or VehicleActivity.PitLane })
         {
             return "Stationary or pit lane — waiting for a completed on-track lap before technique coaching.";

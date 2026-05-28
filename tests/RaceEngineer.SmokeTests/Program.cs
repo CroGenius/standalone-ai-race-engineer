@@ -11,6 +11,7 @@ using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Profile;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.SessionContext;
+using RaceEngineer.Core.RaceAwareness;
 using RaceEngineer.Core.Storage;
 using RaceEngineer.Core.Strategy;
 using RaceEngineer.Core.Telemetry;
@@ -125,7 +126,15 @@ TraceProgressSurvivesLapWrapBleed();
 FuelAmountQuestionLeadsWithLiters();
 FuelConsumptionQuestionReportsPerLap();
 FuelStrategyQuestionReportsRiskAndLapsRemaining();
+PushConfidenceDistinctFromTyreQuestion();
+FuelStrategyDoesNotMentionBraking();
+ThrottleUsesLiveTraceWithoutCompletedLap();
 TyreAnswerIncludesAllCornersOrUnavailableRear();
+RaceAwarenessPacketParsesPartialFields();
+RaceContextServiceReportsMissingOpponentGaps();
+await TrackMemoryRetrievalAndHistoricalComparison();
+CoachRaceAwarenessMissingGapSaysUnavailable();
+CoachHistoricalLapComparisonUsesStoredData();
 TelemetryTraceBuilderCreatesDeterministicTimeline();
 EndToEndFixtureReplayVerifiesPipeline();
 await ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint();
@@ -1904,13 +1913,241 @@ static void FuelStrategyQuestionReportsRiskAndLapsRemaining()
 
     Assert(
         answer.Content.Contains("laps remaining", StringComparison.OrdinalIgnoreCase)
-            || answer.Content.Contains("Fuel risk", StringComparison.OrdinalIgnoreCase)
             || answer.Content.Contains("fuel risk", StringComparison.OrdinalIgnoreCase)
-            || answer.Content.Contains("tight", StringComparison.OrdinalIgnoreCase),
-        "Fuel strategy question should report laps remaining and/or risk.");
+            || answer.Content.Contains("Yes,", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("No,", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("Maybe,", StringComparison.OrdinalIgnoreCase),
+        "Fuel strategy question should report finish verdict and/or laps remaining.");
     Assert(
         !answer.Content.StartsWith("Fuel use", StringComparison.Ordinal),
         "Fuel strategy question should not lead with consumption.");
+    Assert(
+        !answer.Content.Contains("braking", StringComparison.OrdinalIgnoreCase),
+        "Fuel strategy question should not mention braking.");
+}
+
+static void PushConfidenceDistinctFromTyreQuestion()
+{
+    var coach = new CoachEngine();
+    var session = new SessionState();
+    session.ApplySnapshot(Packet("""{"speed_kmh":140,"lap_progress":0.35,"throttle":0.6,"tyre_temp_c":[88,89,87,86]}"""), []);
+    var context = new CoachContext(
+        SessionContext: new SessionContextAssessment(
+            SessionPhase.Practice,
+            VehicleActivity.OnTrack,
+            "Practice / On track",
+            StrategyConfidenceLevel.Medium,
+            "Medium",
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            "Stable samples."),
+        TyreIntelligence: new TyreIntelligenceService().Analyze(new TyreIntelligenceInput(session)));
+
+    var tyre = coach.Answer(session, "kakve su gume", context);
+    var push = coach.Answer(session, "can i push", context);
+
+    Assert(
+        tyre.Content.Contains("temp", StringComparison.OrdinalIgnoreCase)
+            || tyre.Content.Contains("Front", StringComparison.OrdinalIgnoreCase),
+        "Tyre question should focus on tyre condition.");
+    Assert(
+        push.Content.Contains("grip", StringComparison.OrdinalIgnoreCase)
+            || push.Content.Contains("stable", StringComparison.OrdinalIgnoreCase)
+            || push.Content.Contains("push", StringComparison.OrdinalIgnoreCase),
+        "Push question should focus on grip/confidence.");
+    Assert(
+        !string.Equals(NormalizeCoachText(tyre.Content), NormalizeCoachText(push.Content), StringComparison.Ordinal),
+        "Tyre and push answers should not be identical templates.");
+}
+
+static void FuelStrategyDoesNotMentionBraking()
+{
+    var coach = new CoachEngine();
+    var (session, _) = SessionWithFuelEstimate();
+    var evidence = BuildSampleCoachEvidence(session);
+    var answer = coach.Answer(session, "can i finish", evidence: evidence);
+
+    Assert(
+        !answer.Content.Contains("brake", StringComparison.OrdinalIgnoreCase),
+        "Can I finish should never mention braking.");
+    Assert(
+        !answer.Content.Contains("throttle", StringComparison.OrdinalIgnoreCase),
+        "Can I finish should never mention throttle.");
+    Assert(
+        answer.Content.Contains("fuel", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("laps remaining", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("Yes,", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("No,", StringComparison.OrdinalIgnoreCase),
+        "Can I finish should stay in fuel strategy scope.");
+}
+
+static void ThrottleUsesLiveTraceWithoutCompletedLap()
+{
+    var coach = new CoachEngine();
+    var engine = new EventEngine();
+    var session = new SessionState();
+    var snapshots = new List<TelemetrySnapshot>();
+    for (var index = 0; index < 8; index++)
+    {
+        var throttle = index % 2 == 0 ? "0.25" : "0.65";
+        Apply(session, engine, Packet("""{"speed_kmh":120,"lap_progress":0.45,"throttle":""" + throttle + ""","steering":0.05}"""));
+        if (session.LatestSnapshot is not null)
+        {
+            snapshots.Add(session.LatestSnapshot);
+        }
+    }
+
+    engine.Process(Packet("""{"speed_kmh":120,"lap_progress":0.46,"throttle":0.18,"steering":0.04}"""));
+    engine.Process(Packet("""{"speed_kmh":121,"lap_progress":0.47,"throttle":0.22,"steering":0.03}"""));
+    engine.Process(Packet("""{"speed_kmh":122,"lap_progress":0.48,"throttle":0.20,"steering":0.02}"""));
+
+    var context = new CoachContext(
+        SessionContext: new SessionContextAssessment(
+            SessionPhase.Practice,
+            VehicleActivity.OnTrack,
+            "Practice / On track",
+            StrategyConfidenceLevel.Low,
+            "Low",
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+            "No completed laps yet."),
+        RecentSnapshots: snapshots);
+
+    var answer = coach.Answer(session, "how is my throttle", context);
+    Assert(
+        !answer.Content.Contains("No throttle data yet", StringComparison.OrdinalIgnoreCase),
+        "Throttle coaching should use live trace signals before a completed lap.");
+    Assert(
+        answer.Content.Contains("throttle", StringComparison.OrdinalIgnoreCase),
+        "Throttle answer should discuss throttle behavior.");
+}
+
+static string NormalizeCoachText(string content) =>
+    content.Replace(" ", "", StringComparison.Ordinal).ToLowerInvariant();
+
+static void RaceAwarenessPacketParsesPartialFields()
+{
+    var parsed = SimHubPacketParser.TryParse(
+        """
+        {"schema":"acevo_engineer.simhub_datacore","schema_version":1,"track_name":"Monza","car_name":"GT3","session_type":"race","position":4,"total_cars":18,"lap_number":7,"speed_kmh":210}
+        """,
+        out var snapshot,
+        out var warning);
+
+    Assert(parsed, $"Race-awareness packet should parse: {warning}");
+    Assert(snapshot!.RaceAwareness?.TrackName == "Monza", "Track name should parse from telemetry.");
+    Assert(snapshot.RaceAwareness?.CarName == "GT3", "Car name should parse from telemetry.");
+    Assert(snapshot.RaceAwareness?.Position == 4, "Position should parse from telemetry.");
+    Assert(snapshot.RaceAwareness?.GapAheadSeconds is null, "Missing gap fields must remain null.");
+
+    var diagnostics = RaceContextService.BuildTelemetryDiagnostics(snapshot);
+    Assert(diagnostics.PresentFields.Contains("track_name"), "Diagnostics should list present track_name.");
+    Assert(diagnostics.MissingFields.Contains("gap_ahead_s"), "Diagnostics should list missing gap_ahead_s.");
+}
+
+static void RaceContextServiceReportsMissingOpponentGaps()
+{
+    var session = new SessionState();
+    session.ApplySnapshot(
+        SimHubPacketParser.Parse(
+            """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"track_name":"Monza","car_name":"GT3","session_type":"race","position":3,"total_cars":20,"speed_kmh":180}"""),
+        []);
+    var context = RaceContextService.Build(session, session.LatestSnapshot);
+    Assert(context.Position == 3, "Race context should expose parsed position.");
+    Assert(context.GapAheadSeconds is null, "Gap ahead must stay unavailable when telemetry omits it.");
+    Assert(context.Diagnostics.MissingFields.Contains("gap_ahead_s"), "Missing opponent gap should be reported in diagnostics.");
+}
+
+static async Task TrackMemoryRetrievalAndHistoricalComparison()
+{
+    var dbPath = Path.Combine(Path.GetTempPath(), $"race-engineer-track-memory-{Guid.NewGuid():N}.sqlite3");
+    var storage = new StorageService(dbPath);
+    await storage.InitializeAsync();
+    var service = new TrackMemoryService();
+    var engine = new EventEngine();
+    var session = new SessionState();
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":10.0,"track_name":"Monza","car_name":"GT3"}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":112.4,"fuel":8.0,"track_name":"Monza","car_name":"GT3"}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":8.0,"track_name":"Monza","car_name":"GT3"}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":111.8,"fuel":6.0,"track_name":"Monza","car_name":"GT3"}"""));
+
+    var analytics = new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session));
+    var saved = await service.UpsertFromSessionAsync(
+        storage,
+        new TrackMemoryInput("Monza", "GT3", session, analytics, null, null, null));
+    var loaded = await service.LoadAsync(storage, "Monza", "GT3");
+
+    Assert(loaded is not null, "Track memory should load for same track/car.");
+    Assert(loaded!.SessionCount == 1, "Track memory should record one stored session.");
+    Assert(loaded.BestLapSeconds is <= 111.8, "Stored best lap should reflect completed session.");
+
+    var followUp = new SessionState();
+    Apply(followUp, engine, Packet("""{"lap_progress":0.99,"fuel":10.0,"track_name":"Monza","car_name":"GT3"}"""));
+    Apply(followUp, engine, Packet("""{"lap_progress":0.01,"lap_time_s":111.0,"fuel":8.0,"track_name":"Monza","car_name":"GT3"}"""));
+    var comparison = service.Compare(loaded, followUp, analytics);
+    Assert(comparison.HasHistoricalData, "Comparison should use stored session data.");
+    Assert(comparison.Summary.Contains("Stored session data", StringComparison.OrdinalIgnoreCase), "Comparison summary should label stored session data.");
+    Assert(comparison.BestLapDeltaSeconds is < 0, "Faster current lap should produce negative delta versus stored best.");
+}
+
+static void CoachRaceAwarenessMissingGapSaysUnavailable()
+{
+    var coach = new CoachEngine();
+    var session = new SessionState();
+    session.ApplySnapshot(
+        SimHubPacketParser.Parse(
+            """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"track_name":"Monza","position":5,"speed_kmh":180}"""),
+        []);
+    var raceContext = RaceContextService.Build(session, session.LatestSnapshot);
+    var answer = coach.Answer(
+        session,
+        "gap ahead",
+        new CoachContext(RaceContext: raceContext));
+
+    Assert(
+        answer.Content.Contains("Opponent gap ahead data is unavailable", StringComparison.OrdinalIgnoreCase),
+        "Race awareness answer must say opponent gap data is unavailable when telemetry omits it.");
+    Assert(
+        !answer.Content.Contains("0.3s/lap", StringComparison.OrdinalIgnoreCase),
+        "Race awareness must not invent gap values.");
+}
+
+static void CoachHistoricalLapComparisonUsesStoredData()
+{
+    var coach = new CoachEngine();
+    var engine = new EventEngine();
+    var session = new SessionState();
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":10.0,"track_name":"Monza","car_name":"GT3"}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":111.0,"fuel":8.0,"track_name":"Monza","car_name":"GT3"}"""));
+
+    var memory = TrackMemoryRecord.Empty("monza|gt3", "Monza", "GT3") with
+    {
+        SessionCount = 1,
+        BestLapSeconds = 112.4,
+        AverageCleanLapSeconds = 112.8
+    };
+    var comparison = new TrackMemoryService().Compare(memory, session, null);
+    var answer = coach.Answer(
+        session,
+        "am I faster than last time",
+        new CoachContext(TrackMemory: memory, TrackMemoryComparison: comparison));
+
+    Assert(
+        answer.Content.Contains("Stored session data", StringComparison.OrdinalIgnoreCase),
+        "Historical lap comparison should label stored session data.");
+    Assert(
+        answer.Content.Contains("faster", StringComparison.OrdinalIgnoreCase),
+        "Historical lap comparison should report faster pace when current best beats stored best.");
 }
 
 static void TyreAnswerIncludesAllCornersOrUnavailableRear()
@@ -1958,6 +2195,15 @@ static void EndToEndFixtureReplayVerifiesPipeline()
     Assert(File.Exists(fixturePath), $"Committed fixture not found: {fixturePath}");
     var result = LocalEndToEndReplay.Run(fixturePath);
     LocalEndToEndReplay.AssertPipeline(result);
+
+    var lastSnapshot = result.Snapshots.Last();
+    var raceContext = RaceContextService.Build(result.Session, lastSnapshot);
+    Assert(raceContext.TrackName == "Spa", "Fixture replay should expose parsed track name.");
+    Assert(raceContext.Position == 8, "Fixture replay should expose parsed race position.");
+    Assert(raceContext.Confidence != RaceContextConfidence.Unavailable, "Partial race context should not be unavailable.");
+    Assert(
+        raceContext.Diagnostics.MissingFields.Contains("gap_ahead_s"),
+        "Fixture replay should report missing opponent gap fields in diagnostics.");
 }
 
 static void TelemetryTraceBuilderCreatesDeterministicTimeline()

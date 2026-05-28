@@ -6,6 +6,8 @@ using RaceEngineer.Core.Profile;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.Coaching.Ai;
 using RaceEngineer.Core.SessionContext;
+using RaceEngineer.Core.RaceAwareness;
+using RaceEngineer.Core.Strategy;
 using RaceEngineer.Core.Telemetry;
 
 namespace RaceEngineer.Core.Coaching;
@@ -25,7 +27,13 @@ public sealed record CoachContext(
     bool ExternalResearchAvailable = false,
     Profile.CoachPreferencesRecord? Preferences = null,
     SessionContext.SessionContextAssessment? SessionContext = null,
-    Analytics.SessionTyreIntelligence? TyreIntelligence = null);
+    Analytics.SessionTyreIntelligence? TyreIntelligence = null,
+    Analytics.SessionTelemetryAnalytics? Analytics = null,
+    Strategy.SessionStrategy? Strategy = null,
+    IReadOnlyList<Telemetry.TelemetrySnapshot>? RecentSnapshots = null,
+    LiveRaceContext? RaceContext = null,
+    TrackMemoryRecord? TrackMemory = null,
+    TrackMemoryComparison? TrackMemoryComparison = null);
 
 public sealed class CoachEngine : ICoachEngine
 {
@@ -86,9 +94,17 @@ public sealed class CoachEngine : ICoachEngine
         switch (primaryTopic)
         {
             case CoachQueryTopic.Position:
-                return PositionAnswer(session);
+                return context?.RaceContext is { Confidence: not RaceContextConfidence.Unavailable }
+                    ? RaceAwarenessAnswer(context, includeGaps: false)
+                    : PositionAnswer(session);
+            case CoachQueryTopic.RaceAwareness:
+                return RaceAwarenessAnswer(context, includeGaps: true);
+            case CoachQueryTopic.TrackMemory:
+                return TrackMemoryAnswer(userMessage, session, context, evidence);
             case CoachQueryTopic.Tyre:
                 return TyreAnswer(session, context, recentEvents, evidence);
+            case CoachQueryTopic.PushConfidence:
+                return PushConfidenceAnswer(session, context, recentEvents, evidence);
             case CoachQueryTopic.LapTime:
                 return RouteLapTimeAnswer(session, text);
             case CoachQueryTopic.LosingTime:
@@ -96,7 +112,7 @@ public sealed class CoachEngine : ICoachEngine
             case CoachQueryTopic.Braking:
                 return AnswerDrivingTechnique(userMessage, session, context, CoachQueryTopic.Braking, () => BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
             case CoachQueryTopic.Throttle:
-                return AnswerDrivingTechniqueFromEvidence(userMessage, session, context, CoachQueryTopic.Throttle, "Work on smoother exit throttle and reduce hesitation.", "No throttle smoothness or trace evidence is available.", evidence, CoachEvidenceTopic.Throttle);
+                return ThrottleAnswer(session, context, recentEvents, evidence, userMessage);
             case CoachQueryTopic.Improvement:
                 return AnswerDrivingTechniqueFromEvidence(userMessage, session, context, CoachQueryTopic.Improvement, "Address the highest-priority weakness first.", "No improvement evidence is available.", evidence, CoachEvidenceTopic.Improvement);
             case CoachQueryTopic.LapComparison:
@@ -191,6 +207,118 @@ public sealed class CoachEngine : ICoachEngine
             : Unavailable("I can answer once telemetry or stored session context is available.", "No latest snapshot, recent events, or stored notes matched the question.");
     }
 
+    private static CoachMessage RaceAwarenessAnswer(CoachContext? context, bool includeGaps)
+    {
+        var race = context?.RaceContext;
+        if (race is null || race.Confidence == RaceContextConfidence.Unavailable)
+        {
+            return Unavailable(
+                "Race context is unavailable.",
+                race?.Diagnostics.Summary ?? "No race awareness fields are available from telemetry or prep.");
+        }
+
+        var parts = new List<string>();
+        var evidence = new List<string>();
+        if (race.Position is { } position)
+        {
+            parts.Add(race.TotalCars is { } total
+                ? $"You are P{position} of {total}."
+                : $"You are P{position}.");
+            evidence.Add($"position: {position}");
+        }
+        else
+        {
+            parts.Add("Race position is unavailable from telemetry.");
+        }
+
+        if (includeGaps)
+        {
+            if (race.GapAheadSeconds is { } gapAhead)
+            {
+                parts.Add(race.CarAhead is { Length: > 0 } carAhead
+                    ? $"Gap ahead to {carAhead} is {FormatNumber(gapAhead, "0.000")}s."
+                    : $"Gap ahead is {FormatNumber(gapAhead, "0.000")}s.");
+                evidence.Add($"gap ahead: {FormatNumber(gapAhead, "0.000")}s");
+            }
+            else
+            {
+                parts.Add("Opponent gap ahead data is unavailable from telemetry.");
+            }
+
+            if (race.GapBehindSeconds is { } gapBehind)
+            {
+                parts.Add(race.CarBehind is { Length: > 0 } carBehind
+                    ? $"Gap behind to {carBehind} is {FormatNumber(gapBehind, "0.000")}s."
+                    : $"Gap behind is {FormatNumber(gapBehind, "0.000")}s.");
+                evidence.Add($"gap behind: {FormatNumber(gapBehind, "0.000")}s");
+            }
+        }
+
+        if (race.SessionType is { Length: > 0 } sessionType)
+        {
+            evidence.Add($"session type: {sessionType}");
+        }
+
+        if (race.TrackName is { Length: > 0 } trackName)
+        {
+            evidence.Add($"track: {trackName}");
+        }
+
+        return Message(string.Join(" ", parts), evidence, []);
+    }
+
+    private static CoachMessage TrackMemoryAnswer(
+        string query,
+        SessionState session,
+        CoachContext? context,
+        CoachEvidenceBundle? evidence)
+    {
+        var comparison = context?.TrackMemoryComparison;
+        var memory = context?.TrackMemory;
+        var text = query.ToLowerInvariant();
+
+        if (text.Contains("fuel use", StringComparison.Ordinal))
+        {
+            var currentFuel = session.FuelUsedPerLap;
+            if (memory?.FuelUsedPerLap is { } storedFuel)
+            {
+                var currentText = currentFuel is { } current
+                    ? $"Today fuel use is about {FormatNumber(current, "0.00")} L/lap."
+                    : "Current fuel use is not reliable yet.";
+                return Message(
+                    $"Stored session data for {memory.TrackName}: fuel use was about {FormatNumber(storedFuel, "0.00")} L/lap. {currentText}",
+                    [$"stored fuel use: {FormatNumber(storedFuel, "0.00")} L/lap", currentFuel is { } value ? $"current fuel use: {FormatNumber(value, "0.00")} L/lap" : "current fuel use: unavailable"],
+                    []);
+            }
+
+            return Unavailable(
+                "No stored fuel-use history is available for this track and car.",
+                "Track memory has no fuel-per-lap record for this combination.");
+        }
+
+        if (comparison is not null && comparison.HasHistoricalData)
+        {
+            return AttachEvidence(
+                Message(comparison.Summary, [$"stored sessions: {memory?.SessionCount ?? 0}"], []),
+                evidence,
+                CoachEvidenceTopic.TrackMemory);
+        }
+
+        if (memory is { SessionCount: > 0 })
+        {
+            var summary = memory.SessionSummaries.LastOrDefault()
+                ?? $"Stored session data for {memory.TrackName}: best {TrackMemoryService.FormatLapTime(memory.BestLapSeconds)}, average {TrackMemoryService.FormatLapTime(memory.AverageCleanLapSeconds)}.";
+            return AttachEvidence(
+                Message($"Stored session data for {memory.TrackName}: {summary}", [$"stored sessions: {memory.SessionCount}"], []),
+                evidence,
+                CoachEvidenceTopic.TrackMemory);
+        }
+
+        return Unavailable(
+            "No stored session history is available for this track and car combination.",
+            "Track memory is empty until a prior session is saved for the same track and car.");
+    }
+
     private static CoachMessage PositionAnswer(SessionState session)
     {
         var position = session.LatestSnapshot?.Race.Position;
@@ -261,12 +389,92 @@ public sealed class CoachEngine : ICoachEngine
         return AttachEvidence(
             new CoachMessage(
                 "coach",
-                intelligence.CoachingMessage,
+                intelligence.TyreConditionMessage,
                 tyreEvents.Select(item => item.Id).ToArray(),
-                $"Grip confidence {intelligence.GripConfidenceLabel.ToLowerInvariant()}; {intelligence.PushGuidance}",
+                $"Tyre state {intelligence.WarmupState}; readiness {intelligence.Readiness}; overheating risk {intelligence.OverheatingRisk}",
                 []),
             resolvedEvidence,
             CoachEvidenceTopic.Tyres);
+    }
+
+    private static CoachMessage PushConfidenceAnswer(
+        SessionState session,
+        CoachContext? context,
+        IReadOnlyList<TelemetryEvent> events,
+        CoachEvidenceBundle? evidence)
+    {
+        var assessment = PushConfidenceAnalyzer.Analyze(new PushConfidenceInput(
+            session,
+            context?.TyreIntelligence,
+            context?.Analytics,
+            events,
+            context?.SessionContext,
+            context?.Strategy));
+
+        if (!assessment.HasReliableData)
+        {
+            return Unavailable(assessment.CoachingMessage, assessment.EvidenceLines.FirstOrDefault() ?? "Push confidence unavailable.");
+        }
+
+        var resolvedEvidence = evidence ?? new CoachEvidenceBuilder().Build(new CoachEvidenceInput(
+            session,
+            context?.RecentSnapshots,
+            events,
+            context?.Analytics,
+            null,
+            context?.TyreIntelligence,
+            context?.Strategy));
+
+        return AttachEvidence(
+            new CoachMessage(
+                "coach",
+                assessment.CoachingMessage,
+                [],
+                $"Grip confidence {assessment.GripConfidence.ToString().ToLowerInvariant()}; push safe={assessment.CanPushHarder}",
+                []),
+            resolvedEvidence,
+            CoachEvidenceTopic.Tyres);
+    }
+
+    private static CoachMessage ThrottleAnswer(
+        SessionState session,
+        CoachContext? context,
+        IReadOnlyList<TelemetryEvent> events,
+        CoachEvidenceBundle? evidence,
+        string query)
+    {
+        var gate = DrivingTechniqueGate.Evaluate(CoachQueryTopic.Throttle, session, context?.SessionContext);
+        var live = LiveThrottleAnalyzer.Analyze(new LiveThrottleInput(
+            session,
+            events,
+            context?.RecentSnapshots,
+            context?.Analytics,
+            evidence,
+            context?.SessionContext));
+
+        if (live.HasData)
+        {
+            return AttachEvidence(
+                new CoachMessage("coach", live.CoachingMessage, [], live.SpokenSummary, []),
+                evidence,
+                CoachEvidenceTopic.Throttle);
+        }
+
+        if (!gate.Allowed)
+        {
+            LogGateTrace(query, CoachQueryTopic.Throttle, gate, "deterministic-gate");
+            return Unavailable(gate.UnavailableMessage!, gate.EvidenceReason);
+        }
+
+        return AnswerDrivingTechniqueFromEvidence(
+            query,
+            session,
+            context,
+            CoachQueryTopic.Throttle,
+            "Work on smoother exit throttle and reduce hesitation.",
+            "No throttle smoothness or trace evidence is available.",
+            evidence,
+            CoachEvidenceTopic.Throttle);
     }
 
     private static CoachMessage BrakeAnswer(TelemetrySnapshot? snapshot, IReadOnlyList<TelemetryEvent> events)
@@ -374,32 +582,53 @@ public sealed class CoachEngine : ICoachEngine
         }
 
         var strategyPackets = evidence?.Select(CoachEvidenceTopic.Strategy).ToArray() ?? [];
-        var actionParts = new List<string>();
+        var lapsRemaining = session.EstimatedLapsRemaining
+            ?? strategyPackets.FirstOrDefault(packet => packet.Summary == "Laps remaining")?.MetricValue;
+        var riskPacket = strategyPackets.FirstOrDefault(packet => packet.Summary == "Fuel risk");
+        var minimumFuelPacket = strategyPackets.FirstOrDefault(packet => packet.Summary == "Minimum fuel to finish");
+        var pitPacket = strategyPackets.FirstOrDefault(packet => packet.Summary == "Pit recommendation");
+        var finishFuelPacket = strategyPackets.FirstOrDefault(packet => packet.Summary == "Estimated finish fuel");
+
+        var riskLevel = ExtractRiskLevel(riskPacket?.Explanation);
+        var verdict = BuildFinishVerdict(lapsRemaining, riskLevel, fuel, minimumFuelPacket?.MetricValue, finishFuelPacket?.MetricValue);
+        var actionParts = new List<string> { verdict };
         var evidenceLines = new List<string> { $"latest fuel: {FormatNumber(fuel, "0.0")}" };
 
-        if (session.EstimatedLapsRemaining is { } lapsRemaining)
+        if (lapsRemaining is { } laps)
         {
-            actionParts.Add($"About {FormatNumber(lapsRemaining, "0.0")} laps remaining on current fuel.");
-            evidenceLines.Add($"estimated laps remaining: {FormatNumber(lapsRemaining, "0.0")}");
+            actionParts.Add($"About {FormatNumber(laps, "0.0")} laps remaining on current fuel.");
+            evidenceLines.Add($"estimated laps remaining: {FormatNumber(laps, "0.0")}");
         }
         else
         {
-            actionParts.Add("Finish projection is not reliable yet.");
+            actionParts.Add("Laps remaining estimate is not reliable yet.");
             evidenceLines.Add("estimated laps remaining: unavailable");
         }
 
-        var riskPacket = strategyPackets.FirstOrDefault(packet => packet.Summary == "Fuel risk")
-            ?? evidence?.Select(CoachEvidenceTopic.Fuel).FirstOrDefault(packet => packet.Summary == "Fuel risk");
         if (riskPacket is not null)
         {
-            actionParts.Add(riskPacket.Explanation.TrimEnd('.'));
+            actionParts.Add($"Fuel risk is {riskLevel.ToLowerInvariant()}.");
             evidenceLines.Add($"fuel risk: {riskPacket.Explanation}");
         }
 
-        var lowFuelEvents = events.Where(item => item.Type == EventType.LowFuel).ToArray();
-        if (context?.AllowFuelRiskCallouts == true && lowFuelEvents.Length > 0)
+        if (minimumFuelPacket is not null)
         {
-            actionParts.Add("Fuel is tight for this stint.");
+            actionParts.Add(minimumFuelPacket.Explanation.TrimEnd('.'));
+            evidenceLines.Add($"minimum fuel to finish: {FormatNumber(minimumFuelPacket.MetricValue ?? 0, "0.0")}");
+        }
+
+        if (finishFuelPacket is not null)
+        {
+            evidenceLines.Add($"estimated finish fuel: {FormatNumber(finishFuelPacket.MetricValue ?? 0, "0.0")}");
+        }
+
+        if (pitPacket is not null
+            && (pitPacket.Explanation.Contains("pit now", StringComparison.OrdinalIgnoreCase)
+                || pitPacket.Explanation.Contains("prepare to pit", StringComparison.OrdinalIgnoreCase)
+                || pitPacket.Explanation.Contains("box", StringComparison.OrdinalIgnoreCase)))
+        {
+            actionParts.Add(pitPacket.Explanation.TrimEnd('.'));
+            evidenceLines.Add($"pit recommendation: {pitPacket.Explanation}");
         }
 
         if (session.FuelUsedPerLap is { } fuelPerLap)
@@ -407,11 +636,67 @@ public sealed class CoachEngine : ICoachEngine
             evidenceLines.Add($"fuel used per lap: {FormatNumber(fuelPerLap, "0.00")}");
         }
 
-        var action = actionParts.Count == 0
-            ? "Fuel strategy is unavailable until more lap data is collected."
-            : string.Join(" ", actionParts);
+        return Message(string.Join(" ", actionParts), evidenceLines, []);
+    }
 
-        return Message(action, evidenceLines, lowFuelEvents.Select(item => item.Id));
+    private static string BuildFinishVerdict(
+        double? lapsRemaining,
+        string riskLevel,
+        double currentFuel,
+        double? minimumFuel,
+        double? estimatedFinishFuel)
+    {
+        if (minimumFuel is { } required && currentFuel + 0.1 < required)
+        {
+            return "No, you likely cannot finish safely on current fuel.";
+        }
+
+        if (estimatedFinishFuel is < 0)
+        {
+            return "No, projected finish fuel is below zero.";
+        }
+
+        if (lapsRemaining is < 1)
+        {
+            return "No, fuel will not last to the finish.";
+        }
+
+        if (riskLevel.Contains("high", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Probably not without saving fuel or pitting.";
+        }
+
+        if (riskLevel.Contains("moderate", StringComparison.OrdinalIgnoreCase) || lapsRemaining is < 2)
+        {
+            return "Maybe, but fuel is marginal. Save fuel or plan a stop.";
+        }
+
+        return "Yes, you can finish on current fuel.";
+    }
+
+    private static string ExtractRiskLevel(string? explanation)
+    {
+        if (string.IsNullOrWhiteSpace(explanation))
+        {
+            return "unknown";
+        }
+
+        if (explanation.Contains("High", StringComparison.OrdinalIgnoreCase))
+        {
+            return "high";
+        }
+
+        if (explanation.Contains("Moderate", StringComparison.OrdinalIgnoreCase))
+        {
+            return "moderate";
+        }
+
+        if (explanation.Contains("Low", StringComparison.OrdinalIgnoreCase))
+        {
+            return "low";
+        }
+
+        return explanation;
     }
 
     private static CoachMessage FuelAnswer(

@@ -1,4 +1,5 @@
 using RaceEngineer.Core.Events;
+using RaceEngineer.Core.RaceAwareness;
 
 namespace RaceEngineer.Core.Coaching;
 
@@ -14,7 +15,9 @@ public enum CoachEvidenceTopic
     Strategy,
     Tyres,
     Incidents,
-    SetupNotes
+    SetupNotes,
+    RaceAwareness,
+    TrackMemory
 }
 
 public enum CoachEvidenceSourceType
@@ -58,7 +61,10 @@ public sealed record CoachEvidenceInput(
     Analytics.SessionTyreIntelligence? TyreIntelligence = null,
     Strategy.SessionStrategy? Strategy = null,
     TelemetryVisualization.TelemetryTimeline? Timeline = null,
-    IReadOnlyList<Knowledge.KnowledgeSource>? KnowledgeSources = null);
+    IReadOnlyList<Knowledge.KnowledgeSource>? KnowledgeSources = null,
+    LiveRaceContext? RaceContext = null,
+    TrackMemoryRecord? TrackMemory = null,
+    TrackMemoryComparison? TrackMemoryComparison = null);
 
 public static class CoachEvidenceSelector
 {
@@ -74,7 +80,9 @@ public static class CoachEvidenceSelector
         [CoachEvidenceTopic.Strategy] = ["Strategy"],
         [CoachEvidenceTopic.Tyres] = ["Tyre", "TyreIntelligence"],
         [CoachEvidenceTopic.Incidents] = ["Incident", "Event"],
-        [CoachEvidenceTopic.SetupNotes] = ["Knowledge"]
+        [CoachEvidenceTopic.SetupNotes] = ["Knowledge"],
+        [CoachEvidenceTopic.RaceAwareness] = ["RaceAwareness", "Session"],
+        [CoachEvidenceTopic.TrackMemory] = ["TrackMemory", "Knowledge"]
     };
 
     public static IReadOnlyList<CoachEvidencePacket> Select(

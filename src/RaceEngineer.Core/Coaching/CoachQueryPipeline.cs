@@ -32,12 +32,14 @@ public static class CoachQueryPipeline
         var gate = DrivingTechniqueGate.Evaluate(topic, session, context?.SessionContext);
         var deterministicWritten = coachEngine.BuildDeterministicAnswer(session, query, context, evidence);
         var primaryWritten = coachEngine.Answer(session, query, context, evidence);
-        var sanitizedWritten = DrivingTechniqueOutputSanitizer.EnforceFinalWritten(
+        var sanitizedWritten = CoachTopicOutputGuard.EnforceTopicIsolation(
             topic,
-            session,
-            context?.SessionContext,
-            primaryWritten,
-            deterministicWritten);
+            DrivingTechniqueOutputSanitizer.EnforceFinalWritten(
+                topic,
+                session,
+                context?.SessionContext,
+                primaryWritten,
+                deterministicWritten));
 
         var summaryResult = SpokenSummaryGenerator.GenerateSpokenSummary(sanitizedWritten, effectivePreferences, query);
         if (string.IsNullOrWhiteSpace(summaryResult.Summary))
