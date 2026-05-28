@@ -68,6 +68,7 @@ public static class EngineerAiContextBuilder
         SessionContextAssessment? sessionContext)
     {
         if (primaryTopic is CoachQueryTopic.Position
+            or CoachQueryTopic.TrackIdentity
             or CoachQueryTopic.Tyre
             or CoachQueryTopic.PushConfidence
             or CoachQueryTopic.LapTime
@@ -117,7 +118,13 @@ public static class EngineerAiContextBuilder
                     || packet.Category.Contains("TyreIntelligence", StringComparison.Ordinal)),
             CoachQueryTopic.FuelStrategy => packets.Where(LooksLikeFuelStrategyPacket),
             CoachQueryTopic.TrackMemory => packets.Where(packet => packet.Category == "TrackMemory"),
+            CoachQueryTopic.TrackIdentity => packets.Where(packet =>
+                packet.Category == "RaceAwareness"
+                    && packet.Summary.Equals("Track identity", StringComparison.Ordinal)),
             CoachQueryTopic.RaceAwareness => packets.Where(packet => packet.Category == "RaceAwareness"),
+            CoachQueryTopic.Position => packets.Where(packet =>
+                packet.Category == "RaceAwareness"
+                    && packet.Summary.Equals("Race position", StringComparison.Ordinal)),
             CoachQueryTopic.LapTime => packets.Where(LooksLikeLapTimePacket),
             CoachQueryTopic.FuelAmount => packets.Where(LooksLikeFuelLevelPacket),
             CoachQueryTopic.FuelConsumption => packets.Where(LooksLikeFuelConsumptionPacket),
@@ -128,7 +135,6 @@ public static class EngineerAiContextBuilder
             CoachQueryTopic.LosingTime or CoachQueryTopic.LapComparison => packets.Where(LooksLikeLapComparisonPacket),
             CoachQueryTopic.Improvement => packets.Where(LooksLikeImprovementPacket),
             CoachQueryTopic.Incidents => packets.Where(LooksLikeIncidentPacket),
-            CoachQueryTopic.Position => [],
             _ => packets.Where(packet => !LooksLikeFuelPacket(packet))
         };
 

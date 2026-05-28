@@ -93,12 +93,23 @@ public sealed class CoachEngine : ICoachEngine
 
         switch (primaryTopic)
         {
+            case CoachQueryTopic.TrackIdentity:
+                return ToRaceAwarenessCoachMessage(
+                    RaceAwarenessAnswerBuilder.Build(
+                        RaceAwarenessSubtopic.TrackIdentity,
+                        session,
+                        context?.RaceContext,
+                        RaceAwarenessQueryClassifier.Classify(userMessage, context?.RaceContext),
+                        context?.RacePrepPlan?.Track));
             case CoachQueryTopic.Position:
-                return context?.RaceContext is { Confidence: not RaceContextConfidence.Unavailable }
-                    ? RaceAwarenessAnswer(context, includeGaps: false)
-                    : PositionAnswer(session);
+                return ToRaceAwarenessCoachMessage(
+                    RaceAwarenessAnswerBuilder.Build(
+                        RaceAwarenessSubtopic.Position,
+                        session,
+                        context?.RaceContext,
+                        RaceAwarenessQueryClassifier.Classify(userMessage, context?.RaceContext)));
             case CoachQueryTopic.RaceAwareness:
-                return RaceAwarenessAnswer(context, includeGaps: true);
+                return RouteRaceAwarenessAnswer(userMessage, session, context);
             case CoachQueryTopic.TrackMemory:
                 return TrackMemoryAnswer(userMessage, session, context, evidence);
             case CoachQueryTopic.Tyre:
@@ -207,65 +218,22 @@ public sealed class CoachEngine : ICoachEngine
             : Unavailable("I can answer once telemetry or stored session context is available.", "No latest snapshot, recent events, or stored notes matched the question.");
     }
 
-    private static CoachMessage RaceAwarenessAnswer(CoachContext? context, bool includeGaps)
+    private static CoachMessage RouteRaceAwarenessAnswer(string userMessage, SessionState session, CoachContext? context)
     {
-        var race = context?.RaceContext;
-        if (race is null || race.Confidence == RaceContextConfidence.Unavailable)
-        {
-            return Unavailable(
-                "Race context is unavailable.",
-                race?.Diagnostics.Summary ?? "No race awareness fields are available from telemetry or prep.");
-        }
-
-        var parts = new List<string>();
-        var evidence = new List<string>();
-        if (race.Position is { } position)
-        {
-            parts.Add(race.TotalCars is { } total
-                ? $"You are P{position} of {total}."
-                : $"You are P{position}.");
-            evidence.Add($"position: {position}");
-        }
-        else
-        {
-            parts.Add("Race position is unavailable from telemetry.");
-        }
-
-        if (includeGaps)
-        {
-            if (race.GapAheadSeconds is { } gapAhead)
-            {
-                parts.Add(race.CarAhead is { Length: > 0 } carAhead
-                    ? $"Gap ahead to {carAhead} is {FormatNumber(gapAhead, "0.000")}s."
-                    : $"Gap ahead is {FormatNumber(gapAhead, "0.000")}s.");
-                evidence.Add($"gap ahead: {FormatNumber(gapAhead, "0.000")}s");
-            }
-            else
-            {
-                parts.Add("Opponent gap ahead data is unavailable from telemetry.");
-            }
-
-            if (race.GapBehindSeconds is { } gapBehind)
-            {
-                parts.Add(race.CarBehind is { Length: > 0 } carBehind
-                    ? $"Gap behind to {carBehind} is {FormatNumber(gapBehind, "0.000")}s."
-                    : $"Gap behind is {FormatNumber(gapBehind, "0.000")}s.");
-                evidence.Add($"gap behind: {FormatNumber(gapBehind, "0.000")}s");
-            }
-        }
-
-        if (race.SessionType is { Length: > 0 } sessionType)
-        {
-            evidence.Add($"session type: {sessionType}");
-        }
-
-        if (race.TrackName is { Length: > 0 } trackName)
-        {
-            evidence.Add($"track: {trackName}");
-        }
-
-        return Message(string.Join(" ", parts), evidence, []);
+        var routing = RaceAwarenessQueryClassifier.Classify(userMessage, context?.RaceContext);
+        var answer = RaceAwarenessAnswerBuilder.Build(
+            routing.Subtopic,
+            session,
+            context?.RaceContext,
+            routing,
+            context?.RacePrepPlan?.Track);
+        return ToRaceAwarenessCoachMessage(answer);
     }
+
+    private static CoachMessage ToRaceAwarenessCoachMessage(RaceAwarenessAnswer answer) =>
+        string.IsNullOrWhiteSpace(answer.Routing.FallbackReason)
+            ? Message(answer.Content, answer.Evidence, [])
+            : new CoachMessage("coach", answer.Content, [], answer.Routing.FallbackReason, []);
 
     private static CoachMessage TrackMemoryAnswer(
         string query,

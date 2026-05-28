@@ -134,6 +134,9 @@ RaceAwarenessPacketParsesPartialFields();
 RaceContextServiceReportsMissingOpponentGaps();
 await TrackMemoryRetrievalAndHistoricalComparison();
 CoachRaceAwarenessMissingGapSaysUnavailable();
+CoachTrackIdentityRoutingDoesNotFallbackToPosition();
+RaceAwarenessRoutingDiagnosticsCoverTrackAndPosition();
+RaceAwarenessValidatorBlocksCrossTopicFallback();
 CoachHistoricalLapComparisonUsesStoredData();
 TelemetryTraceBuilderCreatesDeterministicTimeline();
 EndToEndFixtureReplayVerifiesPipeline();
@@ -2120,6 +2123,122 @@ static void CoachRaceAwarenessMissingGapSaysUnavailable()
     Assert(
         !answer.Content.Contains("0.3s/lap", StringComparison.OrdinalIgnoreCase),
         "Race awareness must not invent gap values.");
+}
+
+static void CoachTrackIdentityRoutingDoesNotFallbackToPosition()
+{
+    var coach = new CoachEngine();
+    var session = new SessionState();
+    session.ApplySnapshot(
+        SimHubPacketParser.Parse(
+            """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"track_name":"Monza","position":1,"total_cars":20,"speed_kmh":180}"""),
+        []);
+    var raceContext = RaceContextService.Build(session, session.LatestSnapshot);
+
+    var trackAnswer = coach.Answer(
+        session,
+        "which track am i on",
+        new CoachContext(RaceContext: raceContext));
+    Assert(
+        trackAnswer.Content.Contains("You are on Monza", StringComparison.OrdinalIgnoreCase),
+        "Track identity question should return the parsed track name.");
+    Assert(
+        !trackAnswer.Content.Contains("You are P", StringComparison.OrdinalIgnoreCase),
+        "Track identity question must not fallback to race position.");
+
+    var missingTrackSession = new SessionState();
+    missingTrackSession.ApplySnapshot(
+        SimHubPacketParser.Parse(
+            """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"position":1,"total_cars":20,"speed_kmh":180}"""),
+        []);
+    var missingTrackContext = RaceContextService.Build(missingTrackSession, missingTrackSession.LatestSnapshot);
+    var missingTrackAnswer = coach.Answer(
+        missingTrackSession,
+        "which track am i on",
+        new CoachContext(RaceContext: missingTrackContext));
+    Assert(
+        missingTrackAnswer.Content.Contains(RaceAwarenessAnswerBuilder.TrackUnavailableMessage, StringComparison.OrdinalIgnoreCase),
+        "Missing track telemetry should return the track unavailable message.");
+    Assert(
+        !missingTrackAnswer.Content.Contains("You are P", StringComparison.OrdinalIgnoreCase),
+        "Missing track telemetry must not answer with race position.");
+}
+
+static void RaceAwarenessRoutingDiagnosticsCoverTrackAndPosition()
+{
+    var session = new SessionState();
+    session.ApplySnapshot(
+        SimHubPacketParser.Parse(
+            """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"track_name":"Spa","car_name":"GT3","session_type":"race","position":4,"total_cars":18,"gap_ahead_s":1.250,"speed_kmh":190}"""),
+        []);
+    var raceContext = RaceContextService.Build(session, session.LatestSnapshot);
+
+    var trackRouting = RaceAwarenessQueryClassifier.Classify("which track am i on", raceContext);
+    Assert(trackRouting.Subtopic == RaceAwarenessSubtopic.TrackIdentity, "Track question should classify as TrackIdentity.");
+    Assert(trackRouting.SelectedTelemetryFields.Contains("track_name"), "Track routing should select track_name when present.");
+    Assert(trackRouting.MissingTelemetryFields.Contains("circuit_id"), "Track routing should still report missing circuit_id.");
+
+    var positionRouting = RaceAwarenessQueryClassifier.Classify("koja mi je pozicija", raceContext);
+    Assert(positionRouting.Subtopic == RaceAwarenessSubtopic.Position, "Position question should classify as Position.");
+    Assert(positionRouting.SelectedTelemetryFields.Contains("position"), "Position routing should select position when present.");
+
+    var gapRouting = RaceAwarenessQueryClassifier.Classify("gap ahead", raceContext);
+    Assert(gapRouting.Subtopic == RaceAwarenessSubtopic.GapAhead, "Gap ahead question should classify as GapAhead.");
+    Assert(gapRouting.SelectedTelemetryFields.Contains("gap_ahead_s"), "Gap ahead routing should select gap_ahead_s when present.");
+}
+
+static void RaceAwarenessValidatorBlocksCrossTopicFallback()
+{
+    var session = new SessionState();
+    session.ApplySnapshot(
+        SimHubPacketParser.Parse(
+            """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"track_name":"Monza","position":1,"speed_kmh":180}"""),
+        []);
+    var raceContext = RaceContextService.Build(session, session.LatestSnapshot);
+    var context = new CoachContext(RaceContext: raceContext);
+    var leaked = new CoachMessage(
+        "coach",
+        "Telemetry shows Race position (Race position is P1.)",
+        [],
+        null,
+        []);
+
+    var corrected = RaceAwarenessAnswerValidator.Enforce("which track am i on", leaked, session, context);
+    Assert(
+        corrected.Content.Contains("You are on Monza", StringComparison.OrdinalIgnoreCase),
+        "Validator should replace position leak with the track identity answer when track telemetry exists.");
+    Assert(
+        !corrected.Content.Contains("Race position", StringComparison.OrdinalIgnoreCase),
+        "Validator must remove unrelated race position content from track questions.");
+
+    var missingTrackSession = new SessionState();
+    missingTrackSession.ApplySnapshot(
+        SimHubPacketParser.Parse(
+            """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"position":2,"speed_kmh":180}"""),
+        []);
+    var missingTrackContext = new CoachContext(RaceContext: RaceContextService.Build(missingTrackSession, missingTrackSession.LatestSnapshot));
+    var correctedMissingTrack = RaceAwarenessAnswerValidator.Enforce(
+        "which track am i on",
+        leaked,
+        missingTrackSession,
+        missingTrackContext);
+    Assert(
+        correctedMissingTrack.Content.Contains(RaceAwarenessAnswerBuilder.TrackUnavailableMessage, StringComparison.OrdinalIgnoreCase),
+        "Validator should replace position leak with track unavailable when track telemetry is missing.");
+
+    var positionSession = new SessionState();
+    positionSession.ApplySnapshot(
+        SimHubPacketParser.Parse(
+            """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"track_name":"Monza","position":3,"total_cars":20,"speed_kmh":180}"""),
+        []);
+    var positionContext = new CoachContext(RaceContext: RaceContextService.Build(positionSession, positionSession.LatestSnapshot));
+    var positionAnswer = new CoachEngine().Answer(positionSession, "koja mi je pozicija", positionContext);
+    Assert(
+        positionAnswer.Content.Contains("You are P3", StringComparison.OrdinalIgnoreCase),
+        "Position question should answer with parsed position.");
+    Assert(
+        !positionAnswer.Content.Contains("You are on Monza", StringComparison.OrdinalIgnoreCase),
+        "Position question must not mention track name.");
 }
 
 static void CoachHistoricalLapComparisonUsesStoredData()

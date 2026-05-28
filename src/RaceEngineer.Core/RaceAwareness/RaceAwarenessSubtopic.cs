@@ -1,0 +1,86 @@
+namespace RaceEngineer.Core.RaceAwareness;
+
+public enum RaceAwarenessSubtopic
+{
+    TrackIdentity,
+    Position,
+    GapAhead,
+    GapBehind,
+    SessionType,
+    OpponentCount,
+    RaceContext,
+    HistoricalComparison
+}
+
+public sealed record RaceAwarenessRoutingResult(
+    RaceAwarenessSubtopic Subtopic,
+    IReadOnlyList<string> SelectedTelemetryFields,
+    IReadOnlyList<string> MissingTelemetryFields,
+    string? FallbackReason)
+{
+    public static RaceAwarenessRoutingResult ForSubtopic(
+        RaceAwarenessSubtopic subtopic,
+        LiveRaceContext? raceContext,
+        string? fallbackReason = null)
+    {
+        var selected = new List<string>();
+        var missing = new List<string>();
+
+        foreach (var field in FieldsForSubtopic(subtopic))
+        {
+            if (HasField(raceContext, field))
+            {
+                selected.Add(field);
+            }
+            else
+            {
+                missing.Add(field);
+            }
+        }
+
+        return new RaceAwarenessRoutingResult(subtopic, selected, missing, fallbackReason);
+    }
+
+    private static IReadOnlyList<string> FieldsForSubtopic(RaceAwarenessSubtopic subtopic) =>
+        subtopic switch
+        {
+            RaceAwarenessSubtopic.TrackIdentity => ["track_name", "circuit_id"],
+            RaceAwarenessSubtopic.Position => ["position", "total_cars"],
+            RaceAwarenessSubtopic.GapAhead => ["gap_ahead_s", "car_ahead"],
+            RaceAwarenessSubtopic.GapBehind => ["gap_behind_s", "car_behind"],
+            RaceAwarenessSubtopic.SessionType => ["session_type"],
+            RaceAwarenessSubtopic.OpponentCount => ["total_cars", "position"],
+            RaceAwarenessSubtopic.RaceContext =>
+            [
+                "track_name",
+                "car_name",
+                "session_type",
+                "position",
+                "total_cars",
+                "gap_ahead_s",
+                "gap_behind_s"
+            ],
+            RaceAwarenessSubtopic.HistoricalComparison => [],
+            _ => []
+        };
+
+    private static bool HasField(LiveRaceContext? raceContext, string field) =>
+        raceContext switch
+        {
+            null => false,
+            var race => field switch
+            {
+                "track_name" => !string.IsNullOrWhiteSpace(race.TrackName),
+                "circuit_id" => !string.IsNullOrWhiteSpace(race.CircuitId),
+                "car_name" => !string.IsNullOrWhiteSpace(race.CarName),
+                "session_type" => !string.IsNullOrWhiteSpace(race.SessionType),
+                "position" => race.Position.HasValue,
+                "total_cars" => race.TotalCars.HasValue,
+                "gap_ahead_s" => race.GapAheadSeconds.HasValue,
+                "gap_behind_s" => race.GapBehindSeconds.HasValue,
+                "car_ahead" => !string.IsNullOrWhiteSpace(race.CarAhead),
+                "car_behind" => !string.IsNullOrWhiteSpace(race.CarBehind),
+                _ => false
+            }
+        };
+}

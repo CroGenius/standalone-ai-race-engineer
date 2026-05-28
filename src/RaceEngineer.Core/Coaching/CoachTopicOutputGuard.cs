@@ -1,5 +1,7 @@
 namespace RaceEngineer.Core.Coaching;
 
+using RaceEngineer.Core.RaceAwareness;
+
 public static class CoachTopicOutputGuard
 {
     private static readonly string[] FuelForbiddenTerms =
@@ -34,6 +36,9 @@ public static class CoachTopicOutputGuard
             CoachQueryTopic.Tyre => SanitizeTyreCondition(action),
             CoachQueryTopic.Throttle => SanitizeThrottle(action),
             CoachQueryTopic.Braking => SanitizeBraking(action),
+            CoachQueryTopic.TrackIdentity => SanitizeTrackIdentity(action),
+            CoachQueryTopic.Position => SanitizePosition(action),
+            CoachQueryTopic.RaceAwareness => SanitizeRaceAwareness(action),
             _ => action
         };
 
@@ -110,6 +115,45 @@ public static class CoachTopicOutputGuard
 
         return content;
     }
+
+    private static string SanitizeTrackIdentity(string content)
+    {
+        if (ContainsPositionLeak(content) && !ContainsTrackAnswer(content))
+        {
+            return RaceAwarenessAnswerBuilder.TrackUnavailableMessage;
+        }
+
+        return content;
+    }
+
+    private static string SanitizePosition(string content)
+    {
+        if (ContainsTrackLeak(content) && !ContainsPositionAnswer(content))
+        {
+            return RaceAwarenessAnswerBuilder.PositionUnavailableMessage;
+        }
+
+        return content;
+    }
+
+    private static string SanitizeRaceAwareness(string content) => content;
+
+    private static bool ContainsTrackAnswer(string content) =>
+        content.Contains("You are on ", StringComparison.OrdinalIgnoreCase)
+            || content.Contains("Track is ", StringComparison.OrdinalIgnoreCase)
+            || content.Contains(RaceAwarenessAnswerBuilder.TrackUnavailableMessage, StringComparison.OrdinalIgnoreCase);
+
+    private static bool ContainsPositionAnswer(string content) =>
+        content.Contains("You are P", StringComparison.OrdinalIgnoreCase)
+            || content.Contains(RaceAwarenessAnswerBuilder.PositionUnavailableMessage, StringComparison.OrdinalIgnoreCase);
+
+    private static bool ContainsPositionLeak(string content) =>
+        content.Contains("You are P", StringComparison.OrdinalIgnoreCase)
+            || content.Contains("Race position", StringComparison.OrdinalIgnoreCase);
+
+    private static bool ContainsTrackLeak(string content) =>
+        content.Contains("You are on ", StringComparison.OrdinalIgnoreCase)
+            || content.Contains("Track is ", StringComparison.OrdinalIgnoreCase);
 
     private static bool ContainsAny(string content, params string[] terms)
     {

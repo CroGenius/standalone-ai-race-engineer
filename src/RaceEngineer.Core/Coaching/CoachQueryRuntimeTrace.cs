@@ -1,3 +1,5 @@
+using RaceEngineer.Core.RaceAwareness;
+
 namespace RaceEngineer.Core.Coaching;
 
 public sealed record CoachQueryRuntimeTrace(
@@ -15,4 +17,8 @@ public sealed record CoachQueryRuntimeTrace(
     string AnswerSource,
     string? SelectedEvidenceType,
     string? FallbackReason,
-    string AssemblyVersion);
+    string AssemblyVersion,
+    RaceAwarenessSubtopic? RaceAwarenessSubtopic = null,
+    string? RaceAwarenessSelectedFields = null,
+    string? RaceAwarenessMissingFields = null,
+    string? RaceAwarenessFallbackReason = null);

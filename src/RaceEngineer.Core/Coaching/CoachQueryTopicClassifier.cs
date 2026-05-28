@@ -1,5 +1,7 @@
 namespace RaceEngineer.Core.Coaching;
 
+using RaceEngineer.Core.RaceAwareness;
+
 public enum CoachQueryTopic
 {
     Unknown,
@@ -20,6 +22,7 @@ public enum CoachQueryTopic
     FuelConsumption,
     FuelStrategy,
     RaceAwareness,
+    TrackIdentity,
     TrackMemory
 }
 
@@ -32,6 +35,12 @@ public static class CoachQueryTopicClassifier
         if (ContainsAny(text, CoachQueryPhrases.TrackMemory))
         {
             return CoachQueryTopic.TrackMemory;
+        }
+
+        if (ContainsAny(text, CoachQueryPhrases.TrackIdentity)
+            || RaceAwarenessQueryClassifier.LooksLikeTrackIdentity(text))
+        {
+            return CoachQueryTopic.TrackIdentity;
         }
 
         if (ContainsAny(text, CoachQueryPhrases.RaceAwareness))
@@ -142,6 +151,7 @@ public static class CoachQueryTopicClassifier
             CoachQueryTopic.PushConfidence => CoachEvidenceTopic.Tyres,
             CoachQueryTopic.Strategy or CoachQueryTopic.Pit => CoachEvidenceTopic.Strategy,
             CoachQueryTopic.RaceAwareness => CoachEvidenceTopic.RaceAwareness,
+            CoachQueryTopic.TrackIdentity => CoachEvidenceTopic.RaceAwareness,
             CoachQueryTopic.TrackMemory => CoachEvidenceTopic.TrackMemory,
             _ => null
         };

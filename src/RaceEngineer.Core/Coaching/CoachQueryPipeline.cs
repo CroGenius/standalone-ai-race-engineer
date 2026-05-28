@@ -1,6 +1,7 @@
 using System.Reflection;
 using RaceEngineer.Core.Coaching.Ai;
 using RaceEngineer.Core.Profile;
+using RaceEngineer.Core.RaceAwareness;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.SessionContext;
 using RaceEngineer.Core.Voice;
@@ -40,6 +41,9 @@ public static class CoachQueryPipeline
                 context?.SessionContext,
                 primaryWritten,
                 deterministicWritten));
+
+        var raceRouting = RaceAwarenessQueryClassifier.Classify(query, context?.RaceContext);
+        sanitizedWritten = RaceAwarenessAnswerValidator.Enforce(query, sanitizedWritten, session, context);
 
         var summaryResult = SpokenSummaryGenerator.GenerateSpokenSummary(sanitizedWritten, effectivePreferences, query);
         if (string.IsNullOrWhiteSpace(summaryResult.Summary))
@@ -94,7 +98,15 @@ public static class CoachQueryPipeline
             answerSource,
             DescribeEvidence(evidence, topic),
             InferFallbackReason(requiresUnifiedOutput, gate, primaryWritten, sanitizedWritten),
-            Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown");
+            Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown",
+            raceRouting.Subtopic,
+            raceRouting.SelectedTelemetryFields.Count > 0
+                ? string.Join(", ", raceRouting.SelectedTelemetryFields)
+                : null,
+            raceRouting.MissingTelemetryFields.Count > 0
+                ? string.Join(", ", raceRouting.MissingTelemetryFields)
+                : null,
+            raceRouting.FallbackReason);
 
         CoachQueryDiagnosticLog.RaiseRuntime(trace);
         CoachQueryDiagnosticLog.Raise(new CoachAnswerTrace(

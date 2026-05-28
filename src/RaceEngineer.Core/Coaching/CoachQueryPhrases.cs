@@ -87,6 +87,21 @@ public static class CoachQueryPhrases
         "jesu li gume zagrete"
     ];
 
+    public static readonly string[] TrackIdentity =
+    [
+        "which track am i on",
+        "what track am i on",
+        "which track is this",
+        "what track is this",
+        "which circuit am i on",
+        "what circuit am i on",
+        "which circuit is this",
+        "what circuit is this",
+        "where am i racing",
+        "what track am i driving",
+        "which track am i driving"
+    ];
+
     public static readonly string[] RaceAwareness =
     [
         "gap ahead",
@@ -268,6 +283,7 @@ public static class CoachQueryPhrases
             .Concat(FuelConsumption)
             .Concat(FuelStrategy)
             .Concat(RaceAwareness)
+            .Concat(TrackIdentity)
             .Concat(TrackMemory)
             .Concat(Fuel)
             .Concat(Strategy)

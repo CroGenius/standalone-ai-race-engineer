@@ -448,6 +448,21 @@ public sealed class CoachEvidenceBuilder
             return;
         }
 
+        var track = FirstNonEmpty(raceContext.TrackName, raceContext.CircuitId);
+        if (!string.IsNullOrWhiteSpace(track))
+        {
+            packets.Add(new CoachEvidencePacket(
+                "RaceAwareness",
+                "Track identity",
+                "Info",
+                0.96,
+                CoachEvidenceSourceType.Session,
+                raceContext.CurrentLap,
+                [],
+                null,
+                $"Track is {track}."));
+        }
+
         if (raceContext.Position is { } position)
         {
             packets.Add(new CoachEvidencePacket(
@@ -708,5 +723,18 @@ public sealed class CoachEvidenceBuilder
         const int maxLength = 180;
         var normalized = value.ReplaceLineEndings(" ").Trim();
         return normalized.Length <= maxLength ? normalized : normalized[..maxLength] + "...";
+    }
+
+    private static string? FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return null;
     }
 }
