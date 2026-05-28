@@ -1,3 +1,5 @@
+using RaceEngineer.Core.Events;
+
 namespace RaceEngineer.Core.Coaching;
 
 public enum CoachEvidenceTopic
@@ -115,9 +117,30 @@ public static class CoachEvidenceSelector
         }
 
         return filtered
+            .Where(packet => IsAllowedTechniquePacket(packet, topic))
             .OrderBy(packet => packet.Category, StringComparer.Ordinal)
             .ThenBy(packet => packet.Summary, StringComparer.Ordinal)
             .Take(6)
             .ToArray();
+    }
+
+    private static bool IsAllowedTechniquePacket(CoachEvidencePacket packet, CoachEvidenceTopic topic)
+    {
+        if (topic is not (CoachEvidenceTopic.Braking
+            or CoachEvidenceTopic.Throttle
+            or CoachEvidenceTopic.RacePace
+            or CoachEvidenceTopic.LosingTime
+            or CoachEvidenceTopic.Improvement
+            or CoachEvidenceTopic.LapComparison))
+        {
+            return true;
+        }
+
+        if (!string.Equals(packet.Category, "Event", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return packet.Summary != EventType.InvalidLapOrFlags.ToString();
     }
 }

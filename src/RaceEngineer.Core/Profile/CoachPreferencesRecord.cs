@@ -10,6 +10,8 @@ public sealed record CoachPreferencesRecord(
     string SpeechRecognitionCulture = "",
     string PushToTalkHotkey = "F6",
     bool VoiceInputConfirmationsEnabled = true,
+    bool TranscriptConfirmationEnabled = false,
+    int MicrophoneDeviceNumber = -1,
     bool EvidenceBulletsEnabled = true,
     string WhisperLanguageMode = "auto",
     int VoiceInputCooldownSeconds = 3,
@@ -27,6 +29,8 @@ public sealed record CoachPreferencesRecord(
             SpeechRecognitionCulture: settings.SpeechRecognitionCulture,
             PushToTalkHotkey: settings.PushToTalkHotkey,
             VoiceInputConfirmationsEnabled: settings.VoiceInputConfirmationsEnabled,
+            TranscriptConfirmationEnabled: false,
+            MicrophoneDeviceNumber: settings.MicrophoneDeviceNumber,
             WhisperLanguageMode: settings.WhisperLanguageMode,
             VoiceInputCooldownSeconds: settings.VoiceInputCooldownSeconds,
             CoachResponseLanguage: settings.CoachResponseLanguage);

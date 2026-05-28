@@ -65,6 +65,11 @@ SpeechRecognitionCultureResolverSupportsConfiguredAndAutoFallback();
 SpeechRecognitionProviderSelectionSupportsConfiguredValues();
 WhisperModelLocatorResolvesDefaultAndConfiguredPaths();
 WhisperSpeechOptionsNormalizeSettingsValues();
+TranscriptGateRejectsWeakSignalAndHallucinations();
+MicrophonePcmConverterHandlesFloatStereo48k();
+MicrophonePcmConverterHandlesPcm16Stereo44100();
+MicrophonePcmConverterInfersUnknown32BitAsFloat();
+VoiceInputServiceRejectsGarbageTranscript();
 StrategyEngineComputesDeterministicFuelMetrics();
 StrategyCalloutManagerSpeaksOnlyOnStateChange();
 SessionContextSuppressesStationaryFuelPanic();
@@ -76,6 +81,9 @@ CoachEngineRoutesStrategyQuestions();
 await ProfilePreferencesPersistAndMergeAppSettings();
 CoachResponseFormatterRespectsResponseLength();
 CoachEngineRoutesCroatianBrakingPhrase();
+CoachStationaryPitBrakingReturnsNoDataYet();
+CoachBrakingAnswersAfterValidLap();
+SpokenBrakingSummaryWhenNoDataYet();
 VoiceInputAcceptsRecognitionAfterPttReleaseGrace();
 VoiceInputReportsNoSpeechAfterGraceTimeout();
 VoiceCalloutContainsNoFakeTelemetryValues();
@@ -648,6 +656,112 @@ static void WhisperSpeechOptionsNormalizeSettingsValues()
     Assert(configured.Prompt == "braking fuel pace", "Configured prompt should pass through.");
     Assert(configured.TrailingAudioMilliseconds == 700, "Trailing audio should clamp to 700 ms.");
     Assert(configured.NoSpeechThreshold == 0.1f, "No-speech threshold should clamp to minimum 0.1.");
+    Assert(configured.PreRollAudioMilliseconds == 400, "Default pre-roll should be 400 ms.");
+}
+
+static void MicrophonePcmConverterHandlesFloatStereo48k()
+{
+    const int sampleRate = 48_000;
+    const int channels = 2;
+    const int frameCount = sampleRate / 10;
+    var buffer = new byte[frameCount * channels * 4];
+    for (var frame = 0; frame < frameCount; frame++)
+    {
+        var value = 0.5f * MathF.Sin(2f * MathF.PI * 440f * frame / sampleRate);
+        for (var channel = 0; channel < channels; channel++)
+        {
+            var offset = (frame * channels + channel) * 4;
+            BitConverter.TryWriteBytes(buffer.AsSpan(offset, 4), value);
+        }
+    }
+
+    var format = new CapturedAudioFormat(sampleRate, 32, channels, CapturedAudioEncoding.IeeeFloat, "Test mic");
+    var chunk = MicrophonePcmConverter.ConvertToWhisperPcm16(buffer, 0, buffer.Length, format);
+    Assert(chunk.Pcm16.Length > 0, "Converted PCM should not be empty.");
+    Assert(chunk.ConvertedPeakRms > 1000f, $"Float stereo 48 kHz should produce realistic RMS, got {chunk.ConvertedPeakRms:0}.");
+}
+
+static void MicrophonePcmConverterInfersUnknown32BitAsFloat()
+{
+    const int sampleRate = 48_000;
+    const int channels = 2;
+    const int frameCount = sampleRate / 10;
+    var buffer = new byte[frameCount * channels * 4];
+    for (var frame = 0; frame < frameCount; frame++)
+    {
+        var value = 0.5f * MathF.Sin(2f * MathF.PI * 440f * frame / sampleRate);
+        for (var channel = 0; channel < channels; channel++)
+        {
+            var offset = (frame * channels + channel) * 4;
+            BitConverter.TryWriteBytes(buffer.AsSpan(offset, 4), value);
+        }
+    }
+
+    var format = new CapturedAudioFormat(sampleRate, 32, channels, CapturedAudioEncoding.Unknown, "Test mic", 8);
+    var chunk = MicrophonePcmConverter.ConvertToWhisperPcm16(buffer, 0, buffer.Length, format);
+    Assert(chunk.ConvertedPeakRms > 1000f, $"Unknown 32-bit capture should infer float decode, got {chunk.ConvertedPeakRms:0}.");
+    Assert(chunk.RawPeakRms > 1000f, $"Raw peak should stay realistic for float capture, got {chunk.RawPeakRms:0}.");
+}
+
+static void MicrophonePcmConverterHandlesPcm16Stereo44100()
+{
+    const int sampleRate = 44_100;
+    const int channels = 2;
+    const int frameCount = sampleRate / 10;
+    var buffer = new byte[frameCount * channels * 2];
+    for (var frame = 0; frame < frameCount; frame++)
+    {
+        var sample = (short)Math.Round(Math.Sin(2d * Math.PI * 440d * frame / sampleRate) * 12_000d);
+        for (var channel = 0; channel < channels; channel++)
+        {
+            var offset = (frame * channels + channel) * 2;
+            BitConverter.TryWriteBytes(buffer.AsSpan(offset, 2), sample);
+        }
+    }
+
+    var format = new CapturedAudioFormat(sampleRate, 16, channels, CapturedAudioEncoding.Pcm, "Test mic");
+    var chunk = MicrophonePcmConverter.ConvertToWhisperPcm16(buffer, 0, buffer.Length, format);
+    Assert(chunk.Pcm16.Length > 0, "Converted PCM should not be empty.");
+    Assert(chunk.ConvertedPeakRms > 1000f, $"PCM16 stereo 44.1 kHz should produce realistic RMS, got {chunk.ConvertedPeakRms:0}.");
+}
+
+static void TranscriptGateRejectsWeakSignalAndHallucinations()
+{
+    var weak = TranscriptGate.Evaluate(
+        "bye bye",
+        0.90f,
+        new SpeechCaptureMetrics(10f, 10f, 10f, 1f, false, false, "Test mic", MicSignalQuality.Bad));
+    Assert(!weak.Accepted, "Weak/no-speech capture should reject hallucinated transcript.");
+    Assert(weak.SpokenRejectionMessage.Contains("catch", StringComparison.OrdinalIgnoreCase)
+        || weak.SpokenRejectionMessage.Contains("unclear", StringComparison.OrdinalIgnoreCase),
+        "Rejected transcript should map to spoken rejection message.");
+
+    var good = TranscriptGate.Evaluate(
+        "koliko goriva imam",
+        0.80f,
+        new SpeechCaptureMetrics(500f, 900f, 1200f, 2f, true, false, "Test mic", MicSignalQuality.Good));
+    Assert(good.Accepted, "Known racing phrase with good signal should pass transcript gate.");
+}
+
+static void VoiceInputServiceRejectsGarbageTranscript()
+{
+    var provider = new RecordingSpeechRecognitionProvider();
+    string? rejectionMessage = null;
+    var service = new VoiceInputService(provider, new VoiceInputOptions
+    {
+        MinimumConfidence = 0.50f,
+        TranscriptGate = TranscriptGateOptions.Default with { MinimumConfidence = 0.50f }
+    });
+    service.SetEnabled(true);
+    service.TranscriptRejected += (_, args) => rejectionMessage = args.SpokenMessage;
+    service.BeginPushToTalk();
+    provider.SimulateRecognition(
+        "bye bye",
+        0.90f,
+        new SpeechCaptureMetrics(10f, 10f, 10f, 1f, false, false, "Test mic", MicSignalQuality.Bad));
+    service.EndPushToTalk();
+
+    Assert(rejectionMessage is not null, "Garbage transcript should produce rejection spoken message.");
 }
 
 static void StrategyEngineComputesDeterministicFuelMetrics()
@@ -902,6 +1016,79 @@ static void CoachEngineRoutesCroatianBrakingPhrase()
             || answer.Content.Contains("Brake", StringComparison.Ordinal)
             || answer.Uncertainty?.Contains("brake", StringComparison.OrdinalIgnoreCase) == true,
         "Croatian braking phrase should route to brake coaching.");
+    Assert(
+        !answer.Content.Contains("Not enough braking data yet", StringComparison.OrdinalIgnoreCase),
+        "Braking answer should be available after valid completed laps.");
+}
+
+static void CoachStationaryPitBrakingReturnsNoDataYet()
+{
+    var coach = new CoachEngine();
+    var engine = new EventEngine();
+    var session = new SessionState();
+    Apply(session, engine, Packet("""{"speed_kmh":0,"fuel":30.0,"lap_progress":0.05,"race":{"flags":"pit"}}"""));
+    var context = new SessionContextClassifier().Classify(new SessionContextInput(session, [session.LatestSnapshot!]));
+
+    var answer = coach.Answer(
+        session,
+        "how is my braking",
+        new CoachContext(SessionContext: context),
+        new CoachEvidenceBuilder().Build(new CoachEvidenceInput(session, null, session.Events)));
+
+    Assert(
+        answer.Content.Contains("Not enough braking data yet", StringComparison.OrdinalIgnoreCase),
+        "Stationary pit with no completed laps should not provide braking technique feedback.");
+    Assert(
+        !answer.Content.Contains("No recent braking problem is active", StringComparison.OrdinalIgnoreCase),
+        "Braking answer should not fall back to generic event-buffer text before any lap data.");
+    Assert(
+        !answer.EvidencePackets.Any(packet => packet.Summary == EventType.InvalidLapOrFlags.ToString()),
+        "InvalidLapOrFlags should not be attached as braking technique evidence.");
+}
+
+static void CoachBrakingAnswersAfterValidLap()
+{
+    var coach = new CoachEngine();
+    var (session, engine) = SessionWithFuelEstimate();
+    Apply(session, engine, Packet("""{"speed_kmh":0,"fuel":5.0,"lap_progress":0.12,"brake":0.0}"""));
+    var context = new SessionContextClassifier().Classify(new SessionContextInput(session, [session.LatestSnapshot!]));
+
+    var answer = coach.Answer(session, "how is my braking", new CoachContext(SessionContext: context));
+
+    Assert(
+        !answer.Content.Contains("Not enough braking data yet", StringComparison.OrdinalIgnoreCase),
+        "Braking feedback should be available after at least one valid completed lap.");
+}
+
+static void SpokenBrakingSummaryWhenNoDataYet()
+{
+    var coach = new CoachEngine();
+    var session = new SessionState();
+    session.ApplySnapshot(Packet("""{"speed_kmh":0,"fuel":30.0}"""), []);
+    var context = new SessionContextAssessment(
+        SessionPhase.Practice,
+        VehicleActivity.PitLane,
+        "Practice / Pit lane",
+        StrategyConfidenceLevel.Low,
+        "Low",
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        "Waiting for stable lap samples.");
+
+    var answer = coach.Answer(session, "how is my braking", new CoachContext(SessionContext: context));
+    var spoken = SpokenSummaryGenerator.GenerateSpokenSummary(answer, query: "how is my braking");
+
+    Assert(
+        spoken.Summary.Contains("No braking data yet", StringComparison.OrdinalIgnoreCase),
+        "Spoken braking summary should clearly state no data yet.");
+    Assert(
+        spoken.Summary.Contains("clean lap", StringComparison.OrdinalIgnoreCase),
+        "Spoken braking summary should tell the driver to complete a clean lap first.");
 }
 
 static void VoiceInputAcceptsRecognitionAfterPttReleaseGrace()

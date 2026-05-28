@@ -331,6 +331,11 @@ public static class SpokenSummaryGenerator
 
     private static string? BuildBrakingSummary(string action, IReadOnlyList<CoachEvidencePacket> packets, bool english)
     {
+        if (action.Contains("Not enough braking data yet", StringComparison.OrdinalIgnoreCase))
+        {
+            return "No braking data yet. Drive a clean lap first.";
+        }
+
         if (action.Contains("brake", StringComparison.OrdinalIgnoreCase))
         {
             return ExtractFirstActionableSentence(action);
@@ -346,6 +351,36 @@ public static class SpokenSummaryGenerator
         bool english,
         string? categoryHint)
     {
+        if (categoryHint == "Throttle"
+            && action.Contains("Not enough throttle data yet", StringComparison.OrdinalIgnoreCase))
+        {
+            return "No throttle data yet. Drive a clean lap first.";
+        }
+
+        if (categoryHint == "Pace"
+            && action.Contains("No valid pace data yet", StringComparison.OrdinalIgnoreCase))
+        {
+            return "No pace data yet. Drive a clean lap first.";
+        }
+
+        if (categoryHint == "Sector"
+            && action.Contains("No valid sector data yet", StringComparison.OrdinalIgnoreCase))
+        {
+            return "No sector data yet. Drive a clean lap first.";
+        }
+
+        if (categoryHint == "Improvement"
+            && action.Contains("No valid improvement data yet", StringComparison.OrdinalIgnoreCase))
+        {
+            return "No improvement data yet. Drive a clean lap first.";
+        }
+
+        if (categoryHint == "Lap"
+            && action.Contains("No valid lap comparison data yet", StringComparison.OrdinalIgnoreCase))
+        {
+            return "No lap comparison data yet. Drive a clean lap first.";
+        }
+
         if (!string.IsNullOrWhiteSpace(action))
         {
             var sentence = ExtractFirstActionableSentence(action);

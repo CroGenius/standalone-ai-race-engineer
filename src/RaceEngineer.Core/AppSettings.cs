@@ -20,7 +20,12 @@ public sealed record AppSettings(
     string WhisperLanguageMode = "auto",
     string WhisperPrompt = "",
     int WhisperTrailingAudioMilliseconds = 500,
+    int WhisperPreRollAudioMilliseconds = 400,
     float WhisperNoSpeechThreshold = 0.5f,
+    float WhisperMinimumPeakRms = 120f,
+    float WhisperSpeechDetectionRmsThreshold = 100f,
+    float SpeechMinimumConfidence = 0.50f,
+    int MicrophoneDeviceNumber = -1,
     bool AiEngineerEnabled = false,
     string AiProvider = "disabled",
     string AiModel = "",
@@ -45,7 +50,12 @@ public sealed record AppSettings(
         "auto",
         "",
         WhisperSpeechOptions.DefaultTrailingAudioMilliseconds,
+        WhisperSpeechOptions.DefaultPreRollAudioMilliseconds,
         WhisperSpeechOptions.DefaultNoSpeechThreshold,
+        WhisperSpeechOptions.DefaultMinimumPeakRmsForTranscription,
+        WhisperSpeechOptions.DefaultSpeechDetectionRmsThreshold,
+        TranscriptGateOptions.Default.MinimumConfidence,
+        -1,
         false,
         "disabled",
         "",
@@ -162,7 +172,18 @@ public sealed record AppSettings(
                 : settings.WhisperPrompt.Trim(),
             WhisperTrailingAudioMilliseconds = WhisperSpeechOptions.ClampTrailingAudioMilliseconds(
                 settings.WhisperTrailingAudioMilliseconds),
+            WhisperPreRollAudioMilliseconds = WhisperSpeechOptions.ClampPreRollAudioMilliseconds(
+                settings.WhisperPreRollAudioMilliseconds),
             WhisperNoSpeechThreshold = WhisperSpeechOptions.ClampNoSpeechThreshold(settings.WhisperNoSpeechThreshold),
+            WhisperMinimumPeakRms = WhisperSpeechOptions.ClampMinimumPeakRms(settings.WhisperMinimumPeakRms),
+            WhisperSpeechDetectionRmsThreshold = WhisperSpeechOptions.ClampSpeechDetectionRms(
+                settings.WhisperSpeechDetectionRmsThreshold),
+            SpeechMinimumConfidence = settings.SpeechMinimumConfidence is <= 0f or > 0.99f
+                ? TranscriptGateOptions.Default.MinimumConfidence
+                : settings.SpeechMinimumConfidence,
+            MicrophoneDeviceNumber = settings.MicrophoneDeviceNumber < -1
+                ? Default.MicrophoneDeviceNumber
+                : settings.MicrophoneDeviceNumber,
             AiEngineerEnabled = settings.AiEngineerEnabled,
             AiProvider = NormalizeAiProvider(settings.AiProvider),
             AiModel = string.IsNullOrWhiteSpace(settings.AiModel) ? Default.AiModel : settings.AiModel.Trim(),

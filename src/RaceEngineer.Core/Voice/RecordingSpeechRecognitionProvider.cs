@@ -46,7 +46,7 @@ public sealed class RecordingSpeechRecognitionProvider : ISpeechRecognitionProvi
         StatusChanged?.Invoke(this, new SpeechRecognitionStatusChangedEventArgs("Idle", "Recording provider stopped."));
     }
 
-    public void SimulateRecognition(string text, float confidence = 0.92f)
+    public void SimulateRecognition(string text, float confidence = 0.92f, SpeechCaptureMetrics? captureMetrics = null)
     {
         if (!listening && !deliverAfterStop)
         {
@@ -56,7 +56,7 @@ public sealed class RecordingSpeechRecognitionProvider : ISpeechRecognitionProvi
         deliverAfterStop = false;
         recognizedTexts.Add(text);
         DiagnosticRaised?.Invoke(this, new SpeechRecognitionDiagnosticEventArgs("Recognition completed", "Simulated speech recognized.", text));
-        SpeechRecognized?.Invoke(this, new SpeechRecognizedResult(text, confidence));
+        SpeechRecognized?.Invoke(this, new SpeechRecognizedResult(text, confidence, captureMetrics));
     }
 
     public void Dispose()

@@ -1,6 +1,9 @@
 namespace RaceEngineer.Core.Voice;
 
-public sealed record SpeechRecognizedResult(string Text, float Confidence);
+public sealed record SpeechRecognizedResult(
+    string Text,
+    float Confidence,
+    SpeechCaptureMetrics? CaptureMetrics = null);
 
 public sealed class SpeechRecognitionStatusChangedEventArgs(string State, string? Detail = null) : EventArgs
 {

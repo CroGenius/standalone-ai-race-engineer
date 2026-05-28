@@ -92,17 +92,17 @@ public sealed class CoachEngine : ICoachEngine
             case CoachQueryTopic.LapTime:
                 return RouteLapTimeAnswer(session, text);
             case CoachQueryTopic.LosingTime:
-                return AnswerFromEvidence("Focus on the sector with the largest loss versus your best lap.", "No sector delta or delta trace evidence is available.", evidence, CoachEvidenceTopic.LosingTime);
+                return AnswerDrivingTechniqueFromEvidence(session, context, CoachQueryTopic.LosingTime, "Focus on the sector with the largest loss versus your best lap.", "No sector delta or delta trace evidence is available.", evidence, CoachEvidenceTopic.LosingTime);
             case CoachQueryTopic.Braking:
-                return AttachEvidence(BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
+                return AnswerDrivingTechnique(session, context, CoachQueryTopic.Braking, () => BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
             case CoachQueryTopic.Throttle:
-                return AnswerFromEvidence("Work on smoother exit throttle and reduce hesitation.", "No throttle smoothness or trace evidence is available.", evidence, CoachEvidenceTopic.Throttle);
+                return AnswerDrivingTechniqueFromEvidence(session, context, CoachQueryTopic.Throttle, "Work on smoother exit throttle and reduce hesitation.", "No throttle smoothness or trace evidence is available.", evidence, CoachEvidenceTopic.Throttle);
             case CoachQueryTopic.Improvement:
-                return AnswerFromEvidence("Address the highest-priority weakness first.", "No improvement evidence is available.", evidence, CoachEvidenceTopic.Improvement);
+                return AnswerDrivingTechniqueFromEvidence(session, context, CoachQueryTopic.Improvement, "Address the highest-priority weakness first.", "No improvement evidence is available.", evidence, CoachEvidenceTopic.Improvement);
             case CoachQueryTopic.LapComparison:
-                return AnswerFromEvidence("Use the best lap as the reference and close the largest gap.", "No lap comparison evidence is available.", evidence, CoachEvidenceTopic.LapComparison);
+                return AnswerDrivingTechniqueFromEvidence(session, context, CoachQueryTopic.LapComparison, "Use the best lap as the reference and close the largest gap.", "No lap comparison evidence is available.", evidence, CoachEvidenceTopic.LapComparison);
             case CoachQueryTopic.RacePace:
-                return AnswerFromEvidence("Protect race pace by managing tyre, fuel, and repeat incidents.", "No race pace evidence is available.", evidence, CoachEvidenceTopic.RacePace);
+                return AnswerDrivingTechniqueFromEvidence(session, context, CoachQueryTopic.RacePace, "Protect race pace by managing tyre, fuel, and repeat incidents.", "No race pace evidence is available.", evidence, CoachEvidenceTopic.RacePace);
             case CoachQueryTopic.Incidents:
                 return AttachEvidence(RecentMistakesAnswer(recentEvents), evidence, CoachEvidenceTopic.Incidents);
             case CoachQueryTopic.Pit:
@@ -118,7 +118,7 @@ public sealed class CoachEngine : ICoachEngine
 
         if (text.Contains("brake", StringComparison.Ordinal))
         {
-            return AttachEvidence(BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
+            return AnswerDrivingTechnique(session, context, CoachQueryTopic.Braking, () => BrakeAnswer(latest, recentEvents), evidence, CoachEvidenceTopic.Braking);
         }
 
         if (ContainsAny(text, "mistake", "mistakes", "recent event", "recent events", "issues"))
@@ -731,6 +731,39 @@ public sealed class CoachEngine : ICoachEngine
             || string.IsNullOrWhiteSpace(plan?.Track)
             || string.Equals(source.Track, plan.Track, StringComparison.OrdinalIgnoreCase);
         return categoryMatches && carMatches && trackMatches;
+    }
+
+    private static CoachMessage AnswerDrivingTechnique(
+        SessionState session,
+        CoachContext? context,
+        CoachQueryTopic topic,
+        Func<CoachMessage> answerFactory,
+        CoachEvidenceBundle? evidence,
+        CoachEvidenceTopic evidenceTopic)
+    {
+        if (DrivingTechniqueGate.BuildUnavailableMessage(topic, session, context?.SessionContext) is { } unavailable)
+        {
+            return Unavailable(unavailable, DrivingTechniqueGate.BuildEvidenceReason(topic, session, context?.SessionContext));
+        }
+
+        return AttachEvidence(answerFactory(), evidence, evidenceTopic);
+    }
+
+    private static CoachMessage AnswerDrivingTechniqueFromEvidence(
+        SessionState session,
+        CoachContext? context,
+        CoachQueryTopic topic,
+        string action,
+        string unavailableReason,
+        CoachEvidenceBundle? evidence,
+        CoachEvidenceTopic evidenceTopic)
+    {
+        if (DrivingTechniqueGate.BuildUnavailableMessage(topic, session, context?.SessionContext) is { } unavailable)
+        {
+            return Unavailable(unavailable, DrivingTechniqueGate.BuildEvidenceReason(topic, session, context?.SessionContext));
+        }
+
+        return AnswerFromEvidence(action, unavailableReason, evidence, evidenceTopic);
     }
 
     private static CoachMessage AnswerFromEvidence(

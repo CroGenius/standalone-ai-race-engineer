@@ -56,7 +56,8 @@ public sealed class ProfilePreferencesService
             VoiceInputCooldownSeconds = coach.VoiceInputCooldownSeconds,
             SpeechRecognitionProvider = coach.SpeechRecognitionProvider,
             SpeechRecognitionCulture = speechCulture,
-            WhisperLanguageMode = whisperLanguage
+            WhisperLanguageMode = whisperLanguage,
+            MicrophoneDeviceNumber = coach.MicrophoneDeviceNumber
         };
     }
 

@@ -135,6 +135,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string prefSpeechRecognitionProvider = "auto";
     private string prefPushToTalkHotkey = "F6";
     private bool prefVoiceInputConfirmationsEnabled = true;
+    private bool prefTranscriptConfirmationEnabled;
+    private string prefMicrophoneDeviceNumber = "-1";
+    private string micCalibrationStatus = "Mic test not run yet.";
     private bool prefEvidenceBulletsEnabled = true;
     private bool prefQuietModeEnabled;
     private bool prefMinimalEngineerEnabled;
@@ -164,6 +167,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         }
         voiceInputService = CreateVoiceInputServiceSafely(settings);
         voiceInputService.QueryRecognized += OnVoiceQueryRecognized;
+        voiceInputService.TranscriptRejected += OnVoiceTranscriptRejected;
+        voiceInputService.TranscriptPendingConfirmation += OnVoiceTranscriptPendingConfirmation;
         voiceInputService.DiagnosticRaised += OnVoiceDiagnosticRaised;
         voiceInputService.StateChanged += (_, _) => RaiseVoiceProperties();
         pushToTalkHotkey = ParsePushToTalkHotkeySafely(settings.PushToTalkHotkey);
@@ -185,6 +190,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         ToggleTtsCommand = new RelayCommand(ToggleTts);
         ToggleVoiceCommand = new RelayCommand(ToggleVoice);
         TestVoiceCommand = new RelayCommand(TestVoice);
+        TestMicCommand = new RelayCommand(() => _ = RunMicCalibrationTestAsync());
+        ConfirmTranscriptCommand = new RelayCommand(ConfirmPendingTranscript, () => voiceInputService.HasPendingTranscript);
+        RejectTranscriptCommand = new RelayCommand(RejectPendingTranscript, () => voiceInputService.HasPendingTranscript);
         ToggleRawCaptureCommand = new RelayCommand(ToggleRawCapture);
         ReplayCaptureCommand = new RelayCommand(ReplayCapture);
         SaveKnowledgeCommand = new RelayCommand(() => _ = SaveKnowledgeAsync(), () => !string.IsNullOrWhiteSpace(KnowledgeTitle) && !string.IsNullOrWhiteSpace(KnowledgeContent));
@@ -193,12 +201,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         DeleteKnowledgeCommand = new RelayCommand(() => _ = DeleteKnowledgeAsync(), () => SelectedKnowledgeSource is not null);
         receiver.PacketProcessed += OnPacketProcessed;
         receiver.SnapshotReceived += OnSnapshotReceived;
+        foreach (var device in MicrophoneDeviceCatalog.ListDevices())
+        {
+            MicrophoneDevices.Add(device);
+        }
+
         _ = StartAsync();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public ObservableCollection<string> ChatMessages { get; } = [];
+    public ObservableCollection<MicrophoneDeviceOption> MicrophoneDevices { get; } = [];
     public ObservableCollection<EventLogItem> EventLog { get; } = [];
     public ObservableCollection<SessionBrowserItem> Sessions { get; } = [];
     public ObservableCollection<KnowledgeSourceItem> KnowledgeSources { get; } = [];
@@ -311,6 +325,40 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         set => SetField(ref prefVoiceInputConfirmationsEnabled, value);
     }
 
+    public bool PrefTranscriptConfirmationEnabled
+    {
+        get => prefTranscriptConfirmationEnabled;
+        set => SetField(ref prefTranscriptConfirmationEnabled, value);
+    }
+
+    public string PrefMicrophoneDeviceNumber
+    {
+        get => prefMicrophoneDeviceNumber;
+        set
+        {
+            if (!SetField(ref prefMicrophoneDeviceNumber, value))
+            {
+                return;
+            }
+
+            OnPropertyChanged(nameof(SelectedMicrophoneDeviceNumber));
+        }
+    }
+
+    public int SelectedMicrophoneDeviceNumber
+    {
+        get => int.TryParse(PrefMicrophoneDeviceNumber, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : -1;
+        set => PrefMicrophoneDeviceNumber = value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    public string MicCalibrationStatus
+    {
+        get => micCalibrationStatus;
+        private set => SetField(ref micCalibrationStatus, value);
+    }
+
     public bool PrefEvidenceBulletsEnabled
     {
         get => prefEvidenceBulletsEnabled;
@@ -385,6 +433,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public ICommand ToggleTtsCommand { get; }
     public ICommand ToggleVoiceCommand { get; }
     public ICommand TestVoiceCommand { get; }
+    public ICommand TestMicCommand { get; }
+    public ICommand ConfirmTranscriptCommand { get; }
+    public ICommand RejectTranscriptCommand { get; }
     public ICommand ToggleRawCaptureCommand { get; }
     public ICommand ReplayCaptureCommand { get; }
     public ICommand SaveKnowledgeCommand { get; }
@@ -434,6 +485,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string PushToTalkHotkeyLabel => $"Hold {pushToTalkHotkey.DisplayName} or Hold to Talk";
     public string VoiceSuppressionState =>
         $"{calloutManager.LastSuppressionState} | {voiceService.InteractionDiagnostic}";
+    public string MicDiagnosticsSummary =>
+        $"Mic {MicDeviceName} | Raw {MicRawPeakRms:0} | Conv {MicConvertedPeakRms:0} | Whisper {MicWhisperInputRms:0} | Speech {MicSpeechDetected} | Quality {MicSignalQualityLabel}";
+    public float MicCurrentRms => voiceInputService.MicCurrentRms;
+    public float MicPeakRms => voiceInputService.MicPeakRms;
+    public float MicRawPeakRms => voiceInputService.MicRawPeakRms;
+    public float MicConvertedPeakRms => voiceInputService.MicConvertedPeakRms;
+    public float MicWhisperInputRms => voiceInputService.MicWhisperInputRms;
+    public bool MicSpeechDetected => voiceInputService.MicSpeechDetected;
+    public bool MicClipping => voiceInputService.MicClipping;
+    public string MicDeviceName => voiceInputService.MicDeviceName;
+    public string MicSignalQualityLabel => voiceInputService.MicSignalQualityLabel;
+    public bool HasPendingTranscript => voiceInputService.HasPendingTranscript;
     public string CurrentLap => ActiveSession.CurrentLap.ToString(CultureInfo.InvariantCulture);
     public string LastLapTime => FormatDuration(ActiveSession.LastLap?.Duration);
     public string BestLapTime => FormatDuration(ActiveSession.BestLap?.Duration);
@@ -570,6 +633,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             await storageService.InitializeAsync();
             userPreferences = await profilePreferencesService.LoadAsync(appSettings);
+            appSettings = ProfilePreferencesService.MergeAppSettings(appSettings, userPreferences);
             BindPreferencesToView(userPreferences);
             ApplyUserPreferences();
             await storageService.CreateSessionAsync(session.SessionId, session.StartedAt);
@@ -807,6 +871,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         PrefSpeechRecognitionProvider = preferences.Coach.SpeechRecognitionProvider;
         PrefPushToTalkHotkey = preferences.Coach.PushToTalkHotkey;
         PrefVoiceInputConfirmationsEnabled = preferences.Coach.VoiceInputConfirmationsEnabled;
+        PrefTranscriptConfirmationEnabled = preferences.Coach.TranscriptConfirmationEnabled;
+        PrefMicrophoneDeviceNumber = preferences.Coach.MicrophoneDeviceNumber.ToString(CultureInfo.InvariantCulture);
+        OnPropertyChanged(nameof(SelectedMicrophoneDeviceNumber));
         PrefEvidenceBulletsEnabled = preferences.Coach.EvidenceBulletsEnabled;
         PrefQuietModeEnabled = preferences.Coach.QuietModeEnabled;
         PrefMinimalEngineerEnabled = preferences.Coach.MinimalEngineerEnabled;
@@ -835,6 +902,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 SpeechRecognitionProvider: PrefSpeechRecognitionProvider,
                 PushToTalkHotkey: PrefPushToTalkHotkey,
                 VoiceInputConfirmationsEnabled: PrefVoiceInputConfirmationsEnabled,
+                TranscriptConfirmationEnabled: PrefTranscriptConfirmationEnabled,
+                MicrophoneDeviceNumber: int.TryParse(PrefMicrophoneDeviceNumber, out var micDevice) ? micDevice : -1,
                 EvidenceBulletsEnabled: PrefEvidenceBulletsEnabled,
                 QuietModeEnabled: PrefQuietModeEnabled,
                 MinimalEngineerEnabled: PrefMinimalEngineerEnabled,
@@ -848,6 +917,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private void ApplyUserPreferences()
     {
+        appSettings = ProfilePreferencesService.MergeAppSettings(appSettings, userPreferences);
         calloutManager.ConfigureCalloutAggressiveness(userPreferences.Coach.CalloutAggressiveness);
         strategyCalloutManager.ConfigureCooldown(
             StrategyPreferencesMapper.CalloutCooldown(userPreferences.Strategy, userPreferences.Coach));
@@ -856,11 +926,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             voiceService.SetMuted(false);
         }
-        voiceInputService.Configure(new VoiceInputOptions
-        {
-            ConfirmationsEnabled = userPreferences.Coach.VoiceInputConfirmationsEnabled,
-            QueryCooldown = TimeSpan.FromSeconds(userPreferences.Coach.VoiceInputCooldownSeconds)
-        });
+        voiceInputService.Configure(BuildVoiceInputOptions(appSettings, userPreferences.Coach));
         voiceInputService.SetEnabled(userPreferences.Coach.VoiceEnabledDefault);
         pushToTalkHotkey = ParsePushToTalkHotkeySafely(userPreferences.Coach.PushToTalkHotkey);
         RaiseVoiceProperties();
@@ -1063,16 +1129,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private VoiceInputService CreateVoiceInputServiceSafely(AppSettings settings)
     {
-        var options = new VoiceInputOptions
-        {
-            ConfirmationsEnabled = settings.VoiceInputConfirmationsEnabled,
-            QueryCooldown = TimeSpan.FromSeconds(settings.VoiceInputCooldownSeconds)
-        };
+        var options = BuildVoiceInputOptions(settings, CoachPreferencesRecord.FromAppSettings(settings));
 
         try
         {
+            var mergedSettings = settings;
             var speechProvider = SpeechRecognitionProviderFactory.CreateOrFallback(
-                settings,
+                mergedSettings,
                 startupWarnings.Add);
             return VoiceInputStartup.CreateService(speechProvider, options, settings.VoiceEnabledDefault);
         }
@@ -1083,6 +1146,21 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 options,
                 startupWarnings.Add);
         }
+    }
+
+    private static VoiceInputOptions BuildVoiceInputOptions(AppSettings settings, CoachPreferencesRecord coach)
+    {
+        return new VoiceInputOptions
+        {
+            ConfirmationsEnabled = coach.VoiceInputConfirmationsEnabled,
+            TranscriptConfirmationEnabled = coach.TranscriptConfirmationEnabled,
+            QueryCooldown = TimeSpan.FromSeconds(coach.VoiceInputCooldownSeconds),
+            MinimumConfidence = settings.SpeechMinimumConfidence,
+            TranscriptGate = TranscriptGateOptions.Default with
+            {
+                MinimumConfidence = settings.SpeechMinimumConfidence
+            }
+        };
     }
 
     private PushToTalkHotkey ParsePushToTalkHotkeySafely(string? configuredHotkey)
@@ -1145,6 +1223,53 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         RaiseVoiceProperties();
     }
 
+    private void OnVoiceTranscriptRejected(object? sender, VoiceInputRejectionEventArgs e)
+    {
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            ChatMessages.Add($"Coach: {e.SpokenMessage}");
+            if (!string.IsNullOrWhiteSpace(e.RawTranscript))
+            {
+                ChatMessages.Add($"Voice diag [rejected]: {e.RawTranscript} — {e.Reason}");
+            }
+
+            voiceService.SpeakDirectAnswer(e.SpokenMessage, userPreferences.Coach);
+            LastCallout = voiceService.LastSpokenCallout;
+            RaiseVoiceProperties();
+        });
+    }
+
+    private void OnVoiceTranscriptPendingConfirmation(object? sender, VoiceInputPendingTranscriptEventArgs e)
+    {
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            ChatMessages.Add($"Voice pending: {e.Text} (confidence {e.Confidence:0.00}) — confirm to route.");
+            RaiseVoiceProperties();
+            (ConfirmTranscriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (RejectTranscriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        });
+    }
+
+    private void ConfirmPendingTranscript()
+    {
+        if (voiceInputService.ConfirmPendingTranscript())
+        {
+            ChatMessages.Add("Voice: transcript confirmed.");
+        }
+
+        RaiseVoiceProperties();
+        (ConfirmTranscriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (RejectTranscriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    private void RejectPendingTranscript()
+    {
+        voiceInputService.RejectPendingTranscript();
+        RaiseVoiceProperties();
+        (ConfirmTranscriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (RejectTranscriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
     private void OnVoiceQueryRecognized(object? sender, VoiceInputQueryEventArgs e)
     {
         Application.Current.Dispatcher.Invoke(() => HandleVoiceQuery(e.Text));
@@ -1180,6 +1305,31 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         var enabled = !voiceService.VoiceEnabled;
         voiceService.SetVoiceEnabled(enabled);
         voiceInputService.SetEnabled(enabled);
+        RaiseVoiceProperties();
+    }
+
+    private async Task RunMicCalibrationTestAsync()
+    {
+        MicCalibrationStatus = "Recording 3 seconds... speak normally.";
+        ChatMessages.Add("Coach: Mic test started — speak normally for 3 seconds.");
+        RaiseVoiceProperties();
+
+        var deviceNumber = SelectedMicrophoneDeviceNumber;
+
+        try
+        {
+            var result = await MicrophoneCalibrationRunner.RunAsync(deviceNumber, TimeSpan.FromSeconds(3));
+            MicCalibrationStatus =
+                $"Peak {result.PeakRms:0} | Raw {result.RawPeakRms:0} | Conv {result.ConvertedPeakRms:0} | Quality {result.SignalQualityLabel} | {result.AssessmentMessage}";
+            ChatMessages.Add($"Voice diag [mic test]: {result.CaptureFormatSummary}");
+            ChatMessages.Add($"Voice diag [mic test]: Raw={result.RawPeakRms:0} Conv={result.ConvertedPeakRms:0} Peak={result.PeakRms:0} Quality={result.SignalQualityLabel} — {result.AssessmentMessage}");
+        }
+        catch (Exception exception)
+        {
+            MicCalibrationStatus = $"Mic test failed: {exception.Message}";
+            ChatMessages.Add($"Voice diag [mic test failed]: {exception.Message}");
+        }
+
         RaiseVoiceProperties();
     }
 
@@ -1563,6 +1713,20 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(RecognizedSpeechPreview));
         OnPropertyChanged(nameof(PushToTalkHotkeyLabel));
         OnPropertyChanged(nameof(VoiceSuppressionState));
+        OnPropertyChanged(nameof(MicDiagnosticsSummary));
+        OnPropertyChanged(nameof(MicCurrentRms));
+        OnPropertyChanged(nameof(MicPeakRms));
+        OnPropertyChanged(nameof(MicRawPeakRms));
+        OnPropertyChanged(nameof(MicConvertedPeakRms));
+        OnPropertyChanged(nameof(MicWhisperInputRms));
+        OnPropertyChanged(nameof(MicSpeechDetected));
+        OnPropertyChanged(nameof(MicClipping));
+        OnPropertyChanged(nameof(MicDeviceName));
+        OnPropertyChanged(nameof(MicSignalQualityLabel));
+        OnPropertyChanged(nameof(MicCalibrationStatus));
+        OnPropertyChanged(nameof(HasPendingTranscript));
+        (ConfirmTranscriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (RejectTranscriptCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
     private static int VoicePriority(TelemetryEvent item)

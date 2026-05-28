@@ -1,3 +1,4 @@
+using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.SessionContext;
 
@@ -164,12 +165,22 @@ public static class EngineerAiContextBuilder
 
     private static bool LooksLikeBrakingPacket(CoachEvidencePacket packet)
     {
+        if (packet.Summary == EventType.InvalidLapOrFlags.ToString())
+        {
+            return false;
+        }
+
         var key = $"{packet.Category} {packet.Summary} {packet.Explanation}".ToLowerInvariant();
         return key.Contains("brak");
     }
 
     private static bool LooksLikeThrottlePacket(CoachEvidencePacket packet)
     {
+        if (packet.Summary == EventType.InvalidLapOrFlags.ToString())
+        {
+            return false;
+        }
+
         var key = $"{packet.Category} {packet.Summary} {packet.Explanation}".ToLowerInvariant();
         return key.Contains("throttle") || key.Contains("gas");
     }
