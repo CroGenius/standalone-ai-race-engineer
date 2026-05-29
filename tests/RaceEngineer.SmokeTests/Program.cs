@@ -139,6 +139,10 @@ TyreAnswerIncludesAllCornersOrUnavailableRear();
 RaceAwarenessPacketParsesPartialFields();
 RaceContextServiceReportsMissingOpponentGaps();
 await TrackMemoryRetrievalAndHistoricalComparison();
+SessionMemorySummaryBuildsFromFixtureLaps();
+await SessionMemoryRetrievalByTrackCar();
+SessionDebriefContainsStrengthsWeaknessesActions();
+CoachEvidenceIncludesStoredSessionMemoryWhenTrackCarMatch();
 CoachRaceAwarenessMissingGapSaysUnavailable();
 CoachTrackIdentityRoutingDoesNotFallbackToPosition();
 RaceAwarenessRoutingDiagnosticsCoverTrackAndPosition();
@@ -2271,6 +2275,160 @@ static void RaceContextServiceReportsMissingOpponentGaps()
     Assert(context.Position == 3, "Race context should expose parsed position.");
     Assert(context.GapAheadSeconds is null, "Gap ahead must stay unavailable when telemetry omits it.");
     Assert(context.Diagnostics.MissingFields.Contains("gap_ahead_s"), "Missing opponent gap should be reported in diagnostics.");
+}
+
+static void SessionMemorySummaryBuildsFromFixtureLaps()
+{
+    var (session, _) = SessionWithFuelEstimate();
+    Apply(session, new EventEngine(), Packet("""{"track_name":"Monza","car_name":"GT3","session_type":"Practice"}"""));
+    var snapshots = BuildLapIntelligenceSnapshots(session);
+    var analytics = new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session, snapshots));
+    var lapIntelligence = new LapIntelligenceService().Analyze(new LapIntelligenceInput(session, snapshots));
+    var driverPerformance = new DriverPerformanceIntelligenceService().Analyze(new DriverPerformanceInput(
+        session,
+        snapshots,
+        session.Events,
+        analytics,
+        lapIntelligence));
+    var strategy = new StrategyEngine().Analyze(new StrategyInput(session, analytics));
+    var input = new SessionMemoryBuildInput(
+        "Monza",
+        "GT3",
+        "Practice",
+        session,
+        analytics,
+        lapIntelligence,
+        null,
+        strategy,
+        driverPerformance);
+    var first = SessionMemorySummaryBuilder.Build(input);
+    var second = SessionMemorySummaryBuilder.Build(input);
+
+    Assert(first.TrackName == second.TrackName && first.TrackName == "Monza", "Session memory summary track should be deterministic.");
+    Assert(first.CarName == "GT3", "Session memory summary should record car name.");
+    Assert(first.SessionType == "Practice", "Session memory summary should record session type.");
+    Assert(first.BestLapSeconds == 89.0, "Session memory summary should record best lap from completed laps.");
+    Assert(first.AverageCleanLapSeconds == 89.5, "Session memory summary should record average clean lap.");
+    Assert(first.FuelUsedPerLap is > 0, "Session memory summary should record fuel use per lap when available.");
+    Assert(first.OneLineSummary.Contains("Stored session data", StringComparison.OrdinalIgnoreCase), "One-line summary should label stored session data.");
+}
+
+static async Task SessionMemoryRetrievalByTrackCar()
+{
+    var dbPath = Path.Combine(Path.GetTempPath(), $"race-engineer-session-memory-{Guid.NewGuid():N}.sqlite3");
+    var storage = new StorageService(dbPath);
+    await storage.InitializeAsync();
+    var service = new SessionMemoryService();
+    var (session, _) = SessionWithFuelEstimate();
+    var snapshots = BuildLapIntelligenceSnapshots(session);
+    var analytics = new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session, snapshots));
+    var input = new SessionMemoryBuildInput(
+        "Monza",
+        "GT3",
+        "Practice",
+        session,
+        analytics,
+        null,
+        null,
+        null,
+        null);
+    var summary = service.BuildSummary(input);
+    await service.SaveSummaryAsync(storage, summary);
+
+    var loaded = await service.LoadRecentAsync(storage, "Monza", "GT3");
+    Assert(loaded.Count == 1, "Stored session memory should load for same track/car.");
+    Assert(loaded[0].TrackName == "Monza" && loaded[0].CarName == "GT3", "Loaded session memory should preserve track/car.");
+    Assert(loaded[0].BestLapSeconds == summary.BestLapSeconds, "Loaded session memory should preserve best lap.");
+}
+
+static void SessionDebriefContainsStrengthsWeaknessesActions()
+{
+    var (session, _) = SessionWithFuelEstimate();
+    var snapshots = BuildLapIntelligenceSnapshots(session);
+    var analytics = new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session, snapshots));
+    var lapIntelligence = new LapIntelligenceService().Analyze(new LapIntelligenceInput(session, snapshots));
+    var driverPerformance = new DriverPerformanceIntelligenceService().Analyze(new DriverPerformanceInput(
+        session,
+        snapshots,
+        session.Events,
+        analytics,
+        lapIntelligence));
+    var input = new SessionMemoryBuildInput(
+        "Monza",
+        "GT3",
+        "Practice",
+        session,
+        analytics,
+        lapIntelligence,
+        null,
+        null,
+        driverPerformance);
+    var summary = SessionMemorySummaryBuilder.Build(input);
+    var debrief = SessionDebriefGenerator.Generate(summary, input);
+
+    Assert(debrief.Strengths.Count > 0 || debrief.Weaknesses.Count > 0, "Debrief should include strengths or weaknesses.");
+    Assert(!string.IsNullOrWhiteSpace(debrief.FuelAnalysis), "Debrief should include fuel analysis.");
+    Assert(!string.IsNullOrWhiteSpace(debrief.TyreAnalysis), "Debrief should include tyre analysis.");
+    Assert(!string.IsNullOrWhiteSpace(debrief.ConsistencyAnalysis), "Debrief should include consistency analysis.");
+    Assert(debrief.NextSessionActions.Count > 0, "Debrief should include next-session actions.");
+    Assert(debrief.Markdown.Contains("Strengths", StringComparison.OrdinalIgnoreCase), "Debrief markdown should include strengths section.");
+    Assert(debrief.Markdown.Contains("Weaknesses", StringComparison.OrdinalIgnoreCase), "Debrief markdown should include weaknesses section.");
+    Assert(debrief.Markdown.Contains("Top 3 next-session actions", StringComparison.OrdinalIgnoreCase), "Debrief markdown should include next-session actions.");
+}
+
+static void CoachEvidenceIncludesStoredSessionMemoryWhenTrackCarMatch()
+{
+    var (session, _) = SessionWithFuelEstimate();
+    var stored = new SessionMemorySummary(
+        Guid.NewGuid(),
+        "monza|gt3",
+        "Monza",
+        "GT3",
+        "Practice",
+        DateTimeOffset.UtcNow.AddDays(-1),
+        112.4,
+        112.8,
+        78,
+        2.1,
+        "Tyres needed one lap to warm.",
+        null,
+        ["Late braking in Turn 1"],
+        ["Hesitation on throttle at Parabolica"],
+        ["Sector 2 delta"],
+        [],
+        ["Fuel window was tight"],
+        ["Improve sector 2 exit", "Brake earlier into Turn 1", "Hold throttle at Parabolica"]);
+    var evidence = new CoachEvidenceBuilder().Build(new CoachEvidenceInput(
+        session,
+        null,
+        session.Events,
+        PreviousStoredSessionMemory: stored,
+        RecentStoredSessionMemories: [stored]));
+
+    Assert(
+        evidence.Packets.Any(packet =>
+            packet.Category == "TrackMemory"
+                && packet.Explanation.Contains("Stored session data", StringComparison.OrdinalIgnoreCase)),
+        "Coach evidence should include stored session memory packets when track/car memory exists.");
+
+    var aiContext = EngineerAiContextBuilder.Build(
+        session,
+        "what should I improve",
+        new CoachContext(PreviousStoredSessionMemory: stored),
+        evidence);
+    Assert(
+        aiContext.Facts.Any(fact => fact.Detail.Contains("Stored session data", StringComparison.OrdinalIgnoreCase)),
+        "AI context should include stored session memory facts for improvement questions.");
+
+    var coach = new CoachEngine();
+    var answer = coach.Answer(
+        session,
+        "what did I struggle with here",
+        new CoachContext(PreviousStoredSessionMemory: stored),
+        evidence);
+    Assert(
+        answer.Content.Contains("Stored session data", StringComparison.OrdinalIgnoreCase),
+        "Coach answer should label stored session data when historical memory exists.");
 }
 
 static async Task TrackMemoryRetrievalAndHistoricalComparison()

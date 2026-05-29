@@ -65,7 +65,9 @@ public sealed record CoachEvidenceInput(
     IReadOnlyList<Knowledge.KnowledgeSource>? KnowledgeSources = null,
     LiveRaceContext? RaceContext = null,
     TrackMemoryRecord? TrackMemory = null,
-    TrackMemoryComparison? TrackMemoryComparison = null);
+    TrackMemoryComparison? TrackMemoryComparison = null,
+    SessionMemorySummary? PreviousStoredSessionMemory = null,
+    IReadOnlyList<SessionMemorySummary>? RecentStoredSessionMemories = null);
 
 public static class CoachEvidenceSelector
 {
@@ -74,7 +76,7 @@ public static class CoachEvidenceSelector
         [CoachEvidenceTopic.LosingTime] = ["Performance", "Sector", "LapComparison", "DeltaTrace", "LosingTime"],
         [CoachEvidenceTopic.Braking] = ["Performance", "Braking", "Event"],
         [CoachEvidenceTopic.Throttle] = ["Performance", "Throttle", "Event"],
-        [CoachEvidenceTopic.Improvement] = ["Performance", "Improvement", "Analytics", "LapIntelligence"],
+        [CoachEvidenceTopic.Improvement] = ["Performance", "Improvement", "Analytics", "LapIntelligence", "TrackMemory"],
         [CoachEvidenceTopic.LapComparison] = ["Performance", "LapComparison", "DeltaTrace", "Sector"],
         [CoachEvidenceTopic.RacePace] = ["Pace", "Analytics", "LapIntelligence"],
         [CoachEvidenceTopic.Fuel] = ["Fuel", "Analytics", "Session"],

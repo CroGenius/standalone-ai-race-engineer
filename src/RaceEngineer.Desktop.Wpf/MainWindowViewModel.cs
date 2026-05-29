@@ -125,6 +125,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private TrackMemoryRecord? trackMemoryRecord;
     private TrackMemoryComparison? trackMemoryComparison;
     private readonly TrackMemoryService trackMemoryService = new();
+    private readonly SessionMemoryService sessionMemoryService = new();
+    private SessionMemorySummary? previousStoredSessionMemory;
+    private IReadOnlyList<SessionMemorySummary> recentStoredSessionMemories = [];
+    private SessionDebrief? currentSessionDebrief;
+    private string sessionMemoryLastSummaryLabel = "No stored session summary yet.";
+    private string sessionMemoryKnownWeaknessesLabel = "-";
+    private string sessionDebriefPreview = "Generate a debrief from the current session data.";
     private string raceAwarenessPanelTitle = "Race Awareness (Live Session)";
     private string raceTrackLabel = "-";
     private string raceCarLabel = "-";
@@ -228,6 +235,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         SearchKnowledgeCommand = new RelayCommand(() => _ = SearchKnowledgeAsync());
         ImportKnowledgeCommand = new RelayCommand(() => _ = ImportKnowledgeAsync());
         DeleteKnowledgeCommand = new RelayCommand(() => _ = DeleteKnowledgeAsync(), () => SelectedKnowledgeSource is not null);
+        SaveMemorySummaryCommand = new RelayCommand(() => _ = SaveMemorySummaryAsync());
+        GenerateDebriefCommand = new RelayCommand(GenerateSessionDebrief);
         receiver.PacketProcessed += OnPacketProcessed;
         receiver.SnapshotReceived += OnSnapshotReceived;
         foreach (var device in MicrophoneDeviceCatalog.ListDevices())
@@ -292,6 +301,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string RaceFieldDiagnosticsLabel => raceFieldDiagnosticsLabel;
     public string RaceMemoryPreviousBestLabel => raceMemoryPreviousBestLabel;
     public string RaceMemoryPreviousAverageLabel => raceMemoryPreviousAverageLabel;
+
+    public string SessionMemoryLastSummaryLabel => sessionMemoryLastSummaryLabel;
+    public string SessionMemoryKnownWeaknessesLabel => sessionMemoryKnownWeaknessesLabel;
+    public string SessionDebriefPreview => sessionDebriefPreview;
 
     public string PerformancePanelTitle => performancePanelTitle;
     public string PerformanceBiggestLossLabel => performanceBiggestLossLabel;
@@ -494,6 +507,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public ICommand SearchKnowledgeCommand { get; }
     public ICommand ImportKnowledgeCommand { get; }
     public ICommand DeleteKnowledgeCommand { get; }
+    public ICommand SaveMemorySummaryCommand { get; }
+    public ICommand GenerateDebriefCommand { get; }
 
     public string TelemetryStatus => isReviewMode
         ? "Review mode"
@@ -922,7 +937,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             KnowledgeSources.Select(item => item.Source).ToArray(),
             liveRaceContext,
             trackMemoryRecord,
-            trackMemoryComparison));
+            trackMemoryComparison,
+            previousStoredSessionMemory,
+            recentStoredSessionMemories));
     }
 
     private void AppendCoachChatLines(CoachMessage answer)
@@ -1820,6 +1837,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(RaceFieldDiagnosticsLabel));
         OnPropertyChanged(nameof(RaceMemoryPreviousBestLabel));
         OnPropertyChanged(nameof(RaceMemoryPreviousAverageLabel));
+        OnPropertyChanged(nameof(SessionMemoryLastSummaryLabel));
+        OnPropertyChanged(nameof(SessionMemoryKnownWeaknessesLabel));
+        OnPropertyChanged(nameof(SessionDebriefPreview));
         OnPropertyChanged(nameof(PerformancePanelTitle));
         OnPropertyChanged(nameof(PerformanceBiggestLossLabel));
         OnPropertyChanged(nameof(PerformanceMainWeaknessLabel));
@@ -1885,6 +1905,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         trackMemoryRecord = await trackMemoryService.LoadAsync(storageService, track, car);
         trackMemoryComparison = trackMemoryService.Compare(trackMemoryRecord, ActiveSession, sessionAnalytics);
+        await RefreshStoredSessionMemoryAsync(track, car);
         raceMemoryPreviousBestLabel = trackMemoryRecord?.BestLapSeconds is { } best
             ? TrackMemoryService.FormatLapTime(best)
             : "no stored history";
@@ -1903,20 +1924,23 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             return;
         }
 
-        trackMemoryRecord = await trackMemoryService.UpsertFromSessionAsync(
+        var input = new SessionMemoryBuildInput(
+            track,
+            car,
+            liveRaceContext.SessionType ?? PrepSessionType,
+            session,
+            sessionAnalytics,
+            sessionLapIntelligence,
+            sessionTyreIntelligence,
+            sessionStrategy,
+            sessionDriverPerformance);
+        trackMemoryRecord = (await sessionMemoryService.PersistSessionAsync(
             storageService,
-            new TrackMemoryInput(
-                track,
-                car,
-                session,
-                sessionAnalytics,
-                sessionLapIntelligence,
-                sessionTyreIntelligence,
-                sessionStrategy,
-                summaryMarkdown,
-                RaceResult: null,
-                DriverPerformance: sessionDriverPerformance));
+            trackMemoryService,
+            input,
+            summaryMarkdown)).TrackMemory;
         trackMemoryComparison = trackMemoryService.Compare(trackMemoryRecord, session, sessionAnalytics);
+        await RefreshStoredSessionMemoryAsync(track, car);
     }
 
     private void UpdateSessionContext()
@@ -2051,7 +2075,91 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             ActiveTraceSnapshots.Count > 0 ? ActiveTraceSnapshots.TakeLast(40).ToArray() : null,
             liveRaceContext,
             trackMemoryRecord,
-            trackMemoryComparison);
+            trackMemoryComparison,
+            previousStoredSessionMemory,
+            recentStoredSessionMemories);
+    }
+
+    private SessionMemoryBuildInput? BuildSessionMemoryInput()
+    {
+        var track = liveRaceContext.TrackName ?? PrepTrack;
+        var car = liveRaceContext.CarName ?? PrepCar;
+        if (string.IsNullOrWhiteSpace(track) || string.IsNullOrWhiteSpace(car))
+        {
+            return null;
+        }
+
+        return new SessionMemoryBuildInput(
+            track,
+            car,
+            string.IsNullOrWhiteSpace(liveRaceContext.SessionType) ? PrepSessionType : liveRaceContext.SessionType,
+            session,
+            sessionAnalytics,
+            sessionLapIntelligence,
+            sessionTyreIntelligence,
+            sessionStrategy,
+            sessionDriverPerformance);
+    }
+
+    private async Task SaveMemorySummaryAsync()
+    {
+        var input = BuildSessionMemoryInput();
+        if (input is null)
+        {
+            ChatMessages.Add("Coach: Track and car must be known before saving session memory.");
+            return;
+        }
+
+        var (trackMemory, summary) = await sessionMemoryService.PersistSessionAsync(
+            storageService,
+            trackMemoryService,
+            input);
+        trackMemoryRecord = trackMemory;
+        trackMemoryComparison = trackMemoryService.Compare(trackMemoryRecord, ActiveSession, sessionAnalytics);
+        await RefreshStoredSessionMemoryAsync(input.TrackName, input.CarName);
+        ChatMessages.Add($"Coach: Stored session memory saved for {summary.TrackName} / {summary.CarName}.");
+    }
+
+    private void GenerateSessionDebrief()
+    {
+        var input = BuildSessionMemoryInput();
+        if (input is null)
+        {
+            sessionDebriefPreview = "Track and car must be known before generating a debrief.";
+            OnPropertyChanged(nameof(SessionDebriefPreview));
+            ChatMessages.Add("Coach: Track and car must be known before generating a debrief.");
+            return;
+        }
+
+        var summary = sessionMemoryService.BuildSummary(input);
+        currentSessionDebrief = sessionMemoryService.GenerateDebrief(summary, input);
+        sessionDebriefPreview = currentSessionDebrief.Markdown;
+        OnPropertyChanged(nameof(SessionDebriefPreview));
+        ChatMessages.Add("Coach: Session debrief generated from current session data.");
+        ChatMessages.Add(currentSessionDebrief.Markdown);
+    }
+
+    private async Task RefreshStoredSessionMemoryAsync(string track, string car)
+    {
+        recentStoredSessionMemories = await sessionMemoryService.LoadRecentAsync(
+            storageService,
+            track,
+            car,
+            5,
+            session.SessionId);
+        previousStoredSessionMemory = recentStoredSessionMemories.FirstOrDefault();
+        sessionMemoryLastSummaryLabel = previousStoredSessionMemory?.OneLineSummary ?? "No stored session summary yet.";
+        sessionMemoryKnownWeaknessesLabel = previousStoredSessionMemory is null
+            ? "-"
+            : FormatProfileItems(
+                previousStoredSessionMemory.MainTimeLossZones
+                    .Concat(previousStoredSessionMemory.BrakingWeaknesses)
+                    .Concat(previousStoredSessionMemory.ThrottleWeaknesses)
+                    .Concat(previousStoredSessionMemory.ImprovementTargets)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(4)
+                    .ToArray());
+        Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
     }
 
     private void RaiseReviewModeProperties()

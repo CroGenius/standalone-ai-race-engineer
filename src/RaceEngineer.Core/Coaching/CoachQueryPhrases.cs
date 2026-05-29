@@ -156,6 +156,17 @@ public static class CoachQueryPhrases
         "compare to last time"
     ];
 
+    public static readonly string[] StoredSessionMemory =
+    [
+        "what did i struggle with",
+        "what did i struggle with here",
+        "what did i struggle with at",
+        "what should i watch at",
+        "what to watch at",
+        "what should i watch for at",
+        "what did i struggle"
+    ];
+
     public static readonly string[] Position =
     [
         "what is my position",
@@ -312,6 +323,7 @@ public static class CoachQueryPhrases
             .Concat(TrackIdentity)
             .Concat(CarIdentity)
             .Concat(TrackMemory)
+            .Concat(StoredSessionMemory)
             .Concat(Fuel)
             .Concat(Strategy)
             .Concat(Pit)

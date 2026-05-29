@@ -362,6 +362,21 @@
                     <TextBlock Text="Race field diagnostics" Margin="0,0,0,2" />
                     <TextBlock Text="{Binding RaceFieldDiagnosticsLabel}" TextWrapping="Wrap" Foreground="#9AA6AC" Margin="0,0,0,18" />
 
+                    <TextBlock Text="Session Memory / Debrief" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <UniformGrid Columns="2" Rows="3" Margin="0,0,0,8">
+                        <TextBlock Text="Last stored summary" /><TextBlock Text="{Binding SessionMemoryLastSummaryLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Previous best lap" /><TextBlock Text="{Binding RaceMemoryPreviousBestLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Previous avg lap" /><TextBlock Text="{Binding RaceMemoryPreviousAverageLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
+                    <TextBlock Text="Known weaknesses" Margin="0,0,0,2" />
+                    <TextBlock Text="{Binding SessionMemoryKnownWeaknessesLabel}" TextWrapping="Wrap" Foreground="#9AA6AC" Margin="0,0,0,8" />
+                    <UniformGrid Columns="2" Margin="0,0,0,8">
+                        <Button Content="Generate Debrief" Command="{Binding GenerateDebriefCommand}" Margin="0,0,4,0" Padding="10,6" />
+                        <Button Content="Save Memory Summary" Command="{Binding SaveMemorySummaryCommand}" Margin="4,0,0,0" Padding="10,6" />
+                    </UniformGrid>
+                    <TextBlock Text="Debrief preview" Margin="0,0,0,2" />
+                    <TextBlock Text="{Binding SessionDebriefPreview}" TextWrapping="Wrap" Foreground="#9AA6AC" Margin="0,0,0,18" />
+
                     <TextBlock Text="{Binding PerformancePanelTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2" Rows="7" Margin="0,0,0,18">
                         <TextBlock Text="Biggest time loss" /><TextBlock Text="{Binding PerformanceBiggestLossLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />

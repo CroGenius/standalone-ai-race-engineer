@@ -99,10 +99,38 @@ public static class EngineerAiContextBuilder
         var selected = evidence.Select(evidenceTopic.Value).ToArray();
         if (selected.Length > 0)
         {
+            return PrioritizeStoredSessionMemory(selected, evidence.Packets, primaryTopic);
+        }
+
+        return PrioritizeStoredSessionMemory(
+            FilterByPrimaryTopic(evidence.Packets, primaryTopic),
+            evidence.Packets,
+            primaryTopic);
+    }
+
+    private static IReadOnlyList<CoachEvidencePacket> PrioritizeStoredSessionMemory(
+        IReadOnlyList<CoachEvidencePacket> selected,
+        IReadOnlyList<CoachEvidencePacket> allPackets,
+        CoachQueryTopic primaryTopic)
+    {
+        if (primaryTopic is not (CoachQueryTopic.Improvement
+            or CoachQueryTopic.LapComparison
+            or CoachQueryTopic.TrackMemory
+            or CoachQueryTopic.LosingTime))
+        {
             return selected.Take(MaxFacts).ToArray();
         }
 
-        return FilterByPrimaryTopic(evidence.Packets, primaryTopic);
+        var stored = allPackets.Where(packet => packet.Category == "TrackMemory").ToArray();
+        if (stored.Length == 0)
+        {
+            return selected.Take(MaxFacts).ToArray();
+        }
+
+        return stored
+            .Concat(selected.Where(packet => packet.Category != "TrackMemory"))
+            .Take(MaxFacts)
+            .ToArray();
     }
 
     private static IReadOnlyList<CoachEvidencePacket> FilterByPrimaryTopic(
@@ -137,7 +165,8 @@ public static class EngineerAiContextBuilder
             CoachQueryTopic.Throttle => packets.Where(LooksLikeThrottlePacket),
             CoachQueryTopic.RacePace => packets.Where(LooksLikePacePacket),
             CoachQueryTopic.LosingTime or CoachQueryTopic.LapComparison => packets.Where(LooksLikeLapComparisonPacket),
-            CoachQueryTopic.Improvement => packets.Where(LooksLikeImprovementPacket),
+            CoachQueryTopic.Improvement => packets.Where(packet =>
+                LooksLikeImprovementPacket(packet) || packet.Category == "TrackMemory"),
             CoachQueryTopic.Incidents => packets.Where(LooksLikeIncidentPacket),
             _ => packets.Where(packet => !LooksLikeFuelPacket(packet))
         };

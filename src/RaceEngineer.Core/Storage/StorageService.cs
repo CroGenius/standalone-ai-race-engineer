@@ -38,7 +38,7 @@ public sealed record SessionReviewBundle(
 
 public sealed class StorageService
 {
-    private const int SchemaVersion = 5;
+    private const int SchemaVersion = 6;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = false
@@ -159,6 +159,16 @@ public sealed class StorageService
               updated_at TEXT NOT NULL,
               PRIMARY KEY (track, car)
             );
+            CREATE TABLE IF NOT EXISTS session_memory_summaries (
+              session_id TEXT PRIMARY KEY,
+              track TEXT NOT NULL,
+              car TEXT NOT NULL,
+              session_type TEXT,
+              recorded_at TEXT NOT NULL,
+              payload_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_session_memory_track_car_recorded
+              ON session_memory_summaries (track, car, recorded_at DESC);
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
 
@@ -514,6 +524,73 @@ public sealed class StorageService
         command.Parameters.AddWithValue("$payload_json", JsonSerializer.Serialize(memory, JsonOptions));
         command.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.ToString("O"));
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task SaveSessionMemorySummaryAsync(
+        SessionMemorySummary summary,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            INSERT OR REPLACE INTO session_memory_summaries
+              (session_id, track, car, session_type, recorded_at, payload_json)
+            VALUES
+              ($session_id, $track, $car, $session_type, $recorded_at, $payload_json)
+            """;
+        command.Parameters.AddWithValue("$session_id", summary.SessionId.ToString());
+        command.Parameters.AddWithValue("$track", summary.TrackName);
+        command.Parameters.AddWithValue("$car", summary.CarName);
+        command.Parameters.AddWithValue("$session_type", DbValue(summary.SessionType));
+        command.Parameters.AddWithValue("$recorded_at", summary.RecordedAt.ToString("O"));
+        command.Parameters.AddWithValue("$payload_json", JsonSerializer.Serialize(summary, JsonOptions));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<SessionMemorySummary>> LoadRecentSessionMemorySummariesAsync(
+        string? track,
+        string? car,
+        int limit = 5,
+        Guid? excludeSessionId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(track) || string.IsNullOrWhiteSpace(car))
+        {
+            return [];
+        }
+
+        await using var connection = await OpenAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT payload_json
+            FROM session_memory_summaries
+            WHERE track = $track AND car = $car
+            """;
+        if (excludeSessionId is not null)
+        {
+            command.CommandText += " AND session_id <> $exclude_session_id";
+            command.Parameters.AddWithValue("$exclude_session_id", excludeSessionId.Value.ToString());
+        }
+
+        command.CommandText += " ORDER BY recorded_at DESC LIMIT $limit";
+        command.Parameters.AddWithValue("$track", track.Trim());
+        command.Parameters.AddWithValue("$car", car.Trim());
+        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 20));
+        var results = new List<SessionMemorySummary>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var json = reader.GetString(0);
+            var summary = JsonSerializer.Deserialize<SessionMemorySummary>(json, JsonOptions);
+            if (summary is not null)
+            {
+                results.Add(summary);
+            }
+        }
+
+        return results;
     }
 
     public Task SaveCoachingPreferencesAsync(string id, object preferences, CancellationToken cancellationToken = default)

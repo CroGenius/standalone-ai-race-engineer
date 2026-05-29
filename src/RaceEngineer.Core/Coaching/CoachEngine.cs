@@ -34,7 +34,9 @@ public sealed record CoachContext(
     IReadOnlyList<Telemetry.TelemetrySnapshot>? RecentSnapshots = null,
     LiveRaceContext? RaceContext = null,
     TrackMemoryRecord? TrackMemory = null,
-    TrackMemoryComparison? TrackMemoryComparison = null);
+    TrackMemoryComparison? TrackMemoryComparison = null,
+    SessionMemorySummary? PreviousStoredSessionMemory = null,
+    IReadOnlyList<SessionMemorySummary>? RecentStoredSessionMemories = null);
 
 public sealed class CoachEngine : ICoachEngine
 {
@@ -92,6 +94,15 @@ public sealed class CoachEngine : ICoachEngine
             return PrepFieldAnswer("Tyre plan", context?.RacePrepPlan?.TyrePlan);
         }
 
+        if (ContainsAny(text, CoachQueryPhrases.StoredSessionMemory))
+        {
+            var stored = ResolveStoredSessionMemory(context);
+            if (stored is not null || IsStoredSessionMemoryRequiredQuery(text))
+            {
+                return StoredSessionMemoryAnswer(userMessage, session, context, evidence);
+            }
+        }
+
         switch (primaryTopic)
         {
             case CoachQueryTopic.TrackIdentity:
@@ -147,16 +158,19 @@ public sealed class CoachEngine : ICoachEngine
             case CoachQueryTopic.Throttle:
                 return ThrottleAnswer(session, context, recentEvents, evidence, userMessage);
             case CoachQueryTopic.Improvement:
-                return AnswerFromDriverPerformance(
-                    userMessage,
-                    session,
+                return EnrichImprovementWithStoredMemory(
+                    AnswerFromDriverPerformance(
+                        userMessage,
+                        session,
+                        context,
+                        CoachQueryTopic.Improvement,
+                        DriverPerformanceIntelligenceService.BuildImprovementAnswer,
+                        "Address the highest-priority weakness first.",
+                        "No improvement evidence is available.",
+                        evidence,
+                        CoachEvidenceTopic.Improvement),
                     context,
-                    CoachQueryTopic.Improvement,
-                    DriverPerformanceIntelligenceService.BuildImprovementAnswer,
-                    "Address the highest-priority weakness first.",
-                    "No improvement evidence is available.",
-                    evidence,
-                    CoachEvidenceTopic.Improvement);
+                    evidence);
             case CoachQueryTopic.LapComparison:
                 return AnswerFromDriverPerformance(
                     userMessage,
@@ -321,6 +335,20 @@ public sealed class CoachEngine : ICoachEngine
                 CoachEvidenceTopic.TrackMemory);
         }
 
+        if (context?.PreviousStoredSessionMemory is { } previousSummary)
+        {
+            var storedLine = previousSummary.OneLineSummary;
+            if (previousSummary.ImprovementTargets.Count > 0)
+            {
+                storedLine += $" Focus areas: {string.Join("; ", previousSummary.ImprovementTargets.Take(3))}.";
+            }
+
+            return AttachEvidence(
+                Message($"Stored session data for {previousSummary.TrackName}: {storedLine}", [$"stored session: {previousSummary.RecordedAt:yyyy-MM-dd}"], []),
+                evidence,
+                CoachEvidenceTopic.TrackMemory);
+        }
+
         if (memory is { SessionCount: > 0 })
         {
             var summary = memory.SessionSummaries.LastOrDefault()
@@ -335,6 +363,113 @@ public sealed class CoachEngine : ICoachEngine
             "No stored session history is available for this track and car combination.",
             "Track memory is empty until a prior session is saved for the same track and car.");
     }
+
+    private static CoachMessage StoredSessionMemoryAnswer(
+        string query,
+        SessionState session,
+        CoachContext? context,
+        CoachEvidenceBundle? evidence)
+    {
+        var stored = ResolveStoredSessionMemory(context);
+        if (stored is null)
+        {
+            return Unavailable(
+                "No stored session history is available for this track and car combination.",
+                "Save a session memory summary after a completed session to enable historical coaching.");
+        }
+
+        var text = query.ToLowerInvariant();
+        if (text.Contains("watch", StringComparison.Ordinal))
+        {
+            var watchItems = stored.MainTimeLossZones
+                .Concat(stored.BrakingWeaknesses)
+                .Concat(stored.ThrottleWeaknesses)
+                .Concat(stored.ImprovementTargets)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(3)
+                .ToArray();
+            if (watchItems.Length == 0)
+            {
+                return Unavailable(
+                    $"Stored session data for {stored.TrackName} has no recorded watch points yet.",
+                    "No stored weaknesses or time-loss zones were saved for this track and car.");
+            }
+
+            return AttachEvidence(
+                Message(
+                    $"Stored session data for {stored.TrackName}: watch for {string.Join("; ", watchItems)}.",
+                    [$"stored session: {stored.RecordedAt:yyyy-MM-dd}", .. watchItems],
+                    []),
+                evidence,
+                CoachEvidenceTopic.TrackMemory);
+        }
+
+        var struggleItems = stored.MainTimeLossZones
+            .Concat(stored.BrakingWeaknesses)
+            .Concat(stored.ThrottleWeaknesses)
+            .Concat(stored.Incidents)
+            .Concat(stored.ImprovementTargets)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(4)
+            .ToArray();
+        if (struggleItems.Length == 0)
+        {
+            return Unavailable(
+                $"Stored session data for {stored.TrackName} does not list any struggle points yet.",
+                "No stored weaknesses, incidents, or time-loss zones were saved for this track and car.");
+        }
+
+        return AttachEvidence(
+            Message(
+                $"Stored session data for {stored.TrackName}: you struggled most with {string.Join("; ", struggleItems)}.",
+                [$"stored session: {stored.RecordedAt:yyyy-MM-dd}", .. struggleItems],
+                []),
+            evidence,
+            CoachEvidenceTopic.TrackMemory);
+    }
+
+    private static CoachMessage EnrichImprovementWithStoredMemory(
+        CoachMessage message,
+        CoachContext? context,
+        CoachEvidenceBundle? evidence)
+    {
+        var stored = context?.PreviousStoredSessionMemory;
+        if (stored is null || stored.ImprovementTargets.Count == 0)
+        {
+            return message;
+        }
+
+        if (message.Content.Contains(SessionDriverPerformance.NeedCleanLapMessage, StringComparison.Ordinal))
+        {
+            return AttachEvidence(
+                Message(
+                    $"Stored session data for {stored.TrackName}: focus on {string.Join("; ", stored.ImprovementTargets.Take(3))}.",
+                    stored.ImprovementTargets.Take(3).Select(item => $"stored target: {item}").ToArray(),
+                    []),
+                evidence,
+                CoachEvidenceTopic.TrackMemory);
+        }
+
+        return AttachEvidence(
+            Message(
+                $"{message.Content} Stored session data for {stored.TrackName} also suggests {string.Join("; ", stored.ImprovementTargets.Take(3))}.",
+                stored.ImprovementTargets.Take(3).Select(item => $"stored target: {item}").ToArray(),
+                []),
+            evidence,
+            CoachEvidenceTopic.Improvement);
+    }
+
+    private static SessionMemorySummary? ResolveStoredSessionMemory(CoachContext? context) =>
+        context?.PreviousStoredSessionMemory
+            ?? context?.RecentStoredSessionMemories?.FirstOrDefault();
+
+    private static bool IsStoredSessionMemoryRequiredQuery(string text) =>
+        ContainsAny(
+            text,
+            "what did i struggle with",
+            "what did i struggle with here",
+            "what did i struggle with at",
+            "what did i struggle");
 
     private static CoachMessage PositionAnswer(SessionState session)
     {

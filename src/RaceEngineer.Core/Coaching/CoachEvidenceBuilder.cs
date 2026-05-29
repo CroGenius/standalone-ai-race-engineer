@@ -65,6 +65,10 @@ public sealed class CoachEvidenceBuilder
         AddStrategyPackets(packets, strategy);
         AddRaceAwarenessPackets(packets, input.RaceContext);
         AddTrackMemoryPackets(packets, input.TrackMemory, input.TrackMemoryComparison);
+        AddSessionMemorySummaryPackets(
+            packets,
+            input.PreviousStoredSessionMemory,
+            input.RecentStoredSessionMemories);
         AddTracePackets(packets, timeline);
         AddKnowledgePackets(packets, input.KnowledgeSources);
 
@@ -722,6 +726,73 @@ public sealed class CoachEvidenceBuilder
                 [],
                 comparison.BestLapDeltaSeconds,
                 comparison.Summary));
+        }
+    }
+
+    private static void AddSessionMemorySummaryPackets(
+        List<CoachEvidencePacket> packets,
+        SessionMemorySummary? previousSummary,
+        IReadOnlyList<SessionMemorySummary>? recentSummaries)
+    {
+        if (previousSummary is not null)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "TrackMemory",
+                "Stored session summary",
+                "Info",
+                0.90,
+                CoachEvidenceSourceType.Session,
+                null,
+                [],
+                previousSummary.BestLapSeconds,
+                previousSummary.OneLineSummary));
+
+            if (previousSummary.ImprovementTargets.Count > 0)
+            {
+                packets.Add(new CoachEvidencePacket(
+                    "TrackMemory",
+                    "Stored improvement targets",
+                    "Info",
+                    0.88,
+                    CoachEvidenceSourceType.Session,
+                    null,
+                    [],
+                    null,
+                    $"Stored session data for {previousSummary.TrackName}: focus on {string.Join("; ", previousSummary.ImprovementTargets.Take(3))}."));
+            }
+
+            if (previousSummary.MainTimeLossZones.Count > 0)
+            {
+                packets.Add(new CoachEvidencePacket(
+                    "TrackMemory",
+                    "Stored time-loss zones",
+                    "Info",
+                    0.86,
+                    CoachEvidenceSourceType.Session,
+                    null,
+                    [],
+                    null,
+                    $"Stored session data for {previousSummary.TrackName}: {string.Join("; ", previousSummary.MainTimeLossZones.Take(3))}."));
+            }
+        }
+
+        foreach (var summary in recentSummaries?.Take(3) ?? [])
+        {
+            if (previousSummary is not null && summary.SessionId == previousSummary.SessionId)
+            {
+                continue;
+            }
+
+            packets.Add(new CoachEvidencePacket(
+                "TrackMemory",
+                "Stored session history",
+                "Info",
+                0.82,
+                CoachEvidenceSourceType.Session,
+                null,
+                [],
+                summary.BestLapSeconds,
+                summary.OneLineSummary));
         }
     }
 
