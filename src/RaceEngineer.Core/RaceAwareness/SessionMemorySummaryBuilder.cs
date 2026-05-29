@@ -38,7 +38,12 @@ public static class SessionMemorySummaryBuilder
             BuildMainTimeLossZones(input.DriverPerformance),
             BuildIncidents(input),
             BuildStrategyNotes(input),
-            BuildImprovementTargets(input));
+            BuildImprovementTargets(input),
+            input.DriverCoaching?.StrongestArea,
+            input.DriverCoaching?.WeakestArea ?? input.DriverCoaching?.BiggestWeakness,
+            input.DriverCoaching?.RepeatedWeaknesses ?? BuildRepeatedWeaknesses(input),
+            input.DriverCoaching?.ProgressTrendSummary,
+            input.DriverCoaching?.TopCoachingTargets ?? BuildImprovementTargets(input));
     }
 
     private static string? BuildTyreWarmupNotes(SessionTyreIntelligence? tyreIntelligence)
@@ -204,8 +209,19 @@ public static class SessionMemorySummaryBuilder
         targets.AddRange(BuildThrottleWeaknesses(input));
         targets.AddRange(input.DriverPerformance?.CoachingMessages ?? []);
         targets.AddRange(input.Analytics?.DriverProfile.Weaknesses ?? []);
+        targets.AddRange(input.DriverCoaching?.TopCoachingTargets ?? []);
 
         return DistinctNonEmpty(targets).Take(3).ToArray();
+    }
+
+    private static IReadOnlyList<string> BuildRepeatedWeaknesses(SessionMemoryBuildInput input)
+    {
+        var items = new List<string>();
+        items.AddRange(input.DriverPerformance?.MistakeClusters
+            .Where(cluster => cluster.Count >= 2)
+            .Select(cluster => $"{cluster.Behavior} in {cluster.ZoneLabel}") ?? []);
+        items.AddRange(input.DriverCoaching?.RepeatedWeaknesses ?? []);
+        return DistinctNonEmpty(items).Take(5).ToArray();
     }
 
     private static IReadOnlyList<string> DistinctNonEmpty(IEnumerable<string> items) =>

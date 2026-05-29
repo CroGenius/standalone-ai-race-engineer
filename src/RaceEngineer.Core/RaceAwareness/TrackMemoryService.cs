@@ -81,7 +81,12 @@ public sealed class TrackMemoryService
             LastSessionAt = DateTimeOffset.UtcNow,
             SessionSummaries = MergeDistinct(
                 existing.SessionSummaries,
-                [BuildSessionSummary(input, currentBest, currentAverage, fuelPerLap)]).TakeLast(6).ToArray()
+                [BuildSessionSummary(input, currentBest, currentAverage, fuelPerLap)]).TakeLast(6).ToArray(),
+            StrongestArea = input.DriverCoaching?.StrongestArea ?? existing.StrongestArea,
+            WeakestArea = input.DriverCoaching?.WeakestArea ?? existing.WeakestArea,
+            ProgressTrend = input.DriverCoaching?.ProgressTrendSummary ?? existing.ProgressTrend,
+            RepeatedWeaknesses = MergeDistinct(existing.RepeatedWeaknesses ?? [], input.DriverCoaching?.RepeatedWeaknesses ?? []).TakeLast(8).ToArray(),
+            TopCoachingTargets = MergeDistinct(existing.TopCoachingTargets ?? [], input.DriverCoaching?.TopCoachingTargets ?? []).TakeLast(3).ToArray()
         };
 
         await storage.SaveTrackCarMemoryAsync(updated, cancellationToken);

@@ -99,7 +99,12 @@ public sealed record TrackMemoryRecord(
     IReadOnlyList<string> CommonBattleOutcomes,
     string? PreviousRaceResult,
     DateTimeOffset? LastSessionAt,
-    IReadOnlyList<string> SessionSummaries)
+    IReadOnlyList<string> SessionSummaries,
+    string? StrongestArea = null,
+    string? WeakestArea = null,
+    string? ProgressTrend = null,
+    IReadOnlyList<string>? RepeatedWeaknesses = null,
+    IReadOnlyList<string>? TopCoachingTargets = null)
 {
     public static TrackMemoryRecord Empty(string trackKey, string trackName, string carName) => new(
         trackKey,
@@ -152,4 +157,5 @@ public sealed record TrackMemoryInput(
     string? RaceResult = null,
     Analytics.SessionDriverPerformance? DriverPerformance = null,
     Knowledge.TrackGuide? TrackGuide = null,
-    OpponentIntelligenceRecommendation? OpponentIntelligence = null);
+    OpponentIntelligenceRecommendation? OpponentIntelligence = null,
+    Coaching.DriverCoachingRecommendation? DriverCoaching = null);

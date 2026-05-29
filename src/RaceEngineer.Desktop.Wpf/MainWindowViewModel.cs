@@ -144,6 +144,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string trackGuideKeyCornersLabel = "-";
     private string trackGuideSetupNotesLabel = "-";
     private OpponentIntelligenceRecommendation? currentOpponentIntelligence;
+    private DriverCoachingRecommendation? currentDriverCoaching;
+    private string driverCoachingPanelTitle = "Driver Coaching (Live Session)";
+    private string driverCoachingTrendLabel = "-";
+    private string driverCoachingBiggestWeaknessLabel = "-";
+    private string driverCoachingStrongestAreaLabel = "-";
+    private string driverCoachingConsistencyLabel = "-";
+    private string driverCoachingPreviousDeltaLabel = "-";
+    private string driverCoachingTopTargetsLabel = "-";
     private string opponentPositionLabel = "unavailable";
     private string opponentCarAheadLabel = "-";
     private string opponentCarBehindLabel = "-";
@@ -338,6 +346,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string OpponentTrendLabel => opponentTrendLabel;
     public string OpponentBattleStatusLabel => opponentBattleStatusLabel;
     public string OpponentConfidenceLabel => opponentConfidenceLabel;
+
+    public string DriverCoachingPanelTitle => driverCoachingPanelTitle;
+    public string DriverCoachingTrendLabel => driverCoachingTrendLabel;
+    public string DriverCoachingBiggestWeaknessLabel => driverCoachingBiggestWeaknessLabel;
+    public string DriverCoachingStrongestAreaLabel => driverCoachingStrongestAreaLabel;
+    public string DriverCoachingConsistencyLabel => driverCoachingConsistencyLabel;
+    public string DriverCoachingPreviousDeltaLabel => driverCoachingPreviousDeltaLabel;
+    public string DriverCoachingTopTargetsLabel => driverCoachingTopTargetsLabel;
 
     public string SessionMemoryLastSummaryLabel => sessionMemoryLastSummaryLabel;
     public string SessionMemoryKnownWeaknessesLabel => sessionMemoryKnownWeaknessesLabel;
@@ -994,7 +1010,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             recentStoredSessionMemories,
             currentStrategyKnowledge,
             cachedTrackGuide,
-            currentOpponentIntelligence));
+            currentOpponentIntelligence,
+            currentDriverCoaching));
     }
 
     private void RefreshStrategyKnowledge()
@@ -1822,6 +1839,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             ?? trackMemoryComparison?.Summary
             ?? "no stored baseline";
 
+        RefreshDriverCoaching();
+
         strategyPanelTitle = isReviewMode ? "Strategy (Review Session)" : "Strategy (Live Session)";
         var rawStrategy = strategyEngine.Analyze(new StrategyInput(
             ActiveSession,
@@ -1935,6 +1954,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(OpponentTrendLabel));
         OnPropertyChanged(nameof(OpponentBattleStatusLabel));
         OnPropertyChanged(nameof(OpponentConfidenceLabel));
+        OnPropertyChanged(nameof(DriverCoachingPanelTitle));
+        OnPropertyChanged(nameof(DriverCoachingTrendLabel));
+        OnPropertyChanged(nameof(DriverCoachingBiggestWeaknessLabel));
+        OnPropertyChanged(nameof(DriverCoachingStrongestAreaLabel));
+        OnPropertyChanged(nameof(DriverCoachingConsistencyLabel));
+        OnPropertyChanged(nameof(DriverCoachingPreviousDeltaLabel));
+        OnPropertyChanged(nameof(DriverCoachingTopTargetsLabel));
         OnPropertyChanged(nameof(SessionMemoryLastSummaryLabel));
         OnPropertyChanged(nameof(SessionMemoryKnownWeaknessesLabel));
         OnPropertyChanged(nameof(SessionDebriefPreview));
@@ -2043,6 +2069,43 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         opponentConfidenceLabel = intelligence.Battle.Confidence.ToString();
     }
 
+    private void RefreshDriverCoaching()
+    {
+        driverCoachingPanelTitle = isReviewMode ? "Driver Coaching (Review Session)" : "Driver Coaching (Live Session)";
+        currentDriverCoaching = DriverCoachingIntelligenceService.Build(new DriverCoachingInput(
+            sessionDriverPerformance,
+            sessionAnalytics,
+            sessionLapIntelligence,
+            trackMemoryComparison,
+            previousStoredSessionMemory,
+            recentStoredSessionMemories,
+            cachedTrackGuide,
+            trackMemoryRecord,
+            liveRaceContext.CarClass));
+
+        if (currentDriverCoaching is not { HasData: true })
+        {
+            var unavailable = currentDriverCoaching;
+            driverCoachingTrendLabel = unavailable?.ProgressTrendSummary ?? SessionDriverPerformance.NeedCleanLapMessage;
+            driverCoachingBiggestWeaknessLabel = unavailable?.BiggestWeakness ?? unavailable?.Availability ?? SessionDriverPerformance.NeedCleanLapMessage;
+            driverCoachingStrongestAreaLabel = "-";
+            driverCoachingConsistencyLabel = unavailable?.ConsistencySummary ?? "-";
+            driverCoachingPreviousDeltaLabel = unavailable?.PreviousSessionDeltaSummary ?? "no previous session data";
+            driverCoachingTopTargetsLabel = "-";
+            return;
+        }
+
+        var coaching = currentDriverCoaching!;
+        driverCoachingTrendLabel = coaching.ProgressTrendSummary;
+        driverCoachingBiggestWeaknessLabel = coaching.BiggestWeakness ?? coaching.WeakestArea ?? "-";
+        driverCoachingStrongestAreaLabel = coaching.StrongestArea ?? "-";
+        driverCoachingConsistencyLabel = coaching.ConsistencySummary ?? "-";
+        driverCoachingPreviousDeltaLabel = coaching.PreviousSessionDeltaSummary ?? "no previous session data";
+        driverCoachingTopTargetsLabel = coaching.TopCoachingTargets.Count == 0
+            ? "-"
+            : string.Join(" | ", coaching.TopCoachingTargets);
+    }
+
     private async Task RefreshTrackMemoryAsync()
     {
         var track = liveRaceContext.TrackName ?? PrepTrack;
@@ -2089,7 +2152,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             sessionLapIntelligence,
             sessionTyreIntelligence,
             sessionStrategy,
-            sessionDriverPerformance);
+            sessionDriverPerformance,
+            currentOpponentIntelligence,
+            currentDriverCoaching);
         trackMemoryRecord = (await sessionMemoryService.PersistSessionAsync(
             storageService,
             trackMemoryService,
@@ -2306,7 +2371,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             recentStoredSessionMemories,
             cachedTrackGuide,
             currentStrategyKnowledge,
-            currentOpponentIntelligence);
+            currentOpponentIntelligence,
+            currentDriverCoaching);
     }
 
     private bool HasExternalResearchSources() =>
@@ -2332,7 +2398,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             sessionTyreIntelligence,
             sessionStrategy,
             sessionDriverPerformance,
-            currentOpponentIntelligence);
+            currentOpponentIntelligence,
+            currentDriverCoaching);
     }
 
     private async Task SaveMemorySummaryAsync()

@@ -52,7 +52,40 @@ public static class CoachQueryPhrases
         "what should i work on",
         "what to improve",
         "što trebam popraviti",
-        "sto trebam popraviti"
+        "sto trebam popraviti",
+        "what is my weakest point",
+        "weakest point",
+        "biggest weakness",
+        "am i improving",
+        "how is my consistency",
+        "what am i doing better than last time",
+        "better than last time"
+    ];
+
+    public static readonly string[] DriverCoaching =
+    [
+        "what should i improve",
+        "what should i work on",
+        "what to improve",
+        "where am i losing time",
+        "losing time",
+        "lose time",
+        "where am i losing",
+        "gdje gubim vrijeme",
+        "gdje gubim vreme",
+        "which sector",
+        "what sector",
+        "time loss",
+        "am i improving",
+        "how is my consistency",
+        "my consistency",
+        "what is my weakest point",
+        "weakest point",
+        "biggest weakness",
+        "what am i doing better than last time",
+        "better than last time",
+        "what am i doing better",
+        "compared to last session"
     ];
 
     public static readonly string[] RacePace =
@@ -355,6 +388,7 @@ public static class CoachQueryPhrases
             .Concat(Braking)
             .Concat(Throttle)
             .Concat(Improvement)
+            .Concat(DriverCoaching)
             .Concat(RacePace)
             .Concat(PushConfidence)
             .Concat(Tyre)

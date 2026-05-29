@@ -61,7 +61,8 @@ public sealed class SessionMemoryService
                 RaceResult: null,
                 DriverPerformance: input.DriverPerformance,
                 TrackGuide: null,
-                OpponentIntelligence: input.OpponentIntelligence),
+                OpponentIntelligence: input.OpponentIntelligence,
+                DriverCoaching: input.DriverCoaching),
             cancellationToken);
         return (trackMemory, summary);
     }

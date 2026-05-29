@@ -39,7 +39,8 @@ public sealed record CoachContext(
     IReadOnlyList<SessionMemorySummary>? RecentStoredSessionMemories = null,
     TrackGuide? CachedTrackGuide = null,
     Strategy.StrategyKnowledgeRecommendation? StrategyKnowledge = null,
-    OpponentIntelligenceRecommendation? OpponentIntelligence = null);
+    OpponentIntelligenceRecommendation? OpponentIntelligence = null,
+    DriverCoachingRecommendation? DriverCoaching = null);
 
 public sealed class CoachEngine : ICoachEngine
 {
@@ -122,6 +123,11 @@ public sealed class CoachEngine : ICoachEngine
         if (TryTrackGuideAnswer(userMessage, session, context, evidence) is { } trackGuideAnswer)
         {
             return trackGuideAnswer;
+        }
+
+        if (TryDriverCoachingAnswer(userMessage, session, context, evidence) is { } driverCoachingAnswer)
+        {
+            return driverCoachingAnswer;
         }
 
         switch (primaryTopic)
@@ -1385,6 +1391,57 @@ public sealed class CoachEngine : ICoachEngine
             || string.IsNullOrWhiteSpace(plan?.Track)
             || string.Equals(source.Track, plan.Track, StringComparison.OrdinalIgnoreCase);
         return categoryMatches && carMatches && trackMatches;
+    }
+
+    private static CoachMessage? TryDriverCoachingAnswer(
+        string userMessage,
+        SessionState session,
+        CoachContext? context,
+        CoachEvidenceBundle? evidence)
+    {
+        var text = userMessage.ToLowerInvariant();
+        if (!ContainsAny(text, CoachQueryPhrases.DriverCoaching))
+        {
+            return null;
+        }
+
+        var coaching = context?.DriverCoaching;
+        if (coaching is null && context?.DriverPerformance is { Availability: "Available" } performance)
+        {
+            coaching = DriverCoachingIntelligenceService.Build(new DriverCoachingInput(
+                performance,
+                context.Analytics,
+                null,
+                context.TrackMemoryComparison,
+                context.PreviousStoredSessionMemory,
+                context.RecentStoredSessionMemories,
+                context.CachedTrackGuide,
+                context.TrackMemory));
+        }
+
+        if (coaching is null || !coaching.HasData)
+        {
+            if (context?.DriverPerformance?.Availability == SessionDriverPerformance.NeedCleanLapMessage
+                || coaching?.Availability == SessionDriverPerformance.NeedCleanLapMessage)
+            {
+                return Unavailable(SessionDriverPerformance.NeedCleanLapMessage, "No valid completed lap with telemetry yet.");
+            }
+
+            return null;
+        }
+
+        var topic = CoachQueryTopicClassifier.ClassifyPrimary(userMessage);
+        var evidenceTopic = topic switch
+        {
+            CoachQueryTopic.LosingTime => CoachEvidenceTopic.LosingTime,
+            CoachQueryTopic.LapComparison => CoachEvidenceTopic.LapComparison,
+            _ => CoachEvidenceTopic.Improvement
+        };
+
+        return AttachEvidence(
+            new CoachMessage("coach", DriverCoachingAnswerBuilder.Build(userMessage, coaching), [], null, []),
+            evidence,
+            evidenceTopic);
     }
 
     private static CoachMessage AnswerDrivingTechniqueWithPerformance(

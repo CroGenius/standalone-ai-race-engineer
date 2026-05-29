@@ -18,7 +18,12 @@ public sealed record SessionMemorySummary(
     IReadOnlyList<string> MainTimeLossZones,
     IReadOnlyList<string> Incidents,
     IReadOnlyList<string> StrategyNotes,
-    IReadOnlyList<string> ImprovementTargets)
+    IReadOnlyList<string> ImprovementTargets,
+    string? StrongestSectorOrCorner = null,
+    string? WeakestSectorOrCorner = null,
+    IReadOnlyList<string>? RepeatedWeaknesses = null,
+    string? ProgressTrend = null,
+    IReadOnlyList<string>? TopCoachingTargets = null)
 {
     public string OneLineSummary =>
         $"Stored session data ({RecordedAt:yyyy-MM-dd}): best {SessionMemoryFormatting.FormatLapTime(BestLapSeconds)}, " +
@@ -48,7 +53,8 @@ public sealed record SessionMemoryBuildInput(
     Analytics.SessionTyreIntelligence? TyreIntelligence,
     Strategy.SessionStrategy? Strategy,
     Analytics.SessionDriverPerformance? DriverPerformance,
-    OpponentIntelligenceRecommendation? OpponentIntelligence = null);
+    OpponentIntelligenceRecommendation? OpponentIntelligence = null,
+    Coaching.DriverCoachingRecommendation? DriverCoaching = null);
 
 public static class SessionMemoryFormatting
 {

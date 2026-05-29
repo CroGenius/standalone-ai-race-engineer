@@ -376,6 +376,17 @@
                         <TextBlock Text="Confidence" /><TextBlock Text="{Binding OpponentConfidenceLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
                     </UniformGrid>
 
+                    <TextBlock Text="{Binding DriverCoachingPanelTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <UniformGrid Columns="2" Rows="6" Margin="0,0,0,8">
+                        <TextBlock Text="Current trend" /><TextBlock Text="{Binding DriverCoachingTrendLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Biggest weakness" /><TextBlock Text="{Binding DriverCoachingBiggestWeaknessLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Strongest area" /><TextBlock Text="{Binding DriverCoachingStrongestAreaLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Consistency" /><TextBlock Text="{Binding DriverCoachingConsistencyLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Previous session delta" /><TextBlock Text="{Binding DriverCoachingPreviousDeltaLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
+                    <TextBlock Text="Top 3 targets" Margin="0,0,0,2" />
+                    <TextBlock Text="{Binding DriverCoachingTopTargetsLabel}" TextWrapping="Wrap" Foreground="#9AA6AC" Margin="0,0,0,18" />
+
                     <TextBlock Text="Session Memory / Debrief" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2" Rows="3" Margin="0,0,0,8">
                         <TextBlock Text="Last stored summary" /><TextBlock Text="{Binding SessionMemoryLastSummaryLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />

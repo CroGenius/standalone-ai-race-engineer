@@ -171,6 +171,12 @@ CoachHistoricalLapComparisonUsesStoredData();
 DriverPerformanceIntelligenceComputesDeterministicInsights();
 CoachLosingTimeUsesPerformanceIntelligence();
 CoachPerformanceNeedsCleanLapWhenInsufficientData();
+DriverCoachingDetectsCurrentSessionImprovement();
+DriverCoachingComparesPreviousSession();
+DriverCoachingExtractsRepeatedWeaknesses();
+DriverCoachingBuildsTopThreeTargets();
+DriverCoachingNoDataFallback();
+EngineerAiContextIncludesDriverCoachingSummary();
 TelemetryTraceBuilderCreatesDeterministicTimeline();
 EndToEndFixtureReplayVerifiesPipeline();
 await ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint();
@@ -3369,7 +3375,7 @@ static void CoachPerformanceNeedsCleanLapWhenInsufficientData()
     var coach = new CoachEngine();
     var session = new SessionState();
     var performance = SessionDriverPerformance.Unavailable(SessionDriverPerformance.NeedCleanLapMessage);
-    var context = new CoachContext(DriverPerformance: performance);
+    var context = new CoachContext(DriverPerformance: performance, DriverCoaching: DriverCoachingRecommendation.Unavailable);
 
     var losingTime = coach.Answer(session, "gdje gubim vrijeme", context);
     var improvement = coach.Answer(session, "what should I improve", context);
@@ -3380,6 +3386,150 @@ static void CoachPerformanceNeedsCleanLapWhenInsufficientData()
     Assert(
         improvement.Content.Contains(SessionDriverPerformance.NeedCleanLapMessage, StringComparison.Ordinal),
         "Improvement answer should request a clean lap when performance data is unavailable.");
+}
+
+static void DriverCoachingDetectsCurrentSessionImprovement()
+{
+    var (session, performance, _) = SessionWithPerformanceContext();
+    var analytics = new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session, BuildLapIntelligenceSnapshots(session)));
+    var previous = new SessionMemorySummary(
+        Guid.NewGuid(),
+        "monza|gt3",
+        "Monza",
+        "GT3",
+        "Practice",
+        DateTimeOffset.UtcNow.AddDays(-1),
+        92.0,
+        93.5,
+        70,
+        2.5,
+        null,
+        null,
+        [],
+        [],
+        [],
+        [],
+        [],
+        []);
+    var coaching = DriverCoachingIntelligenceService.Build(new DriverCoachingInput(
+        performance,
+        analytics with
+        {
+            BestVsAverage = analytics.BestVsAverage with { AverageLapSeconds = 92.8 }
+        },
+        null,
+        null,
+        previous));
+
+    Assert(coaching.HasData, "Driver coaching should be available with valid laps.");
+    Assert(
+        coaching.ProgressTrend is DriverProgressTrend.Improving or DriverProgressTrend.Stable,
+        $"Expected improving/stable trend, got {coaching.ProgressTrend}.");
+}
+
+static void DriverCoachingComparesPreviousSession()
+{
+    var (session, performance, _) = SessionWithPerformanceContext();
+    var analytics = new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session, BuildLapIntelligenceSnapshots(session)));
+    var previous = new SessionMemorySummary(
+        Guid.NewGuid(),
+        "monza|gt3",
+        "Monza",
+        "GT3",
+        "Practice",
+        DateTimeOffset.UtcNow.AddDays(-2),
+        92.0,
+        93.0,
+        65,
+        2.5,
+        null,
+        null,
+        [],
+        [],
+        [],
+        [],
+        [],
+        []);
+    var coaching = DriverCoachingIntelligenceService.Build(new DriverCoachingInput(
+        performance,
+        analytics with { BestVsAverage = analytics.BestVsAverage with { AverageLapSeconds = 92.5 } },
+        null,
+        null,
+        previous));
+
+    Assert(
+        coaching.PreviousSessionDeltaSummary?.Contains("Monza", StringComparison.OrdinalIgnoreCase) == true,
+        "Previous session comparison should mention the track name.");
+    Assert(
+        coaching.PreviousSessionDeltaSummary?.Contains("faster", StringComparison.OrdinalIgnoreCase) == true
+            || coaching.PreviousSessionDeltaSummary?.Contains("slower", StringComparison.OrdinalIgnoreCase) == true
+            || coaching.PreviousSessionDeltaSummary?.Contains("matching", StringComparison.OrdinalIgnoreCase) == true,
+        "Previous session comparison should report pace direction.");
+}
+
+static void DriverCoachingExtractsRepeatedWeaknesses()
+{
+    var performance = SessionWithPerformanceContext().Performance with
+    {
+        MistakeClusters =
+        [
+            new MistakeCluster("abrupt brake release", 3, "Zone 2"),
+            new MistakeCluster("delayed throttle pickup", 2, "Zone 4")
+        ]
+    };
+    var memory = TrackMemoryRecord.Empty("monza|gt3", "Monza", "GT3") with
+    {
+        RepeatedWeaknesses = ["abrupt brake release in Zone 2"]
+    };
+    var coaching = DriverCoachingIntelligenceService.Build(new DriverCoachingInput(
+        performance,
+        TrackMemory: memory));
+
+    Assert(coaching.RepeatedWeaknesses.Count >= 2, "Repeated weaknesses should merge clusters and stored memory.");
+    Assert(
+        coaching.RepeatedWeaknesses.Any(item => item.Contains("brake", StringComparison.OrdinalIgnoreCase)),
+        "Repeated weaknesses should include braking pattern.");
+}
+
+static void DriverCoachingBuildsTopThreeTargets()
+{
+    var (session, performance, _) = SessionWithPerformanceContext();
+    var coaching = DriverCoachingIntelligenceService.Build(new DriverCoachingInput(performance));
+
+    Assert(coaching.TopCoachingTargets.Count > 0, "Top coaching targets should be generated.");
+    Assert(coaching.TopCoachingTargets.Count <= 3, "Top coaching targets should be capped at three.");
+}
+
+static void DriverCoachingNoDataFallback()
+{
+    var coaching = DriverCoachingRecommendation.Unavailable;
+    var answer = DriverCoachingAnswerBuilder.Build("what should I improve", coaching);
+
+    Assert(
+        answer.Contains(SessionDriverPerformance.NeedCleanLapMessage, StringComparison.Ordinal),
+        "Driver coaching answer should fall back when no data exists.");
+}
+
+static void EngineerAiContextIncludesDriverCoachingSummary()
+{
+    var (session, performance, context) = SessionWithPerformanceContext();
+    var coaching = DriverCoachingIntelligenceService.Build(new DriverCoachingInput(performance));
+    var enrichedContext = context with { DriverCoaching = coaching };
+    var evidence = new CoachEvidenceBuilder().Build(new CoachEvidenceInput(
+        session,
+        BuildLapIntelligenceSnapshots(session),
+        session.Events,
+        context.Analytics,
+        DriverPerformance: performance,
+        DriverCoaching: coaching));
+
+    var aiContext = EngineerAiContextBuilder.Build(session, "what should I improve", enrichedContext, evidence);
+
+    Assert(
+        aiContext.Facts.Any(fact =>
+            fact.Topic == "DriverCoaching"
+                && fact.Summary == "Coaching summary"),
+        "AI context should include driver coaching summary facts.");
 }
 
 static void TyreAnswerIncludesAllCornersOrUnavailableRear()

@@ -70,17 +70,18 @@ public sealed record CoachEvidenceInput(
     IReadOnlyList<SessionMemorySummary>? RecentStoredSessionMemories = null,
     Strategy.StrategyKnowledgeRecommendation? StrategyKnowledge = null,
     Knowledge.TrackGuide? CachedTrackGuide = null,
-    OpponentIntelligenceRecommendation? OpponentIntelligence = null);
+    OpponentIntelligenceRecommendation? OpponentIntelligence = null,
+    DriverCoachingRecommendation? DriverCoaching = null);
 
 public static class CoachEvidenceSelector
 {
     private static readonly IReadOnlyDictionary<CoachEvidenceTopic, string[]> TopicCategories = new Dictionary<CoachEvidenceTopic, string[]>
     {
-        [CoachEvidenceTopic.LosingTime] = ["Performance", "Sector", "LapComparison", "DeltaTrace", "LosingTime"],
+        [CoachEvidenceTopic.LosingTime] = ["Performance", "Sector", "LapComparison", "DeltaTrace", "LosingTime", "DriverCoaching"],
         [CoachEvidenceTopic.Braking] = ["Performance", "Braking", "Event"],
         [CoachEvidenceTopic.Throttle] = ["Performance", "Throttle", "Event"],
-        [CoachEvidenceTopic.Improvement] = ["Performance", "Improvement", "Analytics", "LapIntelligence", "TrackMemory"],
-        [CoachEvidenceTopic.LapComparison] = ["Performance", "LapComparison", "DeltaTrace", "Sector"],
+        [CoachEvidenceTopic.Improvement] = ["Performance", "Improvement", "Analytics", "LapIntelligence", "TrackMemory", "DriverCoaching"],
+        [CoachEvidenceTopic.LapComparison] = ["Performance", "LapComparison", "DeltaTrace", "Sector", "DriverCoaching"],
         [CoachEvidenceTopic.RacePace] = ["Pace", "Analytics", "LapIntelligence"],
         [CoachEvidenceTopic.Fuel] = ["Fuel", "Analytics", "Session"],
         [CoachEvidenceTopic.Strategy] = ["Strategy", "StrategyKnowledge"],

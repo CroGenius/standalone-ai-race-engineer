@@ -74,6 +74,7 @@ public sealed class CoachEvidenceBuilder
         AddKnowledgePackets(packets, input.KnowledgeSources);
         AddTrackGuidePackets(packets, input.CachedTrackGuide);
         AddOpponentIntelligencePackets(packets, input.OpponentIntelligence);
+        AddDriverCoachingPackets(packets, input.DriverCoaching);
 
         return new CoachEvidenceBundle(packets
             .OrderBy(packet => packet.Category, StringComparer.Ordinal)
@@ -1155,6 +1156,80 @@ public sealed class CoachEvidenceBuilder
             [],
             null,
             strategy.Summary));
+    }
+
+    private static void AddDriverCoachingPackets(
+        List<CoachEvidencePacket> packets,
+        DriverCoachingRecommendation? coaching)
+    {
+        if (coaching is not { HasData: true })
+        {
+            return;
+        }
+
+        packets.Add(new CoachEvidencePacket(
+            "DriverCoaching",
+            "Coaching summary",
+            "Info",
+            0.92,
+            CoachEvidenceSourceType.Analytics,
+            null,
+            [],
+            null,
+            coaching.Summary));
+
+        packets.Add(new CoachEvidencePacket(
+            "DriverCoaching",
+            "Progress trend",
+            coaching.ProgressTrend == DriverProgressTrend.Declining ? "Warning" : "Info",
+            0.88,
+            CoachEvidenceSourceType.Analytics,
+            null,
+            [],
+            null,
+            coaching.ProgressTrendSummary));
+
+        if (!string.IsNullOrWhiteSpace(coaching.PreviousSessionDeltaSummary))
+        {
+            packets.Add(new CoachEvidencePacket(
+                "DriverCoaching",
+                "Previous session comparison",
+                "Info",
+                0.86,
+                CoachEvidenceSourceType.Analytics,
+                null,
+                [],
+                null,
+                coaching.PreviousSessionDeltaSummary));
+        }
+
+        foreach (var weakness in coaching.RepeatedWeaknesses.Take(3))
+        {
+            packets.Add(new CoachEvidencePacket(
+                "DriverCoaching",
+                "Repeated weakness",
+                "Warning",
+                0.84,
+                CoachEvidenceSourceType.Analytics,
+                null,
+                [],
+                null,
+                weakness));
+        }
+
+        foreach (var target in coaching.TopCoachingTargets.Take(3))
+        {
+            packets.Add(new CoachEvidencePacket(
+                "DriverCoaching",
+                "Coaching target",
+                "Info",
+                0.90,
+                CoachEvidenceSourceType.Analytics,
+                null,
+                [],
+                null,
+                target));
+        }
     }
 
     private static string FormatDuration(TimeSpan? duration)

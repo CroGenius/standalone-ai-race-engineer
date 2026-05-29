@@ -174,7 +174,7 @@ public static class EngineerAiContextBuilder
             CoachQueryTopic.RacePace => packets.Where(LooksLikePacePacket),
             CoachQueryTopic.LosingTime or CoachQueryTopic.LapComparison => packets.Where(LooksLikeLapComparisonPacket),
             CoachQueryTopic.Improvement => packets.Where(packet =>
-                LooksLikeImprovementPacket(packet) || packet.Category == "TrackMemory"),
+                LooksLikeImprovementPacket(packet) || packet.Category == "TrackMemory" || packet.Category == "DriverCoaching"),
             CoachQueryTopic.Incidents => packets.Where(LooksLikeIncidentPacket),
             _ => packets.Where(packet => !LooksLikeFuelPacket(packet))
         };
@@ -293,7 +293,7 @@ public static class EngineerAiContextBuilder
         }
 
         var key = $"{packet.Category} {packet.Summary}".ToLowerInvariant();
-        return key.Contains("improvement") || key.Contains("weakness");
+        return key.Contains("improvement") || key.Contains("weakness") || key.Contains("drivercoaching");
     }
 
     private static bool LooksLikeIncidentPacket(CoachEvidencePacket packet)
