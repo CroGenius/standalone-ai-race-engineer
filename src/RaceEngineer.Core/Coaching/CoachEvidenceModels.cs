@@ -67,7 +67,9 @@ public sealed record CoachEvidenceInput(
     TrackMemoryRecord? TrackMemory = null,
     TrackMemoryComparison? TrackMemoryComparison = null,
     SessionMemorySummary? PreviousStoredSessionMemory = null,
-    IReadOnlyList<SessionMemorySummary>? RecentStoredSessionMemories = null);
+    IReadOnlyList<SessionMemorySummary>? RecentStoredSessionMemories = null,
+    Strategy.StrategyKnowledgeRecommendation? StrategyKnowledge = null,
+    Knowledge.TrackGuide? CachedTrackGuide = null);
 
 public static class CoachEvidenceSelector
 {
@@ -80,12 +82,12 @@ public static class CoachEvidenceSelector
         [CoachEvidenceTopic.LapComparison] = ["Performance", "LapComparison", "DeltaTrace", "Sector"],
         [CoachEvidenceTopic.RacePace] = ["Pace", "Analytics", "LapIntelligence"],
         [CoachEvidenceTopic.Fuel] = ["Fuel", "Analytics", "Session"],
-        [CoachEvidenceTopic.Strategy] = ["Strategy"],
+        [CoachEvidenceTopic.Strategy] = ["Strategy", "StrategyKnowledge"],
         [CoachEvidenceTopic.Tyres] = ["Tyre", "TyreIntelligence"],
         [CoachEvidenceTopic.Incidents] = ["Incident", "Event"],
         [CoachEvidenceTopic.SetupNotes] = ["Knowledge"],
         [CoachEvidenceTopic.RaceAwareness] = ["RaceAwareness", "Session"],
-        [CoachEvidenceTopic.TrackMemory] = ["TrackMemory", "Knowledge"]
+        [CoachEvidenceTopic.TrackMemory] = ["TrackMemory", "Knowledge", "TrackGuide"]
     };
 
     public static IReadOnlyList<CoachEvidencePacket> Select(

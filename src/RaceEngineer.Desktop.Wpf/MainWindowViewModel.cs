@@ -50,6 +50,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private PushToTalkHotkey pushToTalkHotkey;
     private readonly StorageService storageService;
     private readonly StoredResearchService researchService;
+    private TrackResearchService trackResearchService;
     private readonly SessionState session = new();
     private SessionState? reviewSession;
     private IReadOnlyList<TelemetrySnapshot> reviewSnapshots = [];
@@ -132,6 +133,22 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string sessionMemoryLastSummaryLabel = "No stored session summary yet.";
     private string sessionMemoryKnownWeaknessesLabel = "-";
     private string sessionDebriefPreview = "Generate a debrief from the current session data.";
+    private TrackGuide? cachedTrackGuide;
+    private string? lastEnsuredTrackGuideKey;
+    private string trackResearchDetectedTrackLabel = "unavailable";
+    private string trackGuideAvailableLabel = "no";
+    private string trackGuideLastFetchedLabel = "-";
+    private string trackGuideSourceCountLabel = "0";
+    private string trackGuideBrakingZonesLabel = "-";
+    private string trackGuideTractionZonesLabel = "-";
+    private string trackGuideKeyCornersLabel = "-";
+    private string trackGuideSetupNotesLabel = "-";
+    private StrategyKnowledgeRecommendation? currentStrategyKnowledge;
+    private string strategyKnowledgeTrackLabel = "unavailable";
+    private string strategyKnowledgeCarClassLabel = "unavailable";
+    private string strategyKnowledgeRecommendedFuelLabel = "-";
+    private string strategyKnowledgeConfidenceLabel = "-";
+    private string strategyKnowledgeSourceLabel = "unavailable";
     private string raceAwarenessPanelTitle = "Race Awareness (Live Session)";
     private string raceTrackLabel = "-";
     private string raceCarLabel = "-";
@@ -211,6 +228,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         storageService = new StorageService(settings.DatabasePath);
         profilePreferencesService = new ProfilePreferencesService(storageService);
         researchService = new StoredResearchService(storageService);
+        trackResearchService = TrackResearchService.FromSettings(storageService, settings);
         sessionLabel = $"Session {session.SessionId}";
         SendChatCommand = new RelayCommand(SendChat, () => !string.IsNullOrWhiteSpace(ChatInput));
         SavePrepCommand = new RelayCommand(() => _ = SavePrepAsync());
@@ -237,6 +255,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         DeleteKnowledgeCommand = new RelayCommand(() => _ = DeleteKnowledgeAsync(), () => SelectedKnowledgeSource is not null);
         SaveMemorySummaryCommand = new RelayCommand(() => _ = SaveMemorySummaryAsync());
         GenerateDebriefCommand = new RelayCommand(GenerateSessionDebrief);
+        FetchTrackGuideCommand = new RelayCommand(() => _ = FetchTrackGuideAsync());
         receiver.PacketProcessed += OnPacketProcessed;
         receiver.SnapshotReceived += OnSnapshotReceived;
         foreach (var device in MicrophoneDeviceCatalog.ListDevices())
@@ -305,6 +324,19 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string SessionMemoryLastSummaryLabel => sessionMemoryLastSummaryLabel;
     public string SessionMemoryKnownWeaknessesLabel => sessionMemoryKnownWeaknessesLabel;
     public string SessionDebriefPreview => sessionDebriefPreview;
+    public string TrackResearchDetectedTrackLabel => trackResearchDetectedTrackLabel;
+    public string TrackGuideAvailableLabel => trackGuideAvailableLabel;
+    public string TrackGuideLastFetchedLabel => trackGuideLastFetchedLabel;
+    public string TrackGuideSourceCountLabel => trackGuideSourceCountLabel;
+    public string TrackGuideBrakingZonesLabel => trackGuideBrakingZonesLabel;
+    public string TrackGuideTractionZonesLabel => trackGuideTractionZonesLabel;
+    public string TrackGuideKeyCornersLabel => trackGuideKeyCornersLabel;
+    public string TrackGuideSetupNotesLabel => trackGuideSetupNotesLabel;
+    public string StrategyKnowledgeTrackLabel => strategyKnowledgeTrackLabel;
+    public string StrategyKnowledgeCarClassLabel => strategyKnowledgeCarClassLabel;
+    public string StrategyKnowledgeRecommendedFuelLabel => strategyKnowledgeRecommendedFuelLabel;
+    public string StrategyKnowledgeConfidenceLabel => strategyKnowledgeConfidenceLabel;
+    public string StrategyKnowledgeSourceLabel => strategyKnowledgeSourceLabel;
 
     public string PerformancePanelTitle => performancePanelTitle;
     public string PerformanceBiggestLossLabel => performanceBiggestLossLabel;
@@ -509,6 +541,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public ICommand DeleteKnowledgeCommand { get; }
     public ICommand SaveMemorySummaryCommand { get; }
     public ICommand GenerateDebriefCommand { get; }
+    public ICommand FetchTrackGuideCommand { get; }
 
     public string TelemetryStatus => isReviewMode
         ? "Review mode"
@@ -702,6 +735,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             await storageService.InitializeAsync();
             userPreferences = await profilePreferencesService.LoadAsync(appSettings);
             appSettings = ProfilePreferencesService.MergeAppSettings(appSettings, userPreferences);
+            trackResearchService = TrackResearchService.FromSettings(storageService, appSettings);
             BindPreferencesToView(userPreferences);
             ApplyUserPreferences();
             await storageService.CreateSessionAsync(session.SessionId, session.StartedAt);
@@ -939,7 +973,42 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             trackMemoryRecord,
             trackMemoryComparison,
             previousStoredSessionMemory,
-            recentStoredSessionMemories));
+            recentStoredSessionMemories,
+            currentStrategyKnowledge,
+            cachedTrackGuide));
+    }
+
+    private void RefreshStrategyKnowledge()
+    {
+        currentStrategyKnowledge = StrategyKnowledgeService.Build(new StrategyKnowledgeInput(
+            liveRaceContext.TrackName ?? PrepTrack,
+            liveRaceContext.CarName ?? PrepCar,
+            liveRaceContext.CarClass,
+            liveRaceContext.SessionType ?? PrepSessionType,
+            liveRaceContext.TotalLaps ?? liveRaceContext.LapsRemaining,
+            ActiveSession,
+            sessionAnalytics,
+            sessionStrategy,
+            sessionTyreIntelligence,
+            trackMemoryRecord,
+            previousStoredSessionMemory,
+            cachedTrackGuide,
+            CurrentPrepPlan(),
+            userPreferences.Strategy.FuelSafetyMarginLaps));
+
+        strategyKnowledgeTrackLabel = string.IsNullOrWhiteSpace(currentStrategyKnowledge.TrackName)
+            ? "unavailable"
+            : currentStrategyKnowledge.TrackName;
+        strategyKnowledgeCarClassLabel = string.IsNullOrWhiteSpace(currentStrategyKnowledge.CarClass)
+            ? (string.IsNullOrWhiteSpace(currentStrategyKnowledge.CarName) ? "unavailable" : currentStrategyKnowledge.CarName)
+            : $"{currentStrategyKnowledge.CarName ?? "unknown car"} / {currentStrategyKnowledge.CarClass}";
+        strategyKnowledgeRecommendedFuelLabel = currentStrategyKnowledge.RecommendedStartingFuelLiters is { } fuel
+            ? StrategyKnowledgeFormatting.FormatLiters(fuel)
+            : currentStrategyKnowledge.ExpectedFuelPerLap is { } burn
+                ? $"{StrategyKnowledgeFormatting.FormatLiters(burn)}/lap"
+                : "-";
+        strategyKnowledgeConfidenceLabel = currentStrategyKnowledge.ConfidenceLabel;
+        strategyKnowledgeSourceLabel = currentStrategyKnowledge.SourceLabel;
     }
 
     private void AppendCoachChatLines(CoachMessage answer)
@@ -1551,9 +1620,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private async Task RefreshKnowledgeAsync()
     {
+        var track = EmptyToNull(liveRaceContext.TrackName) ?? EmptyToNull(PrepTrack);
         var sources = await storageService.ListKnowledgeSourcesAsync(
             EmptyToNull(PrepCar),
-            EmptyToNull(PrepTrack),
+            track,
             EmptyToNull(PrepSessionType),
             null);
         SetKnowledgeSources(sources);
@@ -1754,6 +1824,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             ? strategy.TyreRisk.Availability
             : $"{strategy.TyreRisk.RiskLevel} ({strategy.TyreRisk.RiskScore0To100:0}/100)";
         strategySummary = strategy.Summary;
+        RefreshStrategyKnowledge();
 
         _ = RefreshTrackMemoryAsync();
 
@@ -1840,6 +1911,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(SessionMemoryLastSummaryLabel));
         OnPropertyChanged(nameof(SessionMemoryKnownWeaknessesLabel));
         OnPropertyChanged(nameof(SessionDebriefPreview));
+        OnPropertyChanged(nameof(TrackResearchDetectedTrackLabel));
+        OnPropertyChanged(nameof(TrackGuideAvailableLabel));
+        OnPropertyChanged(nameof(TrackGuideLastFetchedLabel));
+        OnPropertyChanged(nameof(TrackGuideSourceCountLabel));
+        OnPropertyChanged(nameof(TrackGuideBrakingZonesLabel));
+        OnPropertyChanged(nameof(TrackGuideTractionZonesLabel));
+        OnPropertyChanged(nameof(TrackGuideKeyCornersLabel));
+        OnPropertyChanged(nameof(TrackGuideSetupNotesLabel));
         OnPropertyChanged(nameof(PerformancePanelTitle));
         OnPropertyChanged(nameof(PerformanceBiggestLossLabel));
         OnPropertyChanged(nameof(PerformanceMainWeaknessLabel));
@@ -1854,6 +1933,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(StrategyPitRecommendation));
         OnPropertyChanged(nameof(StrategyTyreRisk));
         OnPropertyChanged(nameof(StrategySummary));
+        OnPropertyChanged(nameof(StrategyKnowledgeTrackLabel));
+        OnPropertyChanged(nameof(StrategyKnowledgeCarClassLabel));
+        OnPropertyChanged(nameof(StrategyKnowledgeRecommendedFuelLabel));
+        OnPropertyChanged(nameof(StrategyKnowledgeConfidenceLabel));
+        OnPropertyChanged(nameof(StrategyKnowledgeSourceLabel));
         OnPropertyChanged(nameof(SessionModeLabel));
         OnPropertyChanged(nameof(StrategyConfidenceLabel));
         OnPropertyChanged(nameof(EngineerModeLabel));
@@ -1898,6 +1982,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         var track = liveRaceContext.TrackName ?? PrepTrack;
         var car = liveRaceContext.CarName ?? PrepCar;
+        if (!string.IsNullOrWhiteSpace(track))
+        {
+            await RefreshTrackResearchAsync(track);
+        }
+
         if (string.IsNullOrWhiteSpace(track) || string.IsNullOrWhiteSpace(car))
         {
             return;
@@ -1912,6 +2001,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         raceMemoryPreviousAverageLabel = trackMemoryRecord?.AverageCleanLapSeconds is { } average
             ? TrackMemoryService.FormatLapTime(average)
             : "no stored history";
+        Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
+        RefreshStrategyKnowledge();
         Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
     }
 
@@ -1941,6 +2032,76 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             summaryMarkdown)).TrackMemory;
         trackMemoryComparison = trackMemoryService.Compare(trackMemoryRecord, session, sessionAnalytics);
         await RefreshStoredSessionMemoryAsync(track, car);
+        await RefreshTrackResearchAsync(track);
+    }
+
+    private async Task RefreshTrackResearchAsync(string track)
+    {
+        trackResearchDetectedTrackLabel = string.IsNullOrWhiteSpace(track) ? "unavailable" : track;
+        if (string.IsNullOrWhiteSpace(track))
+        {
+            cachedTrackGuide = null;
+            UpdateTrackResearchLabels();
+            Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
+            return;
+        }
+
+        var cached = await trackResearchService.GetCachedGuideAsync(track);
+        cachedTrackGuide = cached.Guide;
+        var trackKey = TrackGuide.NormalizeTrackKey(track);
+        if (trackResearchService.Options.Enabled
+            && !string.Equals(lastEnsuredTrackGuideKey, trackKey, StringComparison.Ordinal))
+        {
+            var researchContext = new TrackResearchContext(sessionContextAssessment.Activity, isReviewMode);
+            if (!researchContext.IsActiveDriving || trackResearchService.Options.AllowTrackResearchDuringDriving)
+            {
+                var ensured = await trackResearchService.EnsureGuideCachedAsync(track, researchContext);
+                if (ensured.Guide is not null)
+                {
+                    cachedTrackGuide = ensured.Guide;
+                    lastEnsuredTrackGuideKey = trackKey;
+                    await RefreshKnowledgeAsync();
+                }
+            }
+        }
+
+        UpdateTrackResearchLabels();
+        Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
+    }
+
+    private void UpdateTrackResearchLabels()
+    {
+        trackGuideAvailableLabel = cachedTrackGuide is null ? "no" : "yes";
+        trackGuideLastFetchedLabel = cachedTrackGuide?.LastUpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? "-";
+        trackGuideSourceCountLabel = cachedTrackGuide?.SourceCount.ToString(CultureInfo.InvariantCulture) ?? "0";
+        trackGuideBrakingZonesLabel = FormatProfileItems(cachedTrackGuide?.MajorBrakingZones ?? []);
+        trackGuideTractionZonesLabel = FormatProfileItems(cachedTrackGuide?.TractionZones ?? []);
+        trackGuideKeyCornersLabel = cachedTrackGuide is null
+            ? "-"
+            : TrackGuideFormatter.FormatCornerList(cachedTrackGuide.Corners);
+        trackGuideSetupNotesLabel = FormatProfileItems(cachedTrackGuide?.SetupPriorities ?? []);
+    }
+
+    private async Task FetchTrackGuideAsync()
+    {
+        var track = liveRaceContext.TrackName ?? PrepTrack;
+        if (string.IsNullOrWhiteSpace(track))
+        {
+            ChatMessages.Add("Coach: Track must be detected before fetching a track guide.");
+            return;
+        }
+
+        var result = await trackResearchService.FetchGuideAsync(track);
+        if (result.Guide is not null)
+        {
+            cachedTrackGuide = result.Guide;
+            lastEnsuredTrackGuideKey = TrackGuide.NormalizeTrackKey(track);
+            UpdateTrackResearchLabels();
+            await RefreshKnowledgeAsync();
+        }
+
+        ChatMessages.Add($"Coach: {result.Message ?? "Track guide refresh completed."}");
+        Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
     }
 
     private void UpdateSessionContext()
@@ -2065,7 +2226,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             LoadedSessionSummary,
             CurrentPrepPlan(),
             KnowledgeSources.Select(item => item.Source).ToArray(),
-            false,
+            HasExternalResearchSources(),
             userPreferences.Coach,
             sessionContextAssessment,
             sessionTyreIntelligence,
@@ -2077,8 +2238,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             trackMemoryRecord,
             trackMemoryComparison,
             previousStoredSessionMemory,
-            recentStoredSessionMemories);
+            recentStoredSessionMemories,
+            cachedTrackGuide,
+            currentStrategyKnowledge);
     }
+
+    private bool HasExternalResearchSources() =>
+        cachedTrackGuide is not null
+        || KnowledgeSources.Any(item => item.Source.SourceType == KnowledgeSourceTypes.Web);
 
     private SessionMemoryBuildInput? BuildSessionMemoryInput()
     {

@@ -143,6 +143,16 @@ SessionMemorySummaryBuildsFromFixtureLaps();
 await SessionMemoryRetrievalByTrackCar();
 SessionDebriefContainsStrengthsWeaknessesActions();
 CoachEvidenceIncludesStoredSessionMemoryWhenTrackCarMatch();
+await CachedTrackGuideLookupByTrack();
+await TrackGuideCacheRefresh();
+await TrackResearchDisabledProviderDoesNotFetchWeb();
+CoachUsesCachedTrackGuideWhenAvailable();
+TrackGuideNoGuideFallback();
+EngineerAiContextIncludesTrackGuideSummary();
+StrategyKnowledgeTenLapFuelFromLiveBurn();
+StrategyKnowledgeStoredCarFallback();
+StrategyKnowledgeClassBaselineFallback();
+StrategyKnowledgeMissingDataUnavailable();
 CoachRaceAwarenessMissingGapSaysUnavailable();
 CoachTrackIdentityRoutingDoesNotFallbackToPosition();
 RaceAwarenessRoutingDiagnosticsCoverTrackAndPosition();
@@ -2429,6 +2439,257 @@ static void CoachEvidenceIncludesStoredSessionMemoryWhenTrackCarMatch()
     Assert(
         answer.Content.Contains("Stored session data", StringComparison.OrdinalIgnoreCase),
         "Coach answer should label stored session data when historical memory exists.");
+}
+
+static async Task CachedTrackGuideLookupByTrack()
+{
+    var dbPath = Path.Combine(Path.GetTempPath(), $"race-engineer-track-guide-{Guid.NewGuid():N}.sqlite3");
+    var storage = new StorageService(dbPath);
+    await storage.InitializeAsync();
+    var options = new TrackResearchOptions(true, "web", false, 30);
+    var service = new TrackResearchService(storage, options);
+
+    var fetch = await service.FetchGuideAsync("Monza");
+    Assert(fetch.Guide is not null && fetch.Saved, "Track guide fetch should save a cached guide for Monza.");
+    Assert(fetch.Guide!.MajorBrakingZones.Count > 0, "Cached track guide should include braking zones.");
+
+    var cached = await service.GetCachedGuideAsync("Monza");
+    Assert(cached.Guide is not null && cached.FromCache, "Cached track guide lookup should return stored guide.");
+    Assert(cached.Guide!.TrackName.Contains("Monza", StringComparison.OrdinalIgnoreCase), "Cached guide should preserve track name.");
+}
+
+static async Task TrackResearchDisabledProviderDoesNotFetchWeb()
+{
+    var dbPath = Path.Combine(Path.GetTempPath(), $"race-engineer-track-guide-disabled-{Guid.NewGuid():N}.sqlite3");
+    var storage = new StorageService(dbPath);
+    await storage.InitializeAsync();
+    var service = new TrackResearchService(storage, TrackResearchOptions.Disabled);
+
+    var fetch = await service.FetchGuideAsync("Monza");
+    Assert(fetch.Guide is null, "Disabled track research should not fetch web guides.");
+    Assert(fetch.Message?.Contains("disabled", StringComparison.OrdinalIgnoreCase) == true, "Disabled fetch should explain why it did not run.");
+
+    var ensure = await service.EnsureGuideCachedAsync(
+        "Monza",
+        new TrackResearchContext(VehicleActivity.OnTrack, IsReviewMode: false));
+    Assert(ensure.Guide is null, "Disabled ensure should not create a cached guide.");
+}
+
+static void CoachUsesCachedTrackGuideWhenAvailable()
+{
+    var coach = new CoachEngine();
+    var session = new SessionState();
+    session.ApplySnapshot(Packet("""{"speed_kmh":180,"fuel":12.5,"track_name":"Monza"}"""), []);
+    Assert(TrackGuideWebCatalog.TryGetGuide("Monza", out var guide), "Fixture catalog should provide Monza guide.");
+
+    var answer = coach.Answer(
+        session,
+        "What should I watch for at Monza?",
+        new CoachContext(
+            RacePrepPlan: new RacePrepPlan(null, "Monza", "Practice", null, null, null, null, null, null, null),
+            ExternalResearchAvailable: true,
+            CachedTrackGuide: guide));
+
+    Assert(
+        answer.Content.Contains("Cached track guide", StringComparison.OrdinalIgnoreCase),
+        "Coach answer should label cached track guide data.");
+    Assert(
+        answer.Content.Contains("Turn 1", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("braking", StringComparison.OrdinalIgnoreCase),
+        "Coach answer should use cached track guide content.");
+    Assert(
+        answer.Content.Contains("Live telemetry", StringComparison.OrdinalIgnoreCase),
+        "Coach answer should combine cached track guide with live telemetry when available.");
+}
+
+static async Task TrackGuideCacheRefresh()
+{
+    var dbPath = Path.Combine(Path.GetTempPath(), $"race-engineer-track-guide-refresh-{Guid.NewGuid():N}.sqlite3");
+    var storage = new StorageService(dbPath);
+    await storage.InitializeAsync();
+    var service = new TrackResearchService(storage, new TrackResearchOptions(true, "web", false, 1));
+
+    var initial = await service.FetchGuideAsync("Monza");
+    Assert(initial.Guide is not null && initial.Saved, "Initial track guide refresh should save Monza.");
+
+    var stale = initial.Guide! with
+    {
+        FetchedAt = DateTimeOffset.UtcNow.AddDays(-10),
+        RefreshedAt = null
+    };
+    await new CachedTrackResearchService(storage).SaveGuideAsync(stale, KnowledgeSourceTypes.Web);
+    Assert(service.IsStale(stale), "Stale guide should exceed refresh threshold.");
+
+    var refreshed = await service.FetchGuideAsync("Monza", forceRefresh: true);
+    Assert(refreshed.Guide is not null && refreshed.Saved, "Forced refresh should save an updated guide.");
+    Assert(refreshed.Guide!.RefreshedAt is not null, "Refreshed guide should record refresh timestamp.");
+}
+
+static void TrackGuideNoGuideFallback()
+{
+    var coach = new CoachEngine();
+    var session = new SessionState();
+    session.ApplySnapshot(Packet("""{"speed_kmh":180,"fuel":12.5,"track_name":"Unknown Circuit"}"""), []);
+
+    var answer = coach.Answer(
+        session,
+        "How should I drive here?",
+        new CoachContext(
+            RacePrepPlan: new RacePrepPlan(null, "Unknown Circuit", "Practice", null, null, null, null, null, null, null),
+            ExternalResearchAvailable: false,
+            CachedTrackGuide: null));
+
+    Assert(
+        answer.Content.Contains("No stored track notes", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("unavailable", StringComparison.OrdinalIgnoreCase),
+        "Coach should fall back gracefully when no cached track guide exists.");
+}
+
+static void EngineerAiContextIncludesTrackGuideSummary()
+{
+    Assert(TrackGuideWebCatalog.TryGetGuide("Monza", out var guide), "Fixture catalog should provide Monza guide.");
+    var session = new SessionState();
+    session.ApplySnapshot(Packet("""{"speed_kmh":180,"fuel":12.5,"track_name":"Monza"}"""), []);
+    var evidence = new CoachEvidenceBuilder().Build(new CoachEvidenceInput(
+        session,
+        CachedTrackGuide: guide));
+    var context = EngineerAiContextBuilder.Build(
+        session,
+        "What are the key corners?",
+        new CoachContext(CachedTrackGuide: guide),
+        evidence);
+
+    Assert(
+        context.Facts.Any(fact =>
+            fact.Topic == "TrackGuide"
+                || fact.Detail.Contains("Cached track guide", StringComparison.OrdinalIgnoreCase)
+                || fact.Detail.Contains("Key corners", StringComparison.OrdinalIgnoreCase)),
+        "AI context should include cached track guide summary packets.");
+}
+
+static void StrategyKnowledgeTenLapFuelFromLiveBurn()
+{
+    var engine = new EventEngine();
+    var session = new SessionState();
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":30.0,"track_name":"Monza","car_name":"GT3","car_class":"GT3"}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":90.0,"fuel":27.6,"track_name":"Monza","car_name":"GT3","car_class":"GT3"}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":27.6,"track_name":"Monza","car_name":"GT3","car_class":"GT3"}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":89.5,"fuel":25.2,"track_name":"Monza","car_name":"GT3","car_class":"GT3"}"""));
+
+    var recommendation = StrategyKnowledgeService.Build(
+        new StrategyKnowledgeInput(
+            "Monza",
+            "GT3",
+            "GT3",
+            "Race",
+            20,
+            session,
+            new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session)),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            1.0,
+            10),
+        "what fuel for 10 laps");
+
+    Assert(recommendation.FuelPerLapSource == StrategyKnowledgeDataSource.LiveTelemetry, "Ten-lap fuel recommendation should use live burn.");
+    Assert(recommendation.ExpectedFuelPerLap is > 0, "Live burn should produce fuel per lap.");
+    Assert(recommendation.RecommendedStartingFuelLiters is > 0, "Ten-lap recommendation should include total fuel.");
+    Assert(
+        recommendation.LiveFuelNote?.Contains("Based on your current burn", StringComparison.OrdinalIgnoreCase) == true,
+        "Live burn note should describe current burn based fuel need.");
+
+    var coach = new CoachEngine();
+    var answer = coach.Answer(
+        session,
+        "what fuel for 10 laps",
+        new CoachContext(
+            RaceContext: RaceContextService.Build(session, session.LatestSnapshot),
+            StrategyKnowledge: recommendation));
+    Assert(
+        answer.Content.Contains("Based on your current burn", StringComparison.OrdinalIgnoreCase),
+        "Coach fuel planning answer should include live burn adjustment.");
+}
+
+static void StrategyKnowledgeStoredCarFallback()
+{
+    var memory = TrackMemoryRecord.Empty("monza|gt3", "Monza", "GT3") with
+    {
+        FuelUsedPerLap = 2.35
+    };
+    var recommendation = StrategyKnowledgeService.Build(new StrategyKnowledgeInput(
+        "Monza",
+        "GT3",
+        "GT3",
+        "Race",
+        10,
+        new SessionState(),
+        null,
+        null,
+        null,
+        memory,
+        null,
+        null,
+        null,
+        1.0,
+        10));
+
+    Assert(recommendation.FuelPerLapSource == StrategyKnowledgeDataSource.StoredCar, "Stored car memory should provide fuel per lap.");
+    Assert(recommendation.ExpectedFuelPerLap == 2.35, "Stored car fuel per lap should be preserved.");
+}
+
+static void StrategyKnowledgeClassBaselineFallback()
+{
+    var recommendation = StrategyKnowledgeService.Build(new StrategyKnowledgeInput(
+        "Monza",
+        "Ferrari 488 GT3",
+        "GT3",
+        "Race",
+        10,
+        new SessionState(),
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        1.0,
+        10));
+
+    Assert(recommendation.FuelPerLapSource == StrategyKnowledgeDataSource.GenericClass, "Missing exact car history should fall back to class baseline.");
+    Assert(
+        recommendation.ClassBaselineNote?.Contains("GT3 baseline", StringComparison.OrdinalIgnoreCase) == true,
+        "Class fallback should label GT3 baseline usage.");
+}
+
+static void StrategyKnowledgeMissingDataUnavailable()
+{
+    var recommendation = StrategyKnowledgeService.Build(new StrategyKnowledgeInput(
+        null,
+        null,
+        null,
+        null,
+        null,
+        new SessionState(),
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        1.0,
+        10));
+
+    var coach = new CoachEngine();
+    var answer = coach.Answer(session: new SessionState(), "what fuel for 10 laps", new CoachContext(StrategyKnowledge: recommendation));
+    Assert(
+        answer.Content.Contains("unavailable", StringComparison.OrdinalIgnoreCase),
+        "Missing strategy data should return unavailable response.");
 }
 
 static async Task TrackMemoryRetrievalAndHistoricalComparison()

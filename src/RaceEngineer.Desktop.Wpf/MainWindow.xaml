@@ -408,7 +408,15 @@
                         <TextBlock Text="Tyre risk" /><TextBlock Text="{Binding StrategyTyreRisk}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
                     </UniformGrid>
                     <TextBlock Text="Strategy summary" Margin="0,0,0,2" />
-                    <TextBlock Text="{Binding StrategySummary}" TextWrapping="Wrap" Foreground="#9AA6AC" Margin="0,0,0,18" />
+                    <TextBlock Text="{Binding StrategySummary}" TextWrapping="Wrap" Foreground="#9AA6AC" Margin="0,0,0,8" />
+                    <TextBlock Text="Strategy Knowledge" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <UniformGrid Columns="2" Rows="5" Margin="0,0,0,18">
+                        <TextBlock Text="Track" /><TextBlock Text="{Binding StrategyKnowledgeTrackLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Car / class" /><TextBlock Text="{Binding StrategyKnowledgeCarClassLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Recommended fuel" /><TextBlock Text="{Binding StrategyKnowledgeRecommendedFuelLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Confidence" /><TextBlock Text="{Binding StrategyKnowledgeConfidenceLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Data source" /><TextBlock Text="{Binding StrategyKnowledgeSourceLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
 
                     <TextBlock Text="{Binding LapIntelligenceTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2" Rows="6" Margin="0,0,0,18">
@@ -445,6 +453,26 @@
                         <Button Content="Save Prep" Command="{Binding SavePrepCommand}" />
                         <Button Content="Load Prep" Command="{Binding LoadPrepCommand}" />
                     </UniformGrid>
+                    <TextBlock Text="Track Guide" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <UniformGrid Columns="2" Rows="4" Margin="0,0,0,8">
+                        <TextBlock Text="Detected track" /><TextBlock Text="{Binding TrackResearchDetectedTrackLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Guide available" /><TextBlock Text="{Binding TrackGuideAvailableLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Last update" /><TextBlock Text="{Binding TrackGuideLastFetchedLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Source count" /><TextBlock Text="{Binding TrackGuideSourceCountLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
+                    <Button Content="Refresh Guide"
+                            Command="{Binding FetchTrackGuideCommand}"
+                            HorizontalAlignment="Stretch"
+                            Padding="10,6"
+                            Margin="0,0,0,8" />
+                    <TextBlock Text="Braking zones" Margin="0,0,0,2" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding TrackGuideBrakingZonesLabel}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <TextBlock Text="Traction zones" Margin="0,0,0,2" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding TrackGuideTractionZonesLabel}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <TextBlock Text="Key corners" Margin="0,0,0,2" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding TrackGuideKeyCornersLabel}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <TextBlock Text="Setup notes" Margin="0,0,0,2" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding TrackGuideSetupNotesLabel}" TextWrapping="Wrap" Margin="0,0,0,18" />
                     <TextBlock Text="Track Knowledge" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2">
                         <TextBlock Text="Title" /><TextBox Text="{Binding KnowledgeTitle, UpdateSourceTrigger=PropertyChanged}" />

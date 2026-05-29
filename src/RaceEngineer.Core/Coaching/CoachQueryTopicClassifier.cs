@@ -24,7 +24,8 @@ public enum CoachQueryTopic
     RaceAwareness,
     TrackIdentity,
     CarIdentity,
-    TrackMemory
+    TrackMemory,
+    TrackGuide
 }
 
 public static class CoachQueryTopicClassifier
@@ -35,6 +36,11 @@ public static class CoachQueryTopicClassifier
     public static CoachQueryTopic ClassifyPrimary(string question)
     {
         var text = NormalizeQuery(question);
+
+        if (ContainsAny(text, CoachQueryPhrases.TrackGuide))
+        {
+            return CoachQueryTopic.TrackGuide;
+        }
 
         if (ContainsAny(text, CoachQueryPhrases.TrackMemory))
         {
@@ -189,6 +195,7 @@ public static class CoachQueryTopicClassifier
             CoachQueryTopic.TrackIdentity => CoachEvidenceTopic.RaceAwareness,
             CoachQueryTopic.CarIdentity => CoachEvidenceTopic.RaceAwareness,
             CoachQueryTopic.TrackMemory => CoachEvidenceTopic.TrackMemory,
+            CoachQueryTopic.TrackGuide => CoachEvidenceTopic.TrackMemory,
             _ => null
         };
 

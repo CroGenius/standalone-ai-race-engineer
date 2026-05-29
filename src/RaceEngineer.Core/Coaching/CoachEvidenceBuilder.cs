@@ -63,6 +63,7 @@ public sealed class CoachEvidenceBuilder
             null,
             events));
         AddStrategyPackets(packets, strategy);
+        AddStrategyKnowledgePackets(packets, input.StrategyKnowledge);
         AddRaceAwarenessPackets(packets, input.RaceContext);
         AddTrackMemoryPackets(packets, input.TrackMemory, input.TrackMemoryComparison);
         AddSessionMemorySummaryPackets(
@@ -71,6 +72,7 @@ public sealed class CoachEvidenceBuilder
             input.RecentStoredSessionMemories);
         AddTracePackets(packets, timeline);
         AddKnowledgePackets(packets, input.KnowledgeSources);
+        AddTrackGuidePackets(packets, input.CachedTrackGuide);
 
         return new CoachEvidenceBundle(packets
             .OrderBy(packet => packet.Category, StringComparer.Ordinal)
@@ -544,6 +546,55 @@ public sealed class CoachEvidenceBuilder
         }
     }
 
+    private static void AddTrackGuidePackets(List<CoachEvidencePacket> packets, TrackGuide? guide)
+    {
+        if (guide is null)
+        {
+            return;
+        }
+
+        packets.Add(new CoachEvidencePacket(
+            "TrackGuide",
+            "Track guide summary",
+            "Info",
+            0.90,
+            CoachEvidenceSourceType.Knowledge,
+            null,
+            [],
+            null,
+            TrackGuideFormatter.BuildAiSummary(guide)));
+        packets.Add(new CoachEvidencePacket(
+            "TrackGuide",
+            "Key corners",
+            "Info",
+            0.88,
+            CoachEvidenceSourceType.Knowledge,
+            null,
+            [],
+            null,
+            TrackGuideFormatter.BuildKeyCornersSummary(guide)));
+        packets.Add(new CoachEvidencePacket(
+            "TrackGuide",
+            "Tyre and fuel notes",
+            "Info",
+            0.86,
+            CoachEvidenceSourceType.Knowledge,
+            null,
+            [],
+            null,
+            TrackGuideFormatter.BuildTyreFuelAiNotes(guide)));
+        packets.Add(new CoachEvidencePacket(
+            "TrackGuide",
+            "Setup priorities",
+            "Info",
+            0.84,
+            CoachEvidenceSourceType.Knowledge,
+            null,
+            [],
+            null,
+            TrackGuideFormatter.BuildSetupPrioritiesSummary(guide)));
+    }
+
     private static void AddKnowledgePackets(List<CoachEvidencePacket> packets, IReadOnlyList<KnowledgeSource>? sources)
     {
         if (sources is null)
@@ -552,10 +603,28 @@ public sealed class CoachEvidenceBuilder
         }
 
         foreach (var source in sources
-                     .Where(item => string.Equals(item.Category, "setup", StringComparison.OrdinalIgnoreCase)
+                     .Where(item =>
+                         string.Equals(item.Category, "track", StringComparison.OrdinalIgnoreCase)
+                         || string.Equals(item.Category, "setup", StringComparison.OrdinalIgnoreCase)
+                         || item.Title.StartsWith(TrackGuideMapper.TitlePrefix, StringComparison.OrdinalIgnoreCase)
                          || item.Title.Contains("setup", StringComparison.OrdinalIgnoreCase))
-                     .Take(3))
+                     .Take(5))
         {
+            if (TrackGuideMapper.TryParse(source, out var guide))
+            {
+                packets.Add(new CoachEvidencePacket(
+                    "Knowledge",
+                    "Cached track guide",
+                    "Info",
+                    source.SourceType == KnowledgeSourceTypes.Web ? 0.88 : 0.82,
+                    CoachEvidenceSourceType.Knowledge,
+                    null,
+                    [],
+                    null,
+                    TrackGuideFormatter.ToCoachSummary(guide)));
+                continue;
+            }
+
             packets.Add(new CoachEvidencePacket(
                 "Knowledge",
                 source.Title,
@@ -793,6 +862,55 @@ public sealed class CoachEvidenceBuilder
                 [],
                 summary.BestLapSeconds,
                 summary.OneLineSummary));
+        }
+    }
+
+    private static void AddStrategyKnowledgePackets(
+        List<CoachEvidencePacket> packets,
+        StrategyKnowledgeRecommendation? recommendation)
+    {
+        if (recommendation is null || recommendation.OverallSource == StrategyKnowledgeDataSource.Unavailable)
+        {
+            return;
+        }
+
+        packets.Add(new CoachEvidencePacket(
+            "StrategyKnowledge",
+            "Track-car strategy knowledge",
+            "Info",
+            recommendation.FuelPerLapSource == StrategyKnowledgeDataSource.LiveTelemetry ? 0.92 : 0.82,
+            CoachEvidenceSourceType.Analytics,
+            null,
+            [],
+            recommendation.ExpectedFuelPerLap,
+            StrategyKnowledgeEvidenceFormatter.BuildSummary(recommendation)));
+
+        if (recommendation.RecommendedStartingFuelLiters is { } startingFuel)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "StrategyKnowledge",
+                "Recommended starting fuel",
+                "Info",
+                0.86,
+                CoachEvidenceSourceType.Analytics,
+                null,
+                [],
+                startingFuel,
+                $"Recommended starting fuel {startingFuel.ToString("0.0", CultureInfo.InvariantCulture)} L ({recommendation.SourceLabel}, confidence {recommendation.ConfidenceLabel})."));
+        }
+
+        if (!string.IsNullOrWhiteSpace(recommendation.PitWindowEstimate))
+        {
+            packets.Add(new CoachEvidencePacket(
+                "StrategyKnowledge",
+                "Strategy pit window",
+                "Info",
+                0.84,
+                CoachEvidenceSourceType.Analytics,
+                null,
+                [],
+                null,
+                recommendation.PitWindowEstimate));
         }
     }
 

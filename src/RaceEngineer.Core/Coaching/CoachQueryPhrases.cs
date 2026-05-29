@@ -167,6 +167,43 @@ public static class CoachQueryPhrases
         "what did i struggle"
     ];
 
+    public static readonly string[] TrackGuide =
+    [
+        "where can i push",
+        "where should i push",
+        "how should i drive this track",
+        "how should i drive here",
+        "how do i drive this track",
+        "what setup should i consider",
+        "setup should i consider",
+        "what should i watch on this track",
+        "what are the key corners",
+        "key corners",
+        "track guide",
+        "tell me about this track",
+        "about this track",
+        "track notes",
+        "watch for at"
+    ];
+
+    public static readonly string[] StrategyKnowledge =
+    [
+        "how much fuel should i take",
+        "how much fuel should i start",
+        "starting fuel",
+        "koliko goriva za",
+        "koliko goriva trebam",
+        "goriva za utrku",
+        "what fuel for",
+        "what strategy should i use",
+        "how hard can i push tyre",
+        "how hard can i push tire",
+        "how hard can i push gume",
+        "what is the plan for",
+        "plan for gt3",
+        "pre-race strategy"
+    ];
+
     public static readonly string[] Position =
     [
         "what is my position",
@@ -324,6 +361,8 @@ public static class CoachQueryPhrases
             .Concat(CarIdentity)
             .Concat(TrackMemory)
             .Concat(StoredSessionMemory)
+            .Concat(TrackGuide)
+            .Concat(StrategyKnowledge)
             .Concat(Fuel)
             .Concat(Strategy)
             .Concat(Pit)

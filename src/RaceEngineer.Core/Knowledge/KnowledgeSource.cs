@@ -66,6 +66,31 @@ public sealed record KnowledgeSource(
             sessionType,
             category);
     }
+
+    public static KnowledgeSource Web(
+        string title,
+        string content,
+        string? url = null,
+        string? track = null,
+        string? sessionType = null,
+        string? category = null,
+        string? confidenceNote = null,
+        DateTimeOffset? retrievedAt = null,
+        Guid? id = null)
+    {
+        return new KnowledgeSource(
+            id ?? Guid.NewGuid(),
+            KnowledgeSourceTypes.Web,
+            title,
+            url,
+            retrievedAt ?? DateTimeOffset.UtcNow,
+            content,
+            confidenceNote ?? "Cached web research; verify against current sim/track version.",
+            null,
+            track,
+            sessionType,
+            category);
+    }
 }
 
 public sealed record ResearchBrief(

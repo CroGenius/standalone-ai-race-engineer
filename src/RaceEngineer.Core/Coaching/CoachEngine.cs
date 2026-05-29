@@ -36,7 +36,9 @@ public sealed record CoachContext(
     TrackMemoryRecord? TrackMemory = null,
     TrackMemoryComparison? TrackMemoryComparison = null,
     SessionMemorySummary? PreviousStoredSessionMemory = null,
-    IReadOnlyList<SessionMemorySummary>? RecentStoredSessionMemories = null);
+    IReadOnlyList<SessionMemorySummary>? RecentStoredSessionMemories = null,
+    TrackGuide? CachedTrackGuide = null,
+    Strategy.StrategyKnowledgeRecommendation? StrategyKnowledge = null);
 
 public sealed class CoachEngine : ICoachEngine
 {
@@ -101,6 +103,24 @@ public sealed class CoachEngine : ICoachEngine
             {
                 return StoredSessionMemoryAnswer(userMessage, session, context, evidence);
             }
+        }
+
+        if (ContainsAny(text, "combine my telemetry", "driving data say versus", "telemetry with track notes", "data versus the track guide"))
+        {
+            return CombinedTelemetryKnowledgeAnswer(session, recentEvents, context);
+        }
+
+        if (ContainsAny(text, CoachQueryPhrases.StrategyKnowledge))
+        {
+            return AttachEvidence(
+                StrategyKnowledgeAnswer(userMessage, session, context),
+                evidence,
+                CoachEvidenceTopic.Strategy);
+        }
+
+        if (TryTrackGuideAnswer(userMessage, session, context, evidence) is { } trackGuideAnswer)
+        {
+            return trackGuideAnswer;
         }
 
         switch (primaryTopic)
@@ -188,13 +208,13 @@ public sealed class CoachEngine : ICoachEngine
                 return AttachEvidence(RecentMistakesAnswer(recentEvents), evidence, CoachEvidenceTopic.Incidents);
             case CoachQueryTopic.Pit:
             case CoachQueryTopic.Strategy:
-                return AttachEvidence(StrategyAnswer(evidence, context?.SessionContext), evidence, CoachEvidenceTopic.Strategy);
+                return AttachEvidence(EnrichStrategyWithKnowledge(StrategyAnswer(evidence, context?.SessionContext), context), evidence, CoachEvidenceTopic.Strategy);
             case CoachQueryTopic.FuelAmount:
-                return AttachEvidence(FuelAmountAnswer(session, recentEvents, context?.SessionContext), evidence, CoachEvidenceTopic.Fuel);
+                return AttachEvidence(EnrichFuelWithKnowledge(FuelAmountAnswer(session, recentEvents, context?.SessionContext), context), evidence, CoachEvidenceTopic.Fuel);
             case CoachQueryTopic.FuelConsumption:
                 return AttachEvidence(FuelConsumptionAnswer(session, context?.SessionContext), evidence, CoachEvidenceTopic.Fuel);
             case CoachQueryTopic.FuelStrategy:
-                return AttachEvidence(FuelStrategyAnswer(session, recentEvents, context?.SessionContext, evidence), evidence, CoachEvidenceTopic.Fuel);
+                return AttachEvidence(EnrichFuelWithKnowledge(FuelStrategyAnswer(session, recentEvents, context?.SessionContext, evidence), context), evidence, CoachEvidenceTopic.Fuel);
         }
 
         if (text.Contains("brake", StringComparison.Ordinal))
@@ -220,11 +240,6 @@ public sealed class CoachEngine : ICoachEngine
             return PreviousSessionAnswer(context);
         }
 
-        if (ContainsAny(text, "combine my telemetry", "driving data say versus", "telemetry with track notes", "data versus the track guide"))
-        {
-            return CombinedTelemetryKnowledgeAnswer(session, recentEvents, context);
-        }
-
         if (ContainsAny(text, "setup notes", "setup guide"))
         {
             return AttachEvidence(
@@ -236,11 +251,6 @@ public sealed class CoachEngine : ICoachEngine
         if (ContainsAny(text, "strategy notes", "strategy guide"))
         {
             return KnowledgeAnswer("Strategy notes", context, source => MatchesKnowledge(source, context, "strategy"), "No stored strategy notes are loaded. External research is unavailable in offline mode.");
-        }
-
-        if (ContainsAny(text, "tell me about this track", "about this track", "watch for at", "track guide", "track notes"))
-        {
-            return KnowledgeAnswer("Track notes", context, source => MatchesKnowledge(source, context, "track") || !string.IsNullOrWhiteSpace(source.Track), "No stored track notes are loaded. External research is unavailable in offline mode.");
         }
 
         if (ContainsAny(text, "tell me about this car", "about this car", "car guide"))
@@ -457,6 +467,63 @@ public sealed class CoachEngine : ICoachEngine
                 []),
             evidence,
             CoachEvidenceTopic.Improvement);
+    }
+
+    private static CoachMessage StrategyKnowledgeAnswer(
+        string query,
+        SessionState session,
+        CoachContext? context)
+    {
+        var recommendation = context?.StrategyKnowledge
+            ?? StrategyKnowledgeService.Build(StrategyKnowledgeService.FromCoachContext(context, session, query), query);
+        if (recommendation.OverallSource == StrategyKnowledgeDataSource.Unavailable && !recommendation.HasFuelEstimate)
+        {
+            return Unavailable(
+                "Strategy knowledge is unavailable for this track and car combination.",
+                recommendation.SourceLabel);
+        }
+
+        return Message(
+            StrategyKnowledgeService.BuildCoachAnswer(recommendation, query),
+            [
+                $"strategy source: {recommendation.SourceLabel}",
+                $"confidence: {recommendation.ConfidenceLabel}",
+                recommendation.ExpectedFuelPerLap is { } burn ? $"expected fuel per lap: {FormatNumber(burn, "0.00")} L" : "expected fuel per lap: unavailable"
+            ],
+            []);
+    }
+
+    private static CoachMessage EnrichStrategyWithKnowledge(CoachMessage message, CoachContext? context)
+    {
+        var recommendation = context?.StrategyKnowledge;
+        if (recommendation is null || recommendation.OverallSource == StrategyKnowledgeDataSource.Unavailable)
+        {
+            return message;
+        }
+
+        var suffix = StrategyKnowledgeEvidenceFormatter.BuildSummary(recommendation);
+        return Message($"{message.Content} {suffix}", [], message.GroundedEventIds);
+    }
+
+    private static CoachMessage EnrichFuelWithKnowledge(CoachMessage message, CoachContext? context)
+    {
+        var recommendation = context?.StrategyKnowledge;
+        if (recommendation is null)
+        {
+            return message;
+        }
+
+        if (!string.IsNullOrWhiteSpace(recommendation.LiveFuelNote))
+        {
+            return Message($"{message.Content} {recommendation.LiveFuelNote}", [], message.GroundedEventIds);
+        }
+
+        if (!string.IsNullOrWhiteSpace(recommendation.FuelForLapsNote))
+        {
+            return Message($"{message.Content} {recommendation.FuelForLapsNote}", [], message.GroundedEventIds);
+        }
+
+        return message;
     }
 
     private static SessionMemorySummary? ResolveStoredSessionMemory(CoachContext? context) =>
@@ -1135,8 +1202,126 @@ public sealed class CoachEngine : ICoachEngine
             parts.Add($"{Environment.NewLine}Stored track notes:{Environment.NewLine}{string.Join(Environment.NewLine, stored)}");
         }
 
-        parts.Add($"{Environment.NewLine}External research:{Environment.NewLine}{(web.Length > 0 ? string.Join(Environment.NewLine, web) : "- unavailable in offline mode")}");
+        parts.Add($"{Environment.NewLine}External research:{Environment.NewLine}{(web.Length > 0 ? string.Join(Environment.NewLine, web) : context?.ExternalResearchAvailable == true ? "- no cached web track guide loaded yet" : "- unavailable in offline mode")}");
         return new CoachMessage("coach", string.Join(Environment.NewLine, parts), [], null, []);
+    }
+
+    private static CoachMessage? TryTrackGuideAnswer(
+        string query,
+        SessionState session,
+        CoachContext? context,
+        CoachEvidenceBundle? evidence)
+    {
+        if (!ContainsAny(query.ToLowerInvariant(), CoachQueryPhrases.TrackGuide))
+        {
+            return null;
+        }
+
+        var guide = ResolveTrackGuide(context);
+        if (guide is null)
+        {
+            return AttachEvidence(
+                KnowledgeAnswer(
+                    "Track notes",
+                    context,
+                    source => MatchesKnowledge(source, context, "track") || !string.IsNullOrWhiteSpace(source.Track),
+                    "No stored track notes are loaded. External research is unavailable in offline mode."),
+                evidence,
+                CoachEvidenceTopic.TrackMemory);
+        }
+
+        var text = query.ToLowerInvariant();
+        var summary = text.Contains("key corner", StringComparison.Ordinal)
+            ? TrackGuideFormatter.BuildKeyCornersSummary(guide)
+            : text.Contains("push", StringComparison.Ordinal)
+            ? TrackGuideFormatter.BuildPushSummary(guide)
+            : text.Contains("setup", StringComparison.Ordinal)
+                ? TrackGuideFormatter.BuildSetupSummary(guide)
+                : text.Contains("drive", StringComparison.Ordinal)
+                    ? TrackGuideFormatter.BuildDrivingSummary(guide)
+                    : TrackGuideFormatter.BuildWatchSummary(guide);
+        var telemetry = BuildLiveTelemetryNotes(session, context);
+        var memoryNotes = BuildTrackGuideMemoryNotes(context);
+        const string label = "Cached track guide";
+        var content = $"{label} for {guide.TrackName}: {summary}";
+        if (memoryNotes.Count > 0)
+        {
+            content += $"{Environment.NewLine}Stored memory: {string.Join(" ", memoryNotes)}";
+        }
+
+        if (telemetry.Count > 0)
+        {
+            content += $"{Environment.NewLine}Live telemetry: {string.Join(" ", telemetry)}";
+        }
+
+        return AttachEvidence(
+            Message(content, [$"track guide: {guide.TrackName}", $"updated: {guide.LastUpdatedAt:yyyy-MM-dd}"], []),
+            evidence,
+            CoachEvidenceTopic.TrackMemory);
+    }
+
+    private static List<string> BuildTrackGuideMemoryNotes(CoachContext? context)
+    {
+        var notes = new List<string>();
+        if (context?.PreviousStoredSessionMemory is { } previous)
+        {
+            var weaknesses = previous.MainTimeLossZones
+                .Concat(previous.BrakingWeaknesses)
+                .Concat(previous.ThrottleWeaknesses)
+                .Concat(previous.ImprovementTargets)
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(2)
+                .ToArray();
+            if (weaknesses.Length > 0)
+            {
+                notes.Add($"session weaknesses: {string.Join(", ", weaknesses)}");
+            }
+        }
+
+        if (context?.TrackMemoryComparison is { HistoricalBestLapSeconds: { } previousBest, BestLapDeltaSeconds: { } delta })
+        {
+            notes.Add($"stored track best {TrackMemoryService.FormatLapTime(previousBest)} (delta {delta.ToString("0.000", CultureInfo.InvariantCulture)}s)");
+        }
+        else if (context?.TrackMemory?.BestLapSeconds is { } best)
+        {
+            notes.Add($"stored track best {TrackMemoryService.FormatLapTime(best)}");
+        }
+
+        return notes;
+    }
+
+    private static TrackGuide? ResolveTrackGuide(CoachContext? context)
+    {
+        if (context?.CachedTrackGuide is not null)
+        {
+            return context.CachedTrackGuide;
+        }
+
+        return TrackResearchService.ResolveGuideFromSources(context?.KnowledgeSources ?? []);
+    }
+
+    private static List<string> BuildLiveTelemetryNotes(SessionState session, CoachContext? context)
+    {
+        var notes = new List<string>();
+        if (session.LatestSnapshot?.Condition.Fuel is { } fuel)
+        {
+            notes.Add($"latest fuel {fuel.ToString("0.0", CultureInfo.InvariantCulture)} L");
+        }
+
+        if (context?.TyreIntelligence is { HasReliableData: true } tyre
+            && !string.IsNullOrWhiteSpace(tyre.CoachingMessage))
+        {
+            notes.Add(tyre.CoachingMessage);
+        }
+
+        if (context?.DriverPerformance is { Availability: "Available", MainWeakness: var weakness }
+            && !string.IsNullOrWhiteSpace(weakness))
+        {
+            notes.Add($"current weakness: {weakness}");
+        }
+
+        return notes;
     }
 
     private static CoachMessage CombinedTelemetryKnowledgeAnswer(SessionState session, IReadOnlyList<TelemetryEvent> events, CoachContext? context)

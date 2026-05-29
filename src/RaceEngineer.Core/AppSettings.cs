@@ -1,6 +1,7 @@
 using System.Text.Json;
 using RaceEngineer.Core.Profile;
 using RaceEngineer.Core.Voice;
+using RaceEngineer.Core.Knowledge;
 
 namespace RaceEngineer.Core;
 
@@ -32,7 +33,11 @@ public sealed record AppSettings(
     string AiEndpoint = "",
     int AiMaxResponseWords = 40,
     int AiTimeoutSeconds = 3,
-    string CoachResponseLanguage = "auto")
+    string CoachResponseLanguage = "auto",
+    bool TrackResearchEnabled = false,
+    string TrackResearchProvider = "disabled",
+    bool AllowTrackResearchDuringDriving = false,
+    int TrackGuideRefreshDays = 30)
 {
     public static AppSettings Default => new(
         "127.0.0.1",
@@ -62,7 +67,11 @@ public sealed record AppSettings(
         "",
         40,
         3,
-        "auto");
+        "auto",
+        false,
+        "disabled",
+        false,
+        30);
 
     public static AppSettingsLoadResult Load(string path)
     {
@@ -190,7 +199,11 @@ public sealed record AppSettings(
             AiEndpoint = string.IsNullOrWhiteSpace(settings.AiEndpoint) ? Default.AiEndpoint : settings.AiEndpoint.Trim(),
             AiMaxResponseWords = settings.AiMaxResponseWords is < 8 or > 120 ? Default.AiMaxResponseWords : settings.AiMaxResponseWords,
             AiTimeoutSeconds = settings.AiTimeoutSeconds is < 1 or > 30 ? Default.AiTimeoutSeconds : settings.AiTimeoutSeconds,
-            CoachResponseLanguage = UserPreferencesNormalizer.NormalizeLanguage(settings.CoachResponseLanguage)
+            CoachResponseLanguage = UserPreferencesNormalizer.NormalizeLanguage(settings.CoachResponseLanguage),
+            TrackResearchEnabled = settings.TrackResearchEnabled,
+            TrackResearchProvider = TrackResearchOptions.FromAppSettings(settings).Provider,
+            AllowTrackResearchDuringDriving = settings.AllowTrackResearchDuringDriving,
+            TrackGuideRefreshDays = TrackResearchOptions.FromAppSettings(settings).TrackGuideRefreshDays
         };
     }
 
