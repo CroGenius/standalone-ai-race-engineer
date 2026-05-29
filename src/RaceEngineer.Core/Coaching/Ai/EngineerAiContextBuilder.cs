@@ -159,7 +159,8 @@ public static class EngineerAiContextBuilder
             CoachQueryTopic.CarIdentity => packets.Where(packet =>
                 packet.Category == "RaceAwareness"
                     && packet.Summary.Equals("Car identity", StringComparison.Ordinal)),
-            CoachQueryTopic.RaceAwareness => packets.Where(packet => packet.Category == "RaceAwareness"),
+            CoachQueryTopic.RaceAwareness => packets.Where(packet =>
+                packet.Category is "RaceAwareness" or "OpponentIntelligence"),
             CoachQueryTopic.Position => packets.Where(packet =>
                 packet.Category == "RaceAwareness"
                     && packet.Summary.Equals("Race position", StringComparison.Ordinal)),

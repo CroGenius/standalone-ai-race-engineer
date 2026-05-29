@@ -362,6 +362,20 @@
                     <TextBlock Text="Race field diagnostics" Margin="0,0,0,2" />
                     <TextBlock Text="{Binding RaceFieldDiagnosticsLabel}" TextWrapping="Wrap" Foreground="#9AA6AC" Margin="0,0,0,18" />
 
+                    <TextBlock Text="Opponent Intelligence" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <UniformGrid Columns="2" Rows="5" Margin="0,0,0,8">
+                        <TextBlock Text="Position" /><TextBlock Text="{Binding OpponentPositionLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Car ahead" /><TextBlock Text="{Binding OpponentCarAheadLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Car behind" /><TextBlock Text="{Binding OpponentCarBehindLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Gap ahead" /><TextBlock Text="{Binding OpponentGapAheadLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Gap behind" /><TextBlock Text="{Binding OpponentGapBehindLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
+                    <UniformGrid Columns="2" Rows="3" Margin="0,0,0,18">
+                        <TextBlock Text="Trend" /><TextBlock Text="{Binding OpponentTrendLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Battle status" /><TextBlock Text="{Binding OpponentBattleStatusLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Confidence" /><TextBlock Text="{Binding OpponentConfidenceLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
+
                     <TextBlock Text="Session Memory / Debrief" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2" Rows="3" Margin="0,0,0,8">
                         <TextBlock Text="Last stored summary" /><TextBlock Text="{Binding SessionMemoryLastSummaryLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />

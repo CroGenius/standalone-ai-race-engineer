@@ -38,7 +38,8 @@ public sealed record CoachContext(
     SessionMemorySummary? PreviousStoredSessionMemory = null,
     IReadOnlyList<SessionMemorySummary>? RecentStoredSessionMemories = null,
     TrackGuide? CachedTrackGuide = null,
-    Strategy.StrategyKnowledgeRecommendation? StrategyKnowledge = null);
+    Strategy.StrategyKnowledgeRecommendation? StrategyKnowledge = null,
+    OpponentIntelligenceRecommendation? OpponentIntelligence = null);
 
 public sealed class CoachEngine : ICoachEngine
 {
@@ -299,7 +300,8 @@ public sealed class CoachEngine : ICoachEngine
             context?.RaceContext,
             routing,
             context?.RacePrepPlan?.Track,
-            context?.RacePrepPlan?.Car);
+            context?.RacePrepPlan?.Car,
+            context?.OpponentIntelligence);
         return ToRaceAwarenessCoachMessage(answer);
     }
 

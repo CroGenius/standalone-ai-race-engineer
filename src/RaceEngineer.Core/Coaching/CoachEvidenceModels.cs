@@ -69,7 +69,8 @@ public sealed record CoachEvidenceInput(
     SessionMemorySummary? PreviousStoredSessionMemory = null,
     IReadOnlyList<SessionMemorySummary>? RecentStoredSessionMemories = null,
     Strategy.StrategyKnowledgeRecommendation? StrategyKnowledge = null,
-    Knowledge.TrackGuide? CachedTrackGuide = null);
+    Knowledge.TrackGuide? CachedTrackGuide = null,
+    OpponentIntelligenceRecommendation? OpponentIntelligence = null);
 
 public static class CoachEvidenceSelector
 {
@@ -86,7 +87,7 @@ public static class CoachEvidenceSelector
         [CoachEvidenceTopic.Tyres] = ["Tyre", "TyreIntelligence"],
         [CoachEvidenceTopic.Incidents] = ["Incident", "Event"],
         [CoachEvidenceTopic.SetupNotes] = ["Knowledge"],
-        [CoachEvidenceTopic.RaceAwareness] = ["RaceAwareness", "Session"],
+        [CoachEvidenceTopic.RaceAwareness] = ["RaceAwareness", "Session", "OpponentIntelligence"],
         [CoachEvidenceTopic.TrackMemory] = ["TrackMemory", "Knowledge", "TrackGuide"]
     };
 

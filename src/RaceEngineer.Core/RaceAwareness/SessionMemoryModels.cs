@@ -47,7 +47,8 @@ public sealed record SessionMemoryBuildInput(
     Analytics.SessionLapIntelligence? LapIntelligence,
     Analytics.SessionTyreIntelligence? TyreIntelligence,
     Strategy.SessionStrategy? Strategy,
-    Analytics.SessionDriverPerformance? DriverPerformance);
+    Analytics.SessionDriverPerformance? DriverPerformance,
+    OpponentIntelligenceRecommendation? OpponentIntelligence = null);
 
 public static class SessionMemoryFormatting
 {

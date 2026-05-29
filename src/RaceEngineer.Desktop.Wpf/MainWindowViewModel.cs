@@ -143,6 +143,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string trackGuideTractionZonesLabel = "-";
     private string trackGuideKeyCornersLabel = "-";
     private string trackGuideSetupNotesLabel = "-";
+    private OpponentIntelligenceRecommendation? currentOpponentIntelligence;
+    private string opponentPositionLabel = "unavailable";
+    private string opponentCarAheadLabel = "-";
+    private string opponentCarBehindLabel = "-";
+    private string opponentGapAheadLabel = "-";
+    private string opponentGapBehindLabel = "-";
+    private string opponentTrendLabel = "-";
+    private string opponentBattleStatusLabel = "-";
+    private string opponentConfidenceLabel = "-";
     private StrategyKnowledgeRecommendation? currentStrategyKnowledge;
     private string strategyKnowledgeTrackLabel = "unavailable";
     private string strategyKnowledgeCarClassLabel = "unavailable";
@@ -320,6 +329,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string RaceFieldDiagnosticsLabel => raceFieldDiagnosticsLabel;
     public string RaceMemoryPreviousBestLabel => raceMemoryPreviousBestLabel;
     public string RaceMemoryPreviousAverageLabel => raceMemoryPreviousAverageLabel;
+
+    public string OpponentPositionLabel => opponentPositionLabel;
+    public string OpponentCarAheadLabel => opponentCarAheadLabel;
+    public string OpponentCarBehindLabel => opponentCarBehindLabel;
+    public string OpponentGapAheadLabel => opponentGapAheadLabel;
+    public string OpponentGapBehindLabel => opponentGapBehindLabel;
+    public string OpponentTrendLabel => opponentTrendLabel;
+    public string OpponentBattleStatusLabel => opponentBattleStatusLabel;
+    public string OpponentConfidenceLabel => opponentConfidenceLabel;
 
     public string SessionMemoryLastSummaryLabel => sessionMemoryLastSummaryLabel;
     public string SessionMemoryKnownWeaknessesLabel => sessionMemoryKnownWeaknessesLabel;
@@ -975,7 +993,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             previousStoredSessionMemory,
             recentStoredSessionMemories,
             currentStrategyKnowledge,
-            cachedTrackGuide));
+            cachedTrackGuide,
+            currentOpponentIntelligence));
     }
 
     private void RefreshStrategyKnowledge()
@@ -1908,6 +1927,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(RaceFieldDiagnosticsLabel));
         OnPropertyChanged(nameof(RaceMemoryPreviousBestLabel));
         OnPropertyChanged(nameof(RaceMemoryPreviousAverageLabel));
+        OnPropertyChanged(nameof(OpponentPositionLabel));
+        OnPropertyChanged(nameof(OpponentCarAheadLabel));
+        OnPropertyChanged(nameof(OpponentCarBehindLabel));
+        OnPropertyChanged(nameof(OpponentGapAheadLabel));
+        OnPropertyChanged(nameof(OpponentGapBehindLabel));
+        OnPropertyChanged(nameof(OpponentTrendLabel));
+        OnPropertyChanged(nameof(OpponentBattleStatusLabel));
+        OnPropertyChanged(nameof(OpponentConfidenceLabel));
         OnPropertyChanged(nameof(SessionMemoryLastSummaryLabel));
         OnPropertyChanged(nameof(SessionMemoryKnownWeaknessesLabel));
         OnPropertyChanged(nameof(SessionDebriefPreview));
@@ -1976,6 +2003,44 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         raceMemoryPreviousAverageLabel = trackMemoryRecord?.AverageCleanLapSeconds is { } average
             ? TrackMemoryService.FormatLapTime(average)
             : "no stored history";
+        RefreshOpponentIntelligence();
+    }
+
+    private void RefreshOpponentIntelligence()
+    {
+        currentOpponentIntelligence = OpponentIntelligenceService.Build(new OpponentIntelligenceInput(
+            liveRaceContext,
+            ActiveTraceSnapshots.Count > 0 ? ActiveTraceSnapshots.TakeLast(40).ToArray() : null,
+            cachedTrackGuide,
+            sessionStrategy,
+            trackMemoryRecord));
+
+        if (currentOpponentIntelligence is not { HasOpponentData: true } intelligence || intelligence.Current is null)
+        {
+            opponentPositionLabel = liveRaceContext.Position is { } position
+                ? liveRaceContext.TotalCars is { } total ? $"P{position}/{total}" : $"P{position}"
+                : "unavailable";
+            opponentCarAheadLabel = string.IsNullOrWhiteSpace(liveRaceContext.CarAhead) ? "-" : liveRaceContext.CarAhead;
+            opponentCarBehindLabel = string.IsNullOrWhiteSpace(liveRaceContext.CarBehind) ? "-" : liveRaceContext.CarBehind;
+            opponentGapAheadLabel = liveRaceContext.GapAheadSeconds is { } ahead ? $"{ahead:0.000}s" : "-";
+            opponentGapBehindLabel = liveRaceContext.GapBehindSeconds is { } behind ? $"{behind:0.000}s" : "-";
+            opponentTrendLabel = OpponentIntelligenceAnswerBuilder.UnavailableMessage;
+            opponentBattleStatusLabel = "unavailable";
+            opponentConfidenceLabel = "low";
+            return;
+        }
+
+        var current = intelligence.Current;
+        opponentPositionLabel = current.Position is { } pos
+            ? current.TotalCars is { } totalCars ? $"P{pos}/{totalCars}" : $"P{pos}"
+            : "unavailable";
+        opponentCarAheadLabel = string.IsNullOrWhiteSpace(current.CarAhead) ? "-" : current.CarAhead;
+        opponentCarBehindLabel = string.IsNullOrWhiteSpace(current.CarBehind) ? "-" : current.CarBehind;
+        opponentGapAheadLabel = current.GapAheadSeconds is { } gapAhead ? $"{gapAhead:0.000}s" : "-";
+        opponentGapBehindLabel = current.GapBehindSeconds is { } gapBehind ? $"{gapBehind:0.000}s" : "-";
+        opponentTrendLabel = intelligence.GapTrend.Summary;
+        opponentBattleStatusLabel = intelligence.Battle.StatusLabel;
+        opponentConfidenceLabel = intelligence.Battle.Confidence.ToString();
     }
 
     private async Task RefreshTrackMemoryAsync()
@@ -2240,7 +2305,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             previousStoredSessionMemory,
             recentStoredSessionMemories,
             cachedTrackGuide,
-            currentStrategyKnowledge);
+            currentStrategyKnowledge,
+            currentOpponentIntelligence);
     }
 
     private bool HasExternalResearchSources() =>
@@ -2265,7 +2331,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             sessionLapIntelligence,
             sessionTyreIntelligence,
             sessionStrategy,
-            sessionDriverPerformance);
+            sessionDriverPerformance,
+            currentOpponentIntelligence);
     }
 
     private async Task SaveMemorySummaryAsync()

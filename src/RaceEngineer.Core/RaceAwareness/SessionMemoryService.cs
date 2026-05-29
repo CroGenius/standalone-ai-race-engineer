@@ -59,7 +59,9 @@ public sealed class SessionMemoryService
                 input.Strategy,
                 sessionSummaryMarkdown,
                 RaceResult: null,
-                DriverPerformance: input.DriverPerformance),
+                DriverPerformance: input.DriverPerformance,
+                TrackGuide: null,
+                OpponentIntelligence: input.OpponentIntelligence),
             cancellationToken);
         return (trackMemory, summary);
     }

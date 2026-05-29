@@ -47,6 +47,9 @@ public sealed class TrackMemoryService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray() ?? [];
         var performancePatterns = BuildPerformancePatterns(input.DriverPerformance);
+        var battleUpdates = input.OpponentIntelligence is { HasOpponentData: true } intelligence
+            ? OpponentIntelligenceService.BuildBattleMemoryUpdates(intelligence, input.TrackGuide)
+            : [];
         var strategyNotes = new List<string>(existing.StrategyNotes);
         if (!string.IsNullOrWhiteSpace(input.Strategy?.Summary))
         {
@@ -67,6 +70,9 @@ public sealed class TrackMemoryService
             BrakingWeaknesses = MergeDistinct(existing.BrakingWeaknesses, brakingWeaknesses),
             ThrottleWeaknesses = MergeDistinct(existing.ThrottleWeaknesses, throttleWeaknesses),
             PerformanceWeaknessPatterns = MergeDistinct(existing.PerformanceWeaknessPatterns, performancePatterns).TakeLast(8).ToArray(),
+            OvertakeSuccessZones = MergeDistinct(existing.OvertakeSuccessZones, ExtractOvertakeZones(battleUpdates)).TakeLast(8).ToArray(),
+            DefensiveWeaknesses = MergeDistinct(existing.DefensiveWeaknesses, ExtractDefensiveNotes(battleUpdates)).TakeLast(8).ToArray(),
+            CommonBattleOutcomes = MergeDistinct(existing.CommonBattleOutcomes, battleUpdates).TakeLast(8).ToArray(),
             TyreWarmupNotes = input.TyreIntelligence?.TyreConditionMessage ?? existing.TyreWarmupNotes,
             FuelUsedPerLap = fuelPerLap ?? existing.FuelUsedPerLap,
             IncidentRate = incidentRate ?? existing.IncidentRate,
@@ -265,4 +271,16 @@ public sealed class TrackMemoryService
 
     private static string Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? "" : value.Trim().ToLowerInvariant();
+
+    private static IReadOnlyList<string> ExtractOvertakeZones(IReadOnlyList<string> battleUpdates) =>
+        battleUpdates
+            .Where(item => item.Contains("Attack", StringComparison.OrdinalIgnoreCase)
+                || item.Contains("Overtake", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+    private static IReadOnlyList<string> ExtractDefensiveNotes(IReadOnlyList<string> battleUpdates) =>
+        battleUpdates
+            .Where(item => item.Contains("Defensive", StringComparison.OrdinalIgnoreCase)
+                || item.Contains("Defend", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
 }

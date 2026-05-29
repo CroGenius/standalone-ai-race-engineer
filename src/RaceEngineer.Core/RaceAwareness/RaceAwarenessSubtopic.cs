@@ -9,6 +9,12 @@ public enum RaceAwarenessSubtopic
     GapBehind,
     SessionType,
     OpponentCount,
+    CatchingAhead,
+    PullingAway,
+    AttackOpportunity,
+    DefendRecommendation,
+    RaceSituation,
+    OpponentIdentity,
     RaceContext,
     HistoricalComparison
 }
@@ -61,6 +67,12 @@ public sealed record RaceAwarenessRoutingResult(
             RaceAwarenessSubtopic.GapBehind => ["gap_behind_s", "car_behind"],
             RaceAwarenessSubtopic.SessionType => ["session_type"],
             RaceAwarenessSubtopic.OpponentCount => ["total_cars", "position"],
+            RaceAwarenessSubtopic.CatchingAhead => ["gap_ahead_s", "car_ahead"],
+            RaceAwarenessSubtopic.PullingAway => ["gap_behind_s", "car_behind"],
+            RaceAwarenessSubtopic.AttackOpportunity => ["gap_ahead_s", "car_ahead"],
+            RaceAwarenessSubtopic.DefendRecommendation => ["gap_behind_s", "car_behind"],
+            RaceAwarenessSubtopic.RaceSituation => ["position", "gap_ahead_s", "gap_behind_s"],
+            RaceAwarenessSubtopic.OpponentIdentity => ["car_ahead", "car_behind", "gap_ahead_s", "gap_behind_s"],
             RaceAwarenessSubtopic.RaceContext =>
             [
                 "track_name",

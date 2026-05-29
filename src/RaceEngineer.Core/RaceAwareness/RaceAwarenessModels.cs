@@ -94,6 +94,9 @@ public sealed record TrackMemoryRecord(
     double? IncidentRate,
     IReadOnlyList<string> StrategyNotes,
     IReadOnlyList<string> PerformanceWeaknessPatterns,
+    IReadOnlyList<string> OvertakeSuccessZones,
+    IReadOnlyList<string> DefensiveWeaknesses,
+    IReadOnlyList<string> CommonBattleOutcomes,
     string? PreviousRaceResult,
     DateTimeOffset? LastSessionAt,
     IReadOnlyList<string> SessionSummaries)
@@ -111,6 +114,9 @@ public sealed record TrackMemoryRecord(
         null,
         null,
         null,
+        [],
+        [],
+        [],
         [],
         [],
         null,
@@ -144,4 +150,6 @@ public sealed record TrackMemoryInput(
     Strategy.SessionStrategy? Strategy,
     string? SessionSummaryMarkdown = null,
     string? RaceResult = null,
-    Analytics.SessionDriverPerformance? DriverPerformance = null);
+    Analytics.SessionDriverPerformance? DriverPerformance = null,
+    Knowledge.TrackGuide? TrackGuide = null,
+    OpponentIntelligenceRecommendation? OpponentIntelligence = null);

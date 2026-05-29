@@ -149,6 +149,13 @@ await TrackResearchDisabledProviderDoesNotFetchWeb();
 CoachUsesCachedTrackGuideWhenAvailable();
 TrackGuideNoGuideFallback();
 EngineerAiContextIncludesTrackGuideSummary();
+OpponentGapTrendGainingDetection();
+OpponentGapTrendLosingDetection();
+OpponentGapTrendStableDetection();
+OpponentAttackOpportunityDetection();
+OpponentDefendRecommendation();
+OpponentUnavailableTelemetryFallback();
+EngineerAiContextIncludesBattleSummary();
 StrategyKnowledgeTenLapFuelFromLiveBurn();
 StrategyKnowledgeStoredCarFallback();
 StrategyKnowledgeClassBaselineFallback();
@@ -2565,6 +2572,154 @@ static void EngineerAiContextIncludesTrackGuideSummary()
                 || fact.Detail.Contains("Cached track guide", StringComparison.OrdinalIgnoreCase)
                 || fact.Detail.Contains("Key corners", StringComparison.OrdinalIgnoreCase)),
         "AI context should include cached track guide summary packets.");
+}
+
+static IReadOnlyList<TelemetrySnapshot> BuildOpponentGapSnapshots(params (int lap, double gapAhead, double? gapBehind)[] points)
+{
+    var snapshots = new List<TelemetrySnapshot>();
+    var timestamp = DateTimeOffset.UtcNow;
+    foreach (var point in points)
+    {
+        var behind = point.gapBehind is { } gapBehind
+            ? $",\"gap_behind_s\":{gapBehind.ToString(CultureInfo.InvariantCulture)},\"car_behind\":\"Pilot B\""
+            : "";
+        snapshots.Add(PacketAt(
+            $"\"lap_number\":{point.lap},\"lap_progress\":0.50,\"position\":4,\"total_cars\":20,\"gap_ahead_s\":{point.gapAhead.ToString(CultureInfo.InvariantCulture)},\"car_ahead\":\"Pilot A\"{behind}",
+            timestamp));
+        timestamp = timestamp.AddSeconds(2);
+    }
+
+    return snapshots;
+}
+
+static LiveRaceContext BuildOpponentRaceContext(double? gapAhead, double? gapBehind, string? carAhead = "Pilot A", string? carBehind = "Pilot B") =>
+    new(
+        "Monza",
+        null,
+        "GT3",
+        "GT3",
+        "Race",
+        4,
+        20,
+        4,
+        20,
+        gapAhead,
+        gapBehind,
+        carAhead,
+        carBehind,
+        null,
+        null,
+        null,
+        null,
+        null,
+        RaceContextConfidence.Good,
+        new RaceFieldDiagnostics(["gap_ahead_s", "gap_behind_s"], [], "ok"));
+
+static void OpponentGapTrendGainingDetection()
+{
+    var snapshots = BuildOpponentGapSnapshots((1, 2.0, 3.0), (2, 1.8, 3.0), (3, 1.6, 3.0), (4, 1.4, 3.0), (5, 1.2, 3.0));
+    var trend = OpponentIntelligenceService.AnalyzeGapTrend(snapshots.Select(snapshot => new OpponentSnapshot(
+        snapshot.RaceAwareness?.Position,
+        snapshot.RaceAwareness?.TotalCars,
+        snapshot.RaceAwareness?.CarAhead,
+        snapshot.RaceAwareness?.CarBehind,
+        snapshot.RaceAwareness?.GapAheadSeconds,
+        snapshot.RaceAwareness?.GapBehindSeconds,
+        snapshot.RaceAwareness?.CurrentLap ?? snapshot.Lap.LapNumber)).ToArray());
+    Assert(trend.AheadDirection == GapTrendDirection.Gaining, "Gap ahead trend should classify as gaining.");
+    Assert(trend.GapAheadChangePerLapSeconds is < 0, "Gaining on car ahead should produce negative gap change.");
+}
+
+static void OpponentGapTrendLosingDetection()
+{
+    var snapshots = BuildOpponentGapSnapshots((1, 1.0, 2.0), (2, 1.2, 2.0), (3, 1.4, 2.0), (4, 1.6, 2.0), (5, 1.8, 2.0));
+    var trend = OpponentIntelligenceService.AnalyzeGapTrend(snapshots.Select(snapshot => new OpponentSnapshot(
+        4,
+        20,
+        "Pilot A",
+        "Pilot B",
+        snapshot.RaceAwareness?.GapAheadSeconds,
+        snapshot.RaceAwareness?.GapBehindSeconds,
+        snapshot.RaceAwareness?.CurrentLap ?? snapshot.Lap.LapNumber)).ToArray());
+    Assert(trend.AheadDirection == GapTrendDirection.Losing, "Gap ahead trend should classify as losing.");
+}
+
+static void OpponentGapTrendStableDetection()
+{
+    var snapshots = BuildOpponentGapSnapshots((1, 1.50, 2.0), (2, 1.51, 2.0), (3, 1.49, 2.0), (4, 1.50, 2.0), (5, 1.50, 2.0));
+    var trend = OpponentIntelligenceService.AnalyzeGapTrend(snapshots.Select(snapshot => new OpponentSnapshot(
+        4,
+        20,
+        "Pilot A",
+        "Pilot B",
+        snapshot.RaceAwareness?.GapAheadSeconds,
+        snapshot.RaceAwareness?.GapBehindSeconds,
+        snapshot.RaceAwareness?.CurrentLap ?? snapshot.Lap.LapNumber)).ToArray());
+    Assert(trend.AheadDirection == GapTrendDirection.Stable, "Small gap noise should classify as stable.");
+}
+
+static void OpponentAttackOpportunityDetection()
+{
+    TrackGuideWebCatalog.TryGetGuide("Monza", out var guide);
+    var recommendation = OpponentIntelligenceService.Build(new OpponentIntelligenceInput(
+        BuildOpponentRaceContext(1.2, 3.0),
+        BuildOpponentGapSnapshots((1, 1.8, 3.0), (2, 1.6, 3.0), (3, 1.4, 3.0), (4, 1.2, 3.0), (5, 1.0, 3.0)),
+        guide));
+    Assert(recommendation.Battle.Type == RaceBattleType.AttackOpportunity, "Closing gap inside 1.5s should detect attack opportunity.");
+    Assert(
+        recommendation.AttackZoneRecommendation?.Contains("Best opportunity", StringComparison.OrdinalIgnoreCase) == true,
+        "Attack recommendation should reference a cached track guide zone.");
+}
+
+static void OpponentDefendRecommendation()
+{
+    TrackGuideWebCatalog.TryGetGuide("Monza", out var guide);
+    var snapshots = BuildOpponentGapSnapshots((1, 3.0, 1.4), (2, 3.0, 1.2), (3, 3.0, 1.0), (4, 3.0, 0.8), (5, 3.0, 0.6));
+    var recommendation = OpponentIntelligenceService.Build(new OpponentIntelligenceInput(
+        BuildOpponentRaceContext(3.0, 0.6),
+        snapshots,
+        guide));
+    Assert(recommendation.Battle.Type == RaceBattleType.DefensiveSituation, "Closing gap behind should detect defensive situation.");
+    Assert(
+        recommendation.DefendZoneRecommendation?.Contains("Defend", StringComparison.OrdinalIgnoreCase) == true,
+        "Defensive recommendation should reference a track guide zone.");
+}
+
+static void OpponentUnavailableTelemetryFallback()
+{
+    var coach = new CoachEngine();
+    var session = new SessionState();
+    session.ApplySnapshot(Packet("""{"speed_kmh":180,"track_name":"Monza","position":4}"""), []);
+    var answer = coach.Answer(
+        session,
+        "Can I overtake?",
+        new CoachContext(
+            RaceContext: LiveRaceContext.Unavailable("missing"),
+            OpponentIntelligence: OpponentIntelligenceRecommendation.Unavailable));
+    Assert(
+        answer.Content.Contains(OpponentIntelligenceAnswerBuilder.UnavailableMessage, StringComparison.OrdinalIgnoreCase),
+        "Coach should report unavailable opponent telemetry instead of inventing gaps.");
+}
+
+static void EngineerAiContextIncludesBattleSummary()
+{
+    var recommendation = OpponentIntelligenceService.Build(new OpponentIntelligenceInput(
+        BuildOpponentRaceContext(1.1, 2.5),
+        BuildOpponentGapSnapshots((1, 1.8, 2.5), (2, 1.6, 2.5), (3, 1.4, 2.5), (4, 1.2, 2.5), (5, 1.1, 2.5))));
+    var session = new SessionState();
+    session.ApplySnapshot(Packet("""{"speed_kmh":180,"track_name":"Monza","position":4,"gap_ahead_s":1.1,"gap_behind_s":2.5}"""), []);
+    var evidence = new CoachEvidenceBuilder().Build(new CoachEvidenceInput(
+        session,
+        RaceContext: BuildOpponentRaceContext(1.1, 2.5),
+        OpponentIntelligence: recommendation));
+    var context = EngineerAiContextBuilder.Build(
+        session,
+        "What is my race situation?",
+        new CoachContext(RaceContext: BuildOpponentRaceContext(1.1, 2.5), OpponentIntelligence: recommendation),
+        evidence);
+    Assert(
+        context.Facts.Any(fact => fact.Topic == "OpponentIntelligence" || fact.Detail.Contains("attack", StringComparison.OrdinalIgnoreCase) || fact.Detail.Contains("gap", StringComparison.OrdinalIgnoreCase)),
+        "AI context should include opponent battle summary packets.");
 }
 
 static void StrategyKnowledgeTenLapFuelFromLiveBurn()

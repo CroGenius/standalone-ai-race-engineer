@@ -41,9 +41,7 @@ public static class RaceAwarenessQueryClassifier
     [
         "gap ahead",
         "car ahead",
-        "who is ahead",
-        "closing on",
-        "am i gaining"
+        "who is ahead"
     ];
 
     private static readonly string[] GapBehindPhrases =
@@ -51,6 +49,51 @@ public static class RaceAwarenessQueryClassifier
         "gap behind",
         "car behind",
         "who is behind"
+    ];
+
+    private static readonly string[] CatchingPhrases =
+    [
+        "am i catching",
+        "catching the car ahead",
+        "closing on",
+        "am i gaining on"
+    ];
+
+    private static readonly string[] PullingAwayPhrases =
+    [
+        "am i pulling away",
+        "pulling away",
+        "am i losing ground"
+    ];
+
+    private static readonly string[] AttackPhrases =
+    [
+        "can i overtake",
+        "where should i attack",
+        "where can i attack",
+        "should i overtake"
+    ];
+
+    private static readonly string[] DefendPhrases =
+    [
+        "should i defend",
+        "where should i defend",
+        "where can i defend",
+        "do i need to defend"
+    ];
+
+    private static readonly string[] RaceSituationPhrases =
+    [
+        "what is my race situation",
+        "race situation",
+        "who am i racing"
+    ];
+
+    private static readonly string[] OpponentIdentityPhrases =
+    [
+        "who is ahead",
+        "who is behind",
+        "who am i racing against"
     ];
 
     private static readonly string[] SessionTypePhrases =
@@ -127,6 +170,36 @@ public static class RaceAwarenessQueryClassifier
         if (IsCarIdentityQuery(text))
         {
             return RaceAwarenessSubtopic.CarIdentity;
+        }
+
+        if (ContainsAny(text, AttackPhrases))
+        {
+            return RaceAwarenessSubtopic.AttackOpportunity;
+        }
+
+        if (ContainsAny(text, DefendPhrases))
+        {
+            return RaceAwarenessSubtopic.DefendRecommendation;
+        }
+
+        if (ContainsAny(text, CatchingPhrases))
+        {
+            return RaceAwarenessSubtopic.CatchingAhead;
+        }
+
+        if (ContainsAny(text, PullingAwayPhrases))
+        {
+            return RaceAwarenessSubtopic.PullingAway;
+        }
+
+        if (ContainsAny(text, RaceSituationPhrases))
+        {
+            return RaceAwarenessSubtopic.RaceSituation;
+        }
+
+        if (ContainsAny(text, OpponentIdentityPhrases))
+        {
+            return RaceAwarenessSubtopic.OpponentIdentity;
         }
 
         if (ContainsAny(text, GapAheadPhrases))

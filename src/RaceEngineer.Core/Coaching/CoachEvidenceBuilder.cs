@@ -73,6 +73,7 @@ public sealed class CoachEvidenceBuilder
         AddTracePackets(packets, timeline);
         AddKnowledgePackets(packets, input.KnowledgeSources);
         AddTrackGuidePackets(packets, input.CachedTrackGuide);
+        AddOpponentIntelligencePackets(packets, input.OpponentIntelligence);
 
         return new CoachEvidenceBundle(packets
             .OrderBy(packet => packet.Category, StringComparer.Ordinal)
@@ -594,6 +595,129 @@ public sealed class CoachEvidenceBuilder
             null,
             TrackGuideFormatter.BuildSetupPrioritiesSummary(guide)));
     }
+
+    private static void AddOpponentIntelligencePackets(
+        List<CoachEvidencePacket> packets,
+        OpponentIntelligenceRecommendation? intelligence)
+    {
+        if (intelligence is null || !intelligence.HasOpponentData)
+        {
+            return;
+        }
+
+        var confidence = MapConfidence(intelligence.Battle.Confidence);
+        packets.Add(new CoachEvidencePacket(
+            "OpponentIntelligence",
+            "Race battle summary",
+            "Info",
+            confidence,
+            CoachEvidenceSourceType.Session,
+            intelligence.Current?.CurrentLap,
+            [],
+            null,
+            intelligence.Summary));
+        packets.Add(new CoachEvidencePacket(
+            "OpponentIntelligence",
+            "Gap trend",
+            "Info",
+            MapConfidence(intelligence.GapTrend.Confidence),
+            CoachEvidenceSourceType.Session,
+            intelligence.Current?.CurrentLap,
+            [],
+            intelligence.GapTrend.GapAheadChangePerLapSeconds ?? intelligence.GapTrend.GapBehindChangePerLapSeconds,
+            intelligence.GapTrend.Summary));
+        if (intelligence.Current is { } current)
+        {
+            if (!string.IsNullOrWhiteSpace(current.CarAhead) || current.GapAheadSeconds is not null)
+            {
+                packets.Add(new CoachEvidencePacket(
+                    "OpponentIntelligence",
+                    "Car ahead",
+                    "Info",
+                    0.90,
+                    CoachEvidenceSourceType.Session,
+                    current.CurrentLap,
+                    [],
+                    current.GapAheadSeconds,
+                    !string.IsNullOrWhiteSpace(current.CarAhead)
+                        ? $"Car ahead: {current.CarAhead}."
+                        : "Car ahead gap is available."));
+            }
+
+            if (!string.IsNullOrWhiteSpace(current.CarBehind) || current.GapBehindSeconds is not null)
+            {
+                packets.Add(new CoachEvidencePacket(
+                    "OpponentIntelligence",
+                    "Car behind",
+                    "Info",
+                    0.90,
+                    CoachEvidenceSourceType.Session,
+                    current.CurrentLap,
+                    [],
+                    current.GapBehindSeconds,
+                    !string.IsNullOrWhiteSpace(current.CarBehind)
+                        ? $"Car behind: {current.CarBehind}."
+                        : "Car behind gap is available."));
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(intelligence.AttackZoneRecommendation))
+        {
+            packets.Add(new CoachEvidencePacket(
+                "OpponentIntelligence",
+                "Overtake opportunity",
+                "Info",
+                confidence,
+                CoachEvidenceSourceType.Knowledge,
+                intelligence.Current?.CurrentLap,
+                [],
+                null,
+                intelligence.AttackZoneRecommendation));
+        }
+
+        if (!string.IsNullOrWhiteSpace(intelligence.DefendZoneRecommendation))
+        {
+            packets.Add(new CoachEvidencePacket(
+                "OpponentIntelligence",
+                "Defensive opportunity",
+                "Warning",
+                confidence,
+                CoachEvidenceSourceType.Knowledge,
+                intelligence.Current?.CurrentLap,
+                [],
+                null,
+                intelligence.DefendZoneRecommendation));
+        }
+
+        if (intelligence.StrategyInsight.HasData)
+        {
+            var strategyDetail = string.Join(
+                " ",
+                new[] { intelligence.StrategyInsight.UndercutOpportunity, intelligence.StrategyInsight.OvercutOpportunity, intelligence.StrategyInsight.RiskAssessment }
+                    .Where(item => !string.IsNullOrWhiteSpace(item)));
+            if (!string.IsNullOrWhiteSpace(strategyDetail))
+            {
+                packets.Add(new CoachEvidencePacket(
+                    "OpponentIntelligence",
+                    "Strategy battle insight",
+                    "Info",
+                    0.78,
+                    CoachEvidenceSourceType.Analytics,
+                    intelligence.Current?.CurrentLap,
+                    [],
+                    null,
+                    strategyDetail));
+            }
+        }
+    }
+
+    private static double MapConfidence(BattleConfidence confidence) =>
+        confidence switch
+        {
+            BattleConfidence.High => 0.92,
+            BattleConfidence.Medium => 0.84,
+            _ => 0.72
+        };
 
     private static void AddKnowledgePackets(List<CoachEvidencePacket> packets, IReadOnlyList<KnowledgeSource>? sources)
     {

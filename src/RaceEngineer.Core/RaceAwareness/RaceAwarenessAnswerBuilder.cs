@@ -15,8 +15,19 @@ public static class RaceAwarenessAnswerBuilder
         LiveRaceContext? raceContext,
         RaceAwarenessRoutingResult routing,
         string? prepTrack = null,
-        string? prepCar = null)
+        string? prepCar = null,
+        OpponentIntelligenceRecommendation? opponentIntelligence = null)
     {
+        if (subtopic is RaceAwarenessSubtopic.CatchingAhead
+            or RaceAwarenessSubtopic.PullingAway
+            or RaceAwarenessSubtopic.AttackOpportunity
+            or RaceAwarenessSubtopic.DefendRecommendation
+            or RaceAwarenessSubtopic.RaceSituation
+            or RaceAwarenessSubtopic.OpponentIdentity)
+        {
+            return OpponentIntelligenceAnswerBuilder.Build(subtopic, opponentIntelligence, routing);
+        }
+
         return subtopic switch
         {
             RaceAwarenessSubtopic.TrackIdentity => BuildTrackIdentity(raceContext, routing, prepTrack),
