@@ -6,8 +6,8 @@ C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-enginee
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Core\obj\Release\net8.0\RaceEngineer.Core.AssemblyInfoInputs.cache
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Core\obj\Release\net8.0\RaceEngineer.Core.AssemblyInfo.cs
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Core\obj\Release\net8.0\RaceEngineer.Core.csproj.CoreCompileInputs.cache
+C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Core\obj\Release\net8.0\RaceEngineer.Core.sourcelink.json
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Core\obj\Release\net8.0\RaceEngineer.Core.dll
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Core\obj\Release\net8.0\refint\RaceEngineer.Core.dll
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Core\obj\Release\net8.0\RaceEngineer.Core.pdb
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Core\obj\Release\net8.0\ref\RaceEngineer.Core.dll
-c:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Core\obj\Release\net8.0\RaceEngineer.Core.sourcelink.json

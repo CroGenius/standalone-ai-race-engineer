@@ -170,35 +170,92 @@ Coach answers keep source labels separate:
 
 When no web provider is configured, external research remains unavailable and core telemetry coaching still works offline.
 
-## Build And Run
+## Build, Publish, And Run
+
+### Prerequisites
+
+- .NET 8 SDK
+- Windows x64 (WPF desktop target)
+
+### Build
+
+From the repository root:
 
 ```powershell
 dotnet restore RaceEngineer.sln
-dotnet build RaceEngineer.sln
-dotnet run --project tests/RaceEngineer.SmokeTests/RaceEngineer.SmokeTests.csproj
-dotnet run --project src/RaceEngineer.Desktop.Wpf/RaceEngineer.Desktop.Wpf.csproj
+dotnet build RaceEngineer.sln -c Release
 ```
 
-PowerShell scripts are included:
+Quick helper scripts at the repo root:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 powershell -ExecutionPolicy Bypass -File .\test.ps1
-powershell -ExecutionPolicy Bypass -File .\publish.ps1
 ```
 
-`build.ps1` restores and builds Release. `test.ps1` builds Release and runs the C# smoke tests. `publish.ps1` creates a self-contained Windows x64 folder.
+### Publish (recommended)
 
-The published app is written to:
+Use the repeatable release workflow script. It cleans `bin/` and `obj/`, builds Release, runs smoke tests, publishes a self-contained Windows x64 folder, copies `appsettings.json`, strips temp artifacts, verifies the executable starts, and prints the final path:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tests\scripts\publish-windows-release.ps1
+```
+
+Published output:
 
 ```text
 artifacts\publish\win-x64\RaceEngineer.Desktop.Wpf.exe
 ```
 
-Equivalent direct publish command:
+Equivalent manual publish command (without clean/test/verify steps):
 
 ```powershell
 dotnet publish src/RaceEngineer.Desktop.Wpf/RaceEngineer.Desktop.Wpf.csproj -c Release -r win-x64 --self-contained true -o artifacts\publish\win-x64
+```
+
+Legacy shortcut at the repo root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\publish.ps1
+```
+
+### Run the app
+
+Development:
+
+```powershell
+dotnet run --project src/RaceEngineer.Desktop.Wpf/RaceEngineer.Desktop.Wpf.csproj
+```
+
+Published build:
+
+```powershell
+.\artifacts\publish\win-x64\RaceEngineer.Desktop.Wpf.exe
+```
+
+Runtime settings are read from `appsettings.json` in the same folder as the executable.
+
+### AI API key (optional)
+
+OpenAI-compatible AI coaching reads the API key from the environment variable `RACE_ENGINEER_AI_API_KEY`. Set it before launching the app:
+
+```powershell
+$env:RACE_ENGINEER_AI_API_KEY = "your-api-key-here"
+.\artifacts\publish\win-x64\RaceEngineer.Desktop.Wpf.exe
+```
+
+For a persistent user-level variable in PowerShell:
+
+```powershell
+[System.Environment]::SetEnvironmentVariable("RACE_ENGINEER_AI_API_KEY", "your-api-key-here", "User")
+```
+
+Restart the terminal (or log out and back in) after setting a user-level variable. The app works offline without AI; telemetry coaching remains deterministic when AI is disabled or the key is missing.
+
+### Smoke tests
+
+```powershell
+dotnet run --project tests/RaceEngineer.SmokeTests/RaceEngineer.SmokeTests.csproj -c Release
 ```
 
 ## App Settings
@@ -234,12 +291,11 @@ Raw packet captures are stored by default under:
 
 Before sharing a build:
 
-1. Run `powershell -ExecutionPolicy Bypass -File .\test.ps1`.
-2. Run `powershell -ExecutionPolicy Bypass -File .\publish.ps1`.
-3. Launch `artifacts\publish\win-x64\RaceEngineer.Desktop.Wpf.exe`.
-4. Confirm Telemetry Diagnostics shows receiver `Running`.
-5. Start SimHub UDP output to `127.0.0.1:20999`.
-6. Confirm valid packet count increases and schema shows `acevo_engineer.simhub_datacore v1`.
+1. Run `powershell -ExecutionPolicy Bypass -File .\tests\scripts\publish-windows-release.ps1`.
+2. Launch `artifacts\publish\win-x64\RaceEngineer.Desktop.Wpf.exe`.
+3. Confirm Telemetry Diagnostics shows receiver `Running`.
+4. Start SimHub UDP output to `127.0.0.1:20999`.
+5. Confirm valid packet count increases and schema shows `acevo_engineer.simhub_datacore v1`.
 
 Startup errors are surfaced in the app chat:
 

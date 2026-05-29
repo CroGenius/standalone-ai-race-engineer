@@ -1,3 +1,4 @@
+C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\bin\Release\net8.0\fixtures\sample-three-lap-run.jsonl
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\bin\Release\net8.0\RaceEngineer.SmokeTests.exe
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\bin\Release\net8.0\RaceEngineer.SmokeTests.deps.json
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\bin\Release\net8.0\RaceEngineer.SmokeTests.runtimeconfig.json
@@ -37,11 +38,10 @@ C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-enginee
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\obj\Release\net8.0\RaceEngineer.SmokeTests.AssemblyInfoInputs.cache
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\obj\Release\net8.0\RaceEngineer.SmokeTests.AssemblyInfo.cs
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\obj\Release\net8.0\RaceEngineer.SmokeTests.csproj.CoreCompileInputs.cache
+C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\obj\Release\net8.0\RaceEngineer.SmokeTests.sourcelink.json
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\obj\Release\net8.0\RaceEngi.8300B664.Up2Date
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\obj\Release\net8.0\RaceEngineer.SmokeTests.dll
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\obj\Release\net8.0\refint\RaceEngineer.SmokeTests.dll
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\obj\Release\net8.0\RaceEngineer.SmokeTests.pdb
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\obj\Release\net8.0\RaceEngineer.SmokeTests.genruntimeconfig.cache
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\obj\Release\net8.0\ref\RaceEngineer.SmokeTests.dll
-c:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\bin\Release\net8.0\fixtures\sample-three-lap-run.jsonl
-c:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\tests\RaceEngineer.SmokeTests\obj\Release\net8.0\RaceEngineer.SmokeTests.sourcelink.json

@@ -1,0 +1,21 @@
+# Build output
+artifacts/
+**/bin/
+**/obj/
+
+# WPF design-time temp projects
+**/*_wpftmp*/
+
+# IDE / tooling
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Test caches
+.pytest_cache/
+
+# OS
+Thumbs.db
+Desktop.ini
