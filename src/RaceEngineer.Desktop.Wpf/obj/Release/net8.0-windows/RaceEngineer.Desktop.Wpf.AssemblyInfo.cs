@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("RaceEngineer.Desktop.Wpf")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+f5a21da925a7202cf0d96df6994861eecbb26fa5")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+2daf94dff046870e52c83b27a9b5078ab512a0da")]
 [assembly: System.Reflection.AssemblyProductAttribute("RaceEngineer.Desktop.Wpf")]
 [assembly: System.Reflection.AssemblyTitleAttribute("RaceEngineer.Desktop.Wpf")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

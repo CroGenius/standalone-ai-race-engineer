@@ -519,6 +519,30 @@
                     <TextBlock Text="{Binding TrackGuideKeyCornersLabel}" TextWrapping="Wrap" Margin="0,0,0,8" />
                     <TextBlock Text="Setup notes" Margin="0,0,0,2" Foreground="#9AA6AC" TextWrapping="Wrap" />
                     <TextBlock Text="{Binding TrackGuideSetupNotesLabel}" TextWrapping="Wrap" Margin="0,0,0,18" />
+                    <TextBlock Text="Research" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                    <UniformGrid Columns="2" Rows="5" Margin="0,0,0,8">
+                        <TextBlock Text="Detected track" /><TextBlock Text="{Binding WebResearchDetectedTrackLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Detected car/class" /><TextBlock Text="{Binding WebResearchDetectedCarClassLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Research available" /><TextBlock Text="{Binding WebResearchAvailableLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Last fetched" /><TextBlock Text="{Binding WebResearchLastFetchedLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Source count" /><TextBlock Text="{Binding WebResearchSourceCountLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
+                    <UniformGrid Columns="1" Margin="0,0,0,18">
+                        <Button Content="Fetch Track Research"
+                                Command="{Binding FetchTrackResearchCommand}"
+                                HorizontalAlignment="Stretch"
+                                Padding="10,6"
+                                Margin="0,0,0,6" />
+                        <Button Content="Fetch Track+Car Strategy"
+                                Command="{Binding FetchTrackCarStrategyResearchCommand}"
+                                HorizontalAlignment="Stretch"
+                                Padding="10,6"
+                                Margin="0,0,0,6" />
+                        <Button Content="Refresh Research"
+                                Command="{Binding RefreshWebResearchCommand}"
+                                HorizontalAlignment="Stretch"
+                                Padding="10,6" />
+                    </UniformGrid>
                     <TextBlock Text="Track Knowledge" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2">
                         <TextBlock Text="Title" /><TextBox Text="{Binding KnowledgeTitle, UpdateSourceTrigger=PropertyChanged}" />

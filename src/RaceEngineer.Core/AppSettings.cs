@@ -37,7 +37,10 @@ public sealed record AppSettings(
     bool TrackResearchEnabled = false,
     string TrackResearchProvider = "disabled",
     bool AllowTrackResearchDuringDriving = false,
-    int TrackGuideRefreshDays = 30)
+    int TrackGuideRefreshDays = 30,
+    bool WebResearchEnabled = false,
+    bool AllowWebResearchDuringDriving = false,
+    int ResearchRefreshDays = 30)
 {
     public static AppSettings Default => new(
         "127.0.0.1",
@@ -70,6 +73,9 @@ public sealed record AppSettings(
         "auto",
         false,
         "disabled",
+        false,
+        30,
+        false,
         false,
         30);
 
@@ -203,7 +209,10 @@ public sealed record AppSettings(
             TrackResearchEnabled = settings.TrackResearchEnabled,
             TrackResearchProvider = TrackResearchOptions.FromAppSettings(settings).Provider,
             AllowTrackResearchDuringDriving = settings.AllowTrackResearchDuringDriving,
-            TrackGuideRefreshDays = TrackResearchOptions.FromAppSettings(settings).TrackGuideRefreshDays
+            TrackGuideRefreshDays = TrackResearchOptions.FromAppSettings(settings).TrackGuideRefreshDays,
+            WebResearchEnabled = settings.WebResearchEnabled,
+            AllowWebResearchDuringDriving = settings.AllowWebResearchDuringDriving,
+            ResearchRefreshDays = WebResearchOptions.FromAppSettings(settings).ResearchRefreshDays
         };
     }
 

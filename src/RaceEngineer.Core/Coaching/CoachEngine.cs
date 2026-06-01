@@ -40,6 +40,7 @@ public sealed record CoachContext(
     TrackGuide? CachedTrackGuide = null,
     Strategy.StrategyKnowledgeRecommendation? StrategyKnowledge = null,
     TrackCarKnowledgeRecommendation? TrackCarKnowledge = null,
+    WebResearchBundle? CachedWebResearch = null,
     OpponentIntelligenceRecommendation? OpponentIntelligence = null,
     DriverCoachingRecommendation? DriverCoaching = null,
     string? ReviewSessionTrack = null);
@@ -1447,9 +1448,24 @@ public sealed class CoachEngine : ICoachEngine
         {(stored.Length > 0 ? string.Join(Environment.NewLine, stored) : "- unavailable: no matching saved track/setup/strategy notes are loaded")}
 
         External research:
-        {(context?.ExternalResearchAvailable == true ? "- available from loaded web sources only" : "- unavailable in offline mode")}
+        {(BuildCachedResearchLines(context).Length > 0
+            ? string.Join(Environment.NewLine, BuildCachedResearchLines(context))
+            : context?.ExternalResearchAvailable == true ? "- available from loaded web sources only" : "- unavailable in offline mode")}
         """;
         return new CoachMessage("coach", content, issueEvents.Select(item => item.Id).ToArray(), stored.Length == 0 ? "No matching stored knowledge sources are loaded." : null, []);
+    }
+
+    private static string[] BuildCachedResearchLines(CoachContext? context)
+    {
+        if (context?.CachedWebResearch is not { HasResearch: true } bundle)
+        {
+            return [];
+        }
+
+        return bundle.Items
+            .Take(4)
+            .Select(item => $"- cached research ({item.Topic}): {TrimKnowledge(item.Summary)}")
+            .ToArray();
     }
 
     private static bool MatchesKnowledge(KnowledgeSource source, CoachContext? context, string category)

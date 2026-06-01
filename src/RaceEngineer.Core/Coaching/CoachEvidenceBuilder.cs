@@ -79,6 +79,7 @@ public sealed class CoachEvidenceBuilder
         AddStrategyPackets(packets, strategy);
         AddStrategyKnowledgePackets(packets, input.StrategyKnowledge);
         AddTrackCarKnowledgePackets(packets, input.TrackCarKnowledge);
+        AddWebResearchPackets(packets, input.CachedWebResearch);
         AddRaceAwarenessPackets(packets, input.RaceContext);
         AddTrackMemoryPackets(packets, input.TrackMemory, input.TrackMemoryComparison);
         AddSessionMemorySummaryPackets(
@@ -1128,6 +1129,30 @@ public sealed class CoachEvidenceBuilder
             [],
             null,
             $"{recommendation.TyreWearExpectation} Warmup: {recommendation.TyreWarmupExpectation}"));
+    }
+
+    private static void AddWebResearchPackets(
+        List<CoachEvidencePacket> packets,
+        WebResearchBundle? bundle)
+    {
+        if (bundle is not { HasResearch: true })
+        {
+            return;
+        }
+
+        foreach (var item in bundle.Items.Take(6))
+        {
+            packets.Add(new CoachEvidencePacket(
+                "WebResearch",
+                item.Topic.Replace('_', ' '),
+                "Info",
+                0.82,
+                CoachEvidenceSourceType.Knowledge,
+                null,
+                [],
+                null,
+                ResearchKnowledgeCoachService.BuildEvidenceSummary(item)));
+        }
     }
 
     private static void AddStrategyPackets(List<CoachEvidencePacket> packets, SessionStrategy strategy)

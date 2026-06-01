@@ -182,6 +182,11 @@ TrackCarKnowledgeFuelForTenLapsUsesKnowledgeBaseline();
 TrackCarKnowledgeFuelForTenLapsUsesLiveTelemetry();
 TrackCarKnowledgeBrakeDemandUsesStoredKnowledge();
 TrackCarKnowledgeAiContextIncludesFacts();
+await WebResearchCacheLookupRoundTrip();
+await WebResearchStaleRefreshBehavior();
+WebResearchDisabledProviderDoesNotFetch();
+WebResearchCoachAnswerCombinesCachedResearchAndTelemetry();
+WebResearchAiContextIncludesCachedResearchFacts();
 CoachRaceAwarenessMissingGapSaysUnavailable();
 CoachTrackIdentityRoutingDoesNotFallbackToPosition();
 RaceAwarenessRoutingDiagnosticsCoverTrackAndPosition();
@@ -3171,6 +3176,177 @@ static void TrackCarKnowledgeAiContextIncludesFacts()
     Assert(
         facts.Any(fact => fact.Topic == "TrackCarKnowledge" && fact.Source == "stored knowledge"),
         "AI facts should label stored knowledge source.");
+}
+
+static async Task WebResearchCacheLookupRoundTrip()
+{
+    var dbPath = Path.Combine(Path.GetTempPath(), $"race-engineer-web-research-{Guid.NewGuid():N}.sqlite3");
+    var storage = new StorageService(dbPath);
+    await storage.InitializeAsync();
+    var cache = new ResearchCacheService(storage);
+    var item = new ResearchKnowledgeItem(
+        Guid.NewGuid(),
+        ResearchTopics.BrakeDemand,
+        "Red Bull Ring",
+        null,
+        "GT3",
+        "Cached research: Red Bull Ring rewards stable braking into Turn 1.",
+        ["Turn 1 is a heavy stop", "Remus repeats front-axle load"],
+        [new ResearchSourceLabel("web-search-placeholder catalog", "catalog://brake-demand")],
+        DateTimeOffset.UtcNow,
+        "Medium",
+        "web-search-placeholder");
+
+    await cache.SaveAsync(item);
+    var lookup = await cache.LookupAsync("Red Bull Ring", carClass: "GT3");
+    Assert(lookup.Items.Count >= 1, "Cached research lookup should return saved items.");
+    Assert(
+        lookup.Items.Any(entry => entry.Topic == ResearchTopics.BrakeDemand),
+        "Cached research lookup should preserve topic.");
+    Assert(
+        ResearchKnowledgeMapper.TryParse(ResearchKnowledgeMapper.ToKnowledgeSource(item), out var parsed)
+            && parsed.Summary == item.Summary,
+        "Research mapper round-trip should preserve summary.");
+}
+
+static async Task WebResearchStaleRefreshBehavior()
+{
+    var dbPath = Path.Combine(Path.GetTempPath(), $"race-engineer-web-research-stale-{Guid.NewGuid():N}.sqlite3");
+    var storage = new StorageService(dbPath);
+    await storage.InitializeAsync();
+    var cache = new ResearchCacheService(storage);
+    var staleItem = new ResearchKnowledgeItem(
+        Guid.NewGuid(),
+        ResearchTopics.TrackGuide,
+        "Monza",
+        null,
+        null,
+        "Stale cached track research.",
+        ["stale fact"],
+        [new ResearchSourceLabel("stale source", "catalog://stale")],
+        DateTimeOffset.UtcNow.AddDays(-40),
+        "Low",
+        "web-search-placeholder");
+    await cache.SaveAsync(staleItem);
+
+    var service = new WebResearchService(storage, new WebResearchOptions(true, false, 1));
+    var bundle = await service.EnsureCachedAsync(
+        "Monza",
+        null,
+        null,
+        new WebResearchContext(VehicleActivity.Stationary, IsReviewMode: false));
+    Assert(bundle.HasResearch, "Stale refresh should populate cached research when web research is enabled.");
+    Assert(
+        bundle.Items.Any(item => item.Topic == ResearchTopics.TrackGuide && item.Summary.Contains("Cached track research", StringComparison.OrdinalIgnoreCase)),
+        "Stale refresh should replace stale track research with fresh placeholder research.");
+}
+
+static void WebResearchDisabledProviderDoesNotFetch()
+{
+    var provider = DisabledWebResearchProvider.Instance;
+    var fetch = provider.FetchTrackResearchAsync("Monza").GetAwaiter().GetResult();
+    Assert(fetch.Items.Count == 0, "Disabled provider should not fetch research items.");
+    Assert(
+        fetch.Message.Contains("disabled", StringComparison.OrdinalIgnoreCase),
+        "Disabled provider should explain that web research is disabled.");
+}
+
+static void WebResearchCoachAnswerCombinesCachedResearchAndTelemetry()
+{
+    var engine = new EventEngine();
+    var session = new SessionState();
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":10.0,"track_name":"Red Bull Ring","car_name":"GT3","car_class":"GT3"}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":90.0,"fuel":7.7,"track_name":"Red Bull Ring","car_name":"GT3","car_class":"GT3"}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":7.7,"track_name":"Red Bull Ring","car_name":"GT3","car_class":"GT3"}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":89.5,"fuel":5.3,"track_name":"Red Bull Ring","car_name":"GT3","car_class":"GT3"}"""));
+
+    var bundle = new WebResearchBundle(
+        "Red Bull Ring",
+        "GT3",
+        "GT3",
+        [
+            new ResearchKnowledgeItem(
+                Guid.NewGuid(),
+                ResearchTopics.OvertakingZones,
+                "Red Bull Ring",
+                "GT3",
+                "GT3",
+                "Cached research: key overtaking zones at Red Bull Ring include main straight into Turn 1.",
+                ["Main straight into Turn 1"],
+                [new ResearchSourceLabel("web-search-placeholder catalog")],
+                DateTimeOffset.UtcNow,
+                "Medium",
+                "web-search-placeholder")
+        ]);
+
+    var answer = ResearchKnowledgeCoachService.BuildCombinedAnswer(
+        "where can i overtake",
+        bundle,
+        session,
+        session.Events,
+        TrackCarKnowledgeService.Build(new TrackCarKnowledgeInput("Red Bull Ring", "GT3", "GT3", session, null, null, null)));
+
+    Assert(
+        answer.Contains("Cached research", StringComparison.OrdinalIgnoreCase),
+        "Coach combined answer should label cached research.");
+    Assert(
+        answer.Contains("Live telemetry", StringComparison.OrdinalIgnoreCase),
+        "Coach combined answer should include live telemetry when lap fuel samples exist.");
+
+    var coach = new CoachEngine();
+    var coachAnswer = coach.Answer(
+        session,
+        "combine my telemetry with track notes",
+        new CoachContext(
+            CachedWebResearch: bundle,
+            ExternalResearchAvailable: true));
+    Assert(
+        coachAnswer.Content.Contains("cached research", StringComparison.OrdinalIgnoreCase),
+        "Combined telemetry/knowledge coach answer should surface cached research lines.");
+}
+
+static void WebResearchAiContextIncludesCachedResearchFacts()
+{
+    var bundle = new WebResearchBundle(
+        "Monza",
+        "GT3",
+        "GT3",
+        [
+            new ResearchKnowledgeItem(
+                Guid.NewGuid(),
+                ResearchTopics.SetupPriorities,
+                "Monza",
+                "GT3",
+                "GT3",
+                "Cached research setup priorities for Monza GT3: stable braking into Turn 1.",
+                ["Stable braking into Turn 1"],
+                [new ResearchSourceLabel("built-in catalog")],
+                DateTimeOffset.UtcNow,
+                "Medium",
+                "web-search-placeholder")
+        ]);
+
+    var facts = ResearchKnowledgeCoachService.BuildAiFacts(bundle, "what setup matters here");
+    Assert(facts.Count >= 1, "AI facts should include cached research when bundle is available.");
+    Assert(
+        facts.Any(fact => fact.Topic == "WebResearch" && fact.Source == "cached research"),
+        "AI facts should label cached research source.");
+
+    var evidence = new CoachEvidenceBuilder().Build(new CoachEvidenceInput(
+        new SessionState(),
+        CachedWebResearch: bundle));
+    Assert(
+        evidence.Packets.Any(packet => packet.Category == "WebResearch"),
+        "Coach evidence should include cached research packets.");
+
+    var aiContext = EngineerAiContextBuilder.Build(
+        new SessionState(),
+        "what setup matters here",
+        new CoachContext(CachedWebResearch: bundle),
+        evidence);
+    Assert(
+        aiContext.Facts.Any(fact => fact.Source == "cached research"),
+        "Engineer AI context should include cached research facts for setup questions.");
 }
 
 static async Task TrackMemoryRetrievalAndHistoricalComparison()

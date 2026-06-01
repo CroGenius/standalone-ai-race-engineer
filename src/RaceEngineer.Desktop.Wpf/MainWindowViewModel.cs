@@ -54,6 +54,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly StorageService storageService;
     private readonly StoredResearchService researchService;
     private TrackResearchService trackResearchService;
+    private WebResearchService webResearchService;
     private readonly SessionState session = new();
     private SessionState? reviewSession;
     private IReadOnlyList<TelemetrySnapshot> reviewSnapshots = [];
@@ -147,6 +148,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string trackGuideTractionZonesLabel = "-";
     private string trackGuideKeyCornersLabel = "-";
     private string trackGuideSetupNotesLabel = "-";
+    private WebResearchBundle cachedWebResearch = WebResearchBundle.Empty();
+    private string webResearchDetectedTrackLabel = "unavailable";
+    private string webResearchDetectedCarClassLabel = "unavailable";
+    private string webResearchAvailableLabel = "no";
+    private string webResearchLastFetchedLabel = "-";
+    private string webResearchSourceCountLabel = "0";
     private OpponentIntelligenceRecommendation? currentOpponentIntelligence;
     private DriverCoachingRecommendation? currentDriverCoaching;
     private string driverCoachingPanelTitle = "Driver Coaching (Live Session)";
@@ -283,6 +290,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         try
         {
             trackResearchService = TrackResearchService.FromSettings(storageService, settings);
+            webResearchService = WebResearchService.FromSettings(storageService, settings);
         }
         catch (Exception exception)
         {
@@ -290,6 +298,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             trackResearchService = TrackResearchService.FromSettings(
                 storageService,
                 AppSettings.Default with { TrackResearchEnabled = false, TrackResearchProvider = "disabled" });
+            webResearchService = WebResearchService.FromSettings(
+                storageService,
+                AppSettings.Default with { WebResearchEnabled = false });
         }
         sessionLabel = $"Session {session.SessionId}";
         SendChatCommand = new RelayCommand(SendChat, () => !string.IsNullOrWhiteSpace(ChatInput));
@@ -318,6 +329,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         SaveMemorySummaryCommand = new RelayCommand(() => _ = SaveMemorySummaryAsync());
         GenerateDebriefCommand = new RelayCommand(GenerateSessionDebrief);
         FetchTrackGuideCommand = new RelayCommand(() => _ = FetchTrackGuideAsync());
+        FetchTrackResearchCommand = new RelayCommand(() => _ = FetchTrackResearchAsync());
+        FetchTrackCarStrategyResearchCommand = new RelayCommand(() => _ = FetchTrackCarStrategyResearchAsync());
+        RefreshWebResearchCommand = new RelayCommand(() => _ = RefreshWebResearchAsync());
         receiver.PacketProcessed += OnPacketProcessed;
         receiver.SnapshotReceived += OnSnapshotReceived;
         MicrophoneDevices.Add(new MicrophoneDeviceOption
@@ -430,6 +444,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string TrackGuideTractionZonesLabel => trackGuideTractionZonesLabel;
     public string TrackGuideKeyCornersLabel => trackGuideKeyCornersLabel;
     public string TrackGuideSetupNotesLabel => trackGuideSetupNotesLabel;
+    public string WebResearchDetectedTrackLabel => webResearchDetectedTrackLabel;
+    public string WebResearchDetectedCarClassLabel => webResearchDetectedCarClassLabel;
+    public string WebResearchAvailableLabel => webResearchAvailableLabel;
+    public string WebResearchLastFetchedLabel => webResearchLastFetchedLabel;
+    public string WebResearchSourceCountLabel => webResearchSourceCountLabel;
     public string StrategyKnowledgeTrackLabel => strategyKnowledgeTrackLabel;
     public string StrategyKnowledgeCarClassLabel => strategyKnowledgeCarClassLabel;
     public string StrategyKnowledgeRecommendedFuelLabel => strategyKnowledgeRecommendedFuelLabel;
@@ -647,6 +666,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public ICommand SaveMemorySummaryCommand { get; }
     public ICommand GenerateDebriefCommand { get; }
     public ICommand FetchTrackGuideCommand { get; }
+    public ICommand FetchTrackResearchCommand { get; }
+    public ICommand FetchTrackCarStrategyResearchCommand { get; }
+    public ICommand RefreshWebResearchCommand { get; }
 
     public string TelemetryStatus => isReviewMode
         ? "Review mode"
@@ -843,6 +865,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             try
             {
                 trackResearchService = TrackResearchService.FromSettings(storageService, appSettings);
+                webResearchService = WebResearchService.FromSettings(storageService, appSettings);
             }
             catch (Exception exception)
             {
@@ -1145,6 +1168,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             recentStoredSessionMemories,
             currentStrategyKnowledge,
             currentTrackCarKnowledge,
+            cachedWebResearch,
             cachedTrackGuide,
             currentOpponentIntelligence,
             currentDriverCoaching,
@@ -2432,6 +2456,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(TrackGuideTractionZonesLabel));
         OnPropertyChanged(nameof(TrackGuideKeyCornersLabel));
         OnPropertyChanged(nameof(TrackGuideSetupNotesLabel));
+        OnPropertyChanged(nameof(WebResearchDetectedTrackLabel));
+        OnPropertyChanged(nameof(WebResearchDetectedCarClassLabel));
+        OnPropertyChanged(nameof(WebResearchAvailableLabel));
+        OnPropertyChanged(nameof(WebResearchLastFetchedLabel));
+        OnPropertyChanged(nameof(WebResearchSourceCountLabel));
         OnPropertyChanged(nameof(PerformancePanelTitle));
         OnPropertyChanged(nameof(PerformanceBiggestLossLabel));
         OnPropertyChanged(nameof(PerformanceMainWeaknessLabel));
@@ -2671,6 +2700,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             {
                 cachedTrackGuide = null;
                 UpdateTrackResearchLabels();
+                await RefreshWebResearchCacheAsync(track);
                 Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
                 return;
             }
@@ -2695,6 +2725,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             }
 
             UpdateTrackResearchLabels();
+            await RefreshWebResearchCacheAsync(track);
             Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
         }
         catch (Exception exception)
@@ -2738,6 +2769,105 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         }
 
         ChatMessages.Add($"Coach: {result.Message ?? "Track guide refresh completed."}");
+        Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
+    }
+
+    private async Task RefreshWebResearchCacheAsync(string? track)
+    {
+        try
+        {
+            var car = liveRaceContext.CarName ?? PrepCar;
+            var carClass = liveRaceContext.CarClass ?? TrackCarKnowledgeCatalog.NormalizeCarClass(PrepCar);
+            webResearchDetectedTrackLabel = string.IsNullOrWhiteSpace(track) ? "unavailable" : track;
+            webResearchDetectedCarClassLabel = string.IsNullOrWhiteSpace(carClass)
+                ? (string.IsNullOrWhiteSpace(car) ? "unavailable" : car)
+                : $"{car ?? "unknown car"} / {carClass}";
+
+            if (string.IsNullOrWhiteSpace(track))
+            {
+                cachedWebResearch = WebResearchBundle.Empty(track, car, carClass);
+                UpdateWebResearchLabels();
+                return;
+            }
+
+            var researchContext = new WebResearchContext(sessionContextAssessment.Activity, isReviewMode);
+            cachedWebResearch = await webResearchService.EnsureCachedAsync(
+                track,
+                car,
+                carClass,
+                researchContext);
+            UpdateWebResearchLabels();
+        }
+        catch (Exception exception)
+        {
+            cachedWebResearch = WebResearchBundle.Empty(track);
+            UpdateWebResearchLabels();
+            ReportOptionalPanelFailure("Web research", exception);
+        }
+    }
+
+    private void UpdateWebResearchLabels()
+    {
+        webResearchAvailableLabel = cachedWebResearch.HasResearch ? "yes" : "no";
+        webResearchLastFetchedLabel = cachedWebResearch.LastFetchedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? "-";
+        webResearchSourceCountLabel = cachedWebResearch.SourceCount.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private async Task FetchTrackResearchAsync()
+    {
+        var track = liveRaceContext.TrackName ?? PrepTrack;
+        if (string.IsNullOrWhiteSpace(track))
+        {
+            ChatMessages.Add("Coach: Track must be detected before fetching track research.");
+            return;
+        }
+
+        var result = await webResearchService.FetchTrackResearchAsync(track);
+        cachedWebResearch = await webResearchService.LoadBundleAsync(
+            track,
+            liveRaceContext.CarName ?? PrepCar,
+            liveRaceContext.CarClass ?? TrackCarKnowledgeCatalog.NormalizeCarClass(PrepCar));
+        UpdateWebResearchLabels();
+        await RefreshKnowledgeAsync();
+        ChatMessages.Add($"Coach: {result.Message}");
+        Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
+    }
+
+    private async Task FetchTrackCarStrategyResearchAsync()
+    {
+        var track = liveRaceContext.TrackName ?? PrepTrack;
+        var car = liveRaceContext.CarName ?? PrepCar;
+        var carClass = liveRaceContext.CarClass ?? TrackCarKnowledgeCatalog.NormalizeCarClass(PrepCar);
+        if (string.IsNullOrWhiteSpace(track))
+        {
+            ChatMessages.Add("Coach: Track must be detected before fetching track-car strategy research.");
+            return;
+        }
+
+        var result = await webResearchService.FetchTrackCarStrategyAsync(track, car, carClass);
+        cachedWebResearch = await webResearchService.LoadBundleAsync(track, car, carClass);
+        UpdateWebResearchLabels();
+        await RefreshKnowledgeAsync();
+        ChatMessages.Add($"Coach: {result.Message}");
+        Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
+    }
+
+    private async Task RefreshWebResearchAsync()
+    {
+        var track = liveRaceContext.TrackName ?? PrepTrack;
+        var car = liveRaceContext.CarName ?? PrepCar;
+        var carClass = liveRaceContext.CarClass ?? TrackCarKnowledgeCatalog.NormalizeCarClass(PrepCar);
+        if (string.IsNullOrWhiteSpace(track))
+        {
+            ChatMessages.Add("Coach: Track must be detected before refreshing research.");
+            return;
+        }
+
+        var result = await webResearchService.RefreshResearchAsync(track, car, carClass);
+        cachedWebResearch = await webResearchService.LoadBundleAsync(track, car, carClass);
+        UpdateWebResearchLabels();
+        await RefreshKnowledgeAsync();
+        ChatMessages.Add($"Coach: {result.Message}");
         Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
     }
 
@@ -2890,6 +3020,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             cachedTrackGuide,
             currentStrategyKnowledge,
             currentTrackCarKnowledge,
+            cachedWebResearch,
             currentOpponentIntelligence,
             mappedDriverCoaching,
             isReviewMode ? reviewSessionTrack : null);
@@ -2897,6 +3028,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private bool HasExternalResearchSources() =>
         cachedTrackGuide is not null
+        || cachedWebResearch.HasResearch
         || KnowledgeSources.Any(item => item.Source.SourceType == KnowledgeSourceTypes.Web);
 
     private SessionMemoryBuildInput? BuildSessionMemoryInput()

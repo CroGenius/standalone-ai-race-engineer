@@ -70,6 +70,7 @@ public sealed record CoachEvidenceInput(
     IReadOnlyList<SessionMemorySummary>? RecentStoredSessionMemories = null,
     Strategy.StrategyKnowledgeRecommendation? StrategyKnowledge = null,
     Knowledge.TrackCarKnowledgeRecommendation? TrackCarKnowledge = null,
+    Knowledge.WebResearchBundle? CachedWebResearch = null,
     Knowledge.TrackGuide? CachedTrackGuide = null,
     OpponentIntelligenceRecommendation? OpponentIntelligence = null,
     DriverCoachingRecommendation? DriverCoaching = null,
