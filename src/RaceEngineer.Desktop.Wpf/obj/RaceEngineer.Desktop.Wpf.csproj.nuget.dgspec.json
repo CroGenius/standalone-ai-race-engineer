@@ -1,7 +1,7 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj": {}
+    "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj": {}
   },
   "projects": {
     "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj": {
@@ -85,14 +85,14 @@
         }
       }
     },
-    "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj": {
+    "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj",
+        "projectUniqueName": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj",
         "projectName": "RaceEngineer.Desktop.Wpf",
-        "projectPath": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj",
+        "projectPath": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj",
         "packagesPath": "C:\\Users\\budis\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\obj\\",
+        "outputPath": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\budis\\AppData\\Roaming\\NuGet\\NuGet.Config"

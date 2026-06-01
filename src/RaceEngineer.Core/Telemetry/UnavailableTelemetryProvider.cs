@@ -31,10 +31,11 @@ public sealed class UnavailableTelemetryProvider : ITelemetryProvider
             providerId,
             displayName,
             providerId.Equals("iracing", StringComparison.OrdinalIgnoreCase)
-                ? TelemetryProviderCapabilities.IracingPlanned
+                ? TelemetryProviderCapabilities.Iracing
                 : new TelemetryProviderCapabilities(
                     providerId,
                     displayName,
+                    false,
                     false,
                     false,
                     false,

@@ -11,29 +11,51 @@ public static class OpponentIntelligenceAnswerBuilder
         RaceAwarenessSubtopic subtopic,
         OpponentIntelligenceRecommendation? intelligence,
         RaceAwarenessRoutingResult routing,
-        TelemetryProviderCapabilities? telemetryProviderCapabilities = null)
+        TelemetryProviderCapabilities? telemetryProviderCapabilities = null,
+        TelemetryProviderStatus? telemetryProviderStatus = null,
+        string? telemetryProviderDiagnostics = null)
     {
         if (intelligence is null || !intelligence.HasOpponentData || intelligence.Current is null)
         {
             return new RaceAwarenessAnswer(
-                TelemetryProviderCapabilityMessages.OpponentDataUnavailable(telemetryProviderCapabilities),
+                TelemetryProviderCapabilityMessages.OpponentDataUnavailable(
+                    telemetryProviderCapabilities,
+                    telemetryProviderStatus,
+                    telemetryProviderDiagnostics),
                 [],
                 routing with
                 {
-                    FallbackReason = telemetryProviderCapabilities is not null && !telemetryProviderCapabilities.OpponentGaps
-                        ? "provider does not expose opponent gaps"
-                        : "Opponent gap or position fields are missing from telemetry."
+                    FallbackReason = TelemetryProviderCapabilityMessages.IsProviderUnavailable(telemetryProviderStatus)
+                        ? "telemetry provider unavailable"
+                        : telemetryProviderCapabilities is not null && !telemetryProviderCapabilities.OpponentGaps
+                            ? "provider does not expose opponent gaps"
+                            : "Opponent gap or position fields are missing from telemetry."
                 });
         }
 
         return subtopic switch
         {
-            RaceAwarenessSubtopic.CatchingAhead => BuildCatchingAhead(intelligence, routing, telemetryProviderCapabilities),
-            RaceAwarenessSubtopic.PullingAway => BuildPullingAway(intelligence, routing, telemetryProviderCapabilities),
+            RaceAwarenessSubtopic.CatchingAhead => BuildCatchingAhead(
+                intelligence,
+                routing,
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
+            RaceAwarenessSubtopic.PullingAway => BuildPullingAway(
+                intelligence,
+                routing,
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
             RaceAwarenessSubtopic.AttackOpportunity => BuildAttack(intelligence, routing),
             RaceAwarenessSubtopic.DefendRecommendation => BuildDefend(intelligence, routing),
             RaceAwarenessSubtopic.RaceSituation => BuildRaceSituation(intelligence, routing),
-            RaceAwarenessSubtopic.OpponentIdentity => BuildOpponentIdentity(intelligence, routing, telemetryProviderCapabilities),
+            RaceAwarenessSubtopic.OpponentIdentity => BuildOpponentIdentity(
+                intelligence,
+                routing,
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
             _ => BuildRaceSituation(intelligence, routing)
         };
     }
@@ -41,19 +63,26 @@ public static class OpponentIntelligenceAnswerBuilder
     private static RaceAwarenessAnswer BuildCatchingAhead(
         OpponentIntelligenceRecommendation intelligence,
         RaceAwarenessRoutingResult routing,
-        TelemetryProviderCapabilities? telemetryProviderCapabilities)
+        TelemetryProviderCapabilities? telemetryProviderCapabilities,
+        TelemetryProviderStatus? telemetryProviderStatus,
+        string? telemetryProviderDiagnostics)
     {
         var trend = intelligence.GapTrend;
         if (trend.AheadDirection == GapTrendDirection.Unavailable)
         {
             return new RaceAwarenessAnswer(
-                TelemetryProviderCapabilityMessages.GapTrendAheadUnavailable(telemetryProviderCapabilities),
+                TelemetryProviderCapabilityMessages.GapTrendAheadUnavailable(
+                    telemetryProviderCapabilities,
+                    telemetryProviderStatus,
+                    telemetryProviderDiagnostics),
                 [],
                 routing with
                 {
-                    FallbackReason = telemetryProviderCapabilities is not null && !telemetryProviderCapabilities.OpponentGaps
-                        ? "provider does not expose opponent gaps"
-                        : "Not enough gap samples to estimate trend."
+                    FallbackReason = TelemetryProviderCapabilityMessages.IsProviderUnavailable(telemetryProviderStatus)
+                        ? "telemetry provider unavailable"
+                        : telemetryProviderCapabilities is not null && !telemetryProviderCapabilities.OpponentGaps
+                            ? "provider does not expose opponent gaps"
+                            : "Not enough gap samples to estimate trend."
                 });
         }
 
@@ -76,19 +105,26 @@ public static class OpponentIntelligenceAnswerBuilder
     private static RaceAwarenessAnswer BuildPullingAway(
         OpponentIntelligenceRecommendation intelligence,
         RaceAwarenessRoutingResult routing,
-        TelemetryProviderCapabilities? telemetryProviderCapabilities)
+        TelemetryProviderCapabilities? telemetryProviderCapabilities,
+        TelemetryProviderStatus? telemetryProviderStatus,
+        string? telemetryProviderDiagnostics)
     {
         var trend = intelligence.GapTrend;
         if (trend.BehindDirection == GapTrendDirection.Unavailable)
         {
             return new RaceAwarenessAnswer(
-                TelemetryProviderCapabilityMessages.GapTrendBehindUnavailable(telemetryProviderCapabilities),
+                TelemetryProviderCapabilityMessages.GapTrendBehindUnavailable(
+                    telemetryProviderCapabilities,
+                    telemetryProviderStatus,
+                    telemetryProviderDiagnostics),
                 [],
                 routing with
                 {
-                    FallbackReason = telemetryProviderCapabilities is not null && !telemetryProviderCapabilities.OpponentGaps
-                        ? "provider does not expose opponent gaps"
-                        : "Not enough gap samples to estimate trend."
+                    FallbackReason = TelemetryProviderCapabilityMessages.IsProviderUnavailable(telemetryProviderStatus)
+                        ? "telemetry provider unavailable"
+                        : telemetryProviderCapabilities is not null && !telemetryProviderCapabilities.OpponentGaps
+                            ? "provider does not expose opponent gaps"
+                            : "Not enough gap samples to estimate trend."
                 });
         }
 
@@ -205,7 +241,9 @@ public static class OpponentIntelligenceAnswerBuilder
     private static RaceAwarenessAnswer BuildOpponentIdentity(
         OpponentIntelligenceRecommendation intelligence,
         RaceAwarenessRoutingResult routing,
-        TelemetryProviderCapabilities? telemetryProviderCapabilities)
+        TelemetryProviderCapabilities? telemetryProviderCapabilities,
+        TelemetryProviderStatus? telemetryProviderStatus,
+        string? telemetryProviderDiagnostics)
     {
         var current = intelligence.Current!;
         var parts = new List<string>();
@@ -234,13 +272,18 @@ public static class OpponentIntelligenceAnswerBuilder
         if (parts.Count == 0)
         {
             return new RaceAwarenessAnswer(
-                TelemetryProviderCapabilityMessages.OpponentDataUnavailable(telemetryProviderCapabilities),
+                TelemetryProviderCapabilityMessages.OpponentDataUnavailable(
+                    telemetryProviderCapabilities,
+                    telemetryProviderStatus,
+                    telemetryProviderDiagnostics),
                 [],
                 routing with
                 {
-                    FallbackReason = telemetryProviderCapabilities is not null && !telemetryProviderCapabilities.OpponentGaps
-                        ? "provider does not expose opponent gaps"
-                        : "car_ahead/car_behind missing from telemetry."
+                    FallbackReason = TelemetryProviderCapabilityMessages.IsProviderUnavailable(telemetryProviderStatus)
+                        ? "telemetry provider unavailable"
+                        : telemetryProviderCapabilities is not null && !telemetryProviderCapabilities.OpponentGaps
+                            ? "provider does not expose opponent gaps"
+                            : "car_ahead/car_behind missing from telemetry."
                 });
         }
 

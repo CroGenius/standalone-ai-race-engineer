@@ -1,0 +1,13 @@
+namespace RaceEngineer.Core.Telemetry.Iracing;
+
+public interface IIracingTelemetrySession
+{
+    IracingSessionConnectionState ConnectionState { get; }
+    string DiagnosticMessage { get; }
+
+    Task<bool> TryConnectAsync(CancellationToken cancellationToken = default);
+
+    void Disconnect();
+
+    bool TryReadLatest(out IracingTelemetryFrame? frame);
+}

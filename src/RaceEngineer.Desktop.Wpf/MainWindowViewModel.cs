@@ -730,6 +730,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     };
     public string TelemetryProviderCapabilitiesSummary => telemetryProvider.Capabilities.Summary;
     public string TelemetryProviderMissingCapabilitiesLabel => telemetryProvider.Capabilities.MissingSummary;
+    public string TelemetryProviderDiagnosticsLabel =>
+        string.IsNullOrWhiteSpace(telemetryProvider.Diagnostics) ? "-" : telemetryProvider.Diagnostics;
     public string PacketsPerSecond => diagnostics.PacketsPerSecond.ToString("0", CultureInfo.InvariantCulture);
     public string ValidPacketsPerSecond => diagnostics.ValidPacketsPerSecond.ToString("0", CultureInfo.InvariantCulture);
     public string InvalidPacketsPerSecond => diagnostics.InvalidPacketsPerSecond.ToString("0", CultureInfo.InvariantCulture);
@@ -3111,6 +3113,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             KnowledgeSources.Select(item => item.Source).ToArray(),
             HasExternalResearchSources(),
             telemetryProvider.Capabilities,
+            telemetryProvider.Status,
+            telemetryProvider.Diagnostics,
             userPreferences.Coach,
             sessionContextAssessment,
             sessionTyreIntelligence,
@@ -3357,6 +3361,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(TelemetryProviderStatusLabel));
         OnPropertyChanged(nameof(TelemetryProviderCapabilitiesSummary));
         OnPropertyChanged(nameof(TelemetryProviderMissingCapabilitiesLabel));
+        OnPropertyChanged(nameof(TelemetryProviderDiagnosticsLabel));
         OnPropertyChanged(nameof(PacketsPerSecond));
         OnPropertyChanged(nameof(ValidPacketsPerSecond));
         OnPropertyChanged(nameof(InvalidPacketsPerSecond));

@@ -26,6 +26,8 @@ public sealed record CoachContext(
     IReadOnlyList<KnowledgeSource>? KnowledgeSources = null,
     bool ExternalResearchAvailable = false,
     Telemetry.TelemetryProviderCapabilities? TelemetryProviderCapabilities = null,
+    Telemetry.TelemetryProviderStatus? TelemetryProviderStatus = null,
+    string? TelemetryProviderDiagnostics = null,
     Profile.CoachPreferencesRecord? Preferences = null,
     SessionContext.SessionContextAssessment? SessionContext = null,
     Analytics.SessionTyreIntelligence? TyreIntelligence = null,
@@ -330,7 +332,12 @@ public sealed class CoachEngine : ICoachEngine
 
         return recentEvents.Length > 0
             ? NextLapFocusAnswer(recentEvents)
-            : Unavailable("I can answer once telemetry or stored session context is available.", "No latest snapshot, recent events, or stored notes matched the question.");
+            : Unavailable(
+                TelemetryProviderCapabilityMessages.LiveTelemetryUnavailable(
+                    context?.TelemetryProviderCapabilities,
+                    context?.TelemetryProviderStatus,
+                    context?.TelemetryProviderDiagnostics),
+                "No latest snapshot, recent events, or stored notes matched the question.");
     }
 
     private static CoachMessage RouteRaceAwarenessAnswer(string userMessage, SessionState session, CoachContext? context)
@@ -344,7 +351,9 @@ public sealed class CoachEngine : ICoachEngine
             context?.RacePrepPlan?.Track,
             context?.RacePrepPlan?.Car,
             context?.OpponentIntelligence,
-            context?.TelemetryProviderCapabilities);
+            context?.TelemetryProviderCapabilities,
+            context?.TelemetryProviderStatus,
+            context?.TelemetryProviderDiagnostics);
         return ToRaceAwarenessCoachMessage(answer);
     }
 

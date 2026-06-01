@@ -16,6 +16,7 @@ using RaceEngineer.Core.RaceAwareness;
 using RaceEngineer.Core.Storage;
 using RaceEngineer.Core.Strategy;
 using RaceEngineer.Core.Telemetry;
+using RaceEngineer.Core.Telemetry.Iracing;
 using RaceEngineer.Core.TelemetryVisualization;
 using RaceEngineer.Core.Voice;
 using RaceEngineer.SmokeTests;
@@ -234,7 +235,11 @@ SimHubProviderCapabilitiesReportMissingOpponentGaps();
 CoachGapQuestionExplainsProviderLimitation();
 TelemetryProviderFactorySelectsSimHub();
 TelemetryProviderFactoryUnknownProviderFallsBackSafely();
-TelemetryProviderFactoryIracingReportsNotImplemented();
+TelemetryProviderFactorySelectsIracing();
+IracingUnavailableProviderReportsClearDiagnostic();
+IracingCapabilitiesIncludeOpponentGapsAndStandings();
+IracingMapperMapsFixtureToTelemetrySnapshot();
+CoachIracingUnavailableExplainsProviderLimitation();
 EndToEndFixtureReplayVerifiesPipeline();
 await ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint();
 
@@ -3535,15 +3540,78 @@ static void TelemetryProviderFactoryUnknownProviderFallsBackSafely()
         "Unknown provider fallback should emit a warning.");
 }
 
-static void TelemetryProviderFactoryIracingReportsNotImplemented()
+static void TelemetryProviderFactorySelectsIracing()
 {
     var result = TelemetryProviderFactory.Instance.Create(AppSettings.Default with { TelemetryProvider = "iracing" });
 
-    Assert(result.Provider is UnavailableTelemetryProvider, "iRacing setting should create an unavailable provider stub.");
-    Assert(result.Provider.Status == TelemetryProviderStatus.Error, "iRacing stub should report error status.");
+    Assert(result.Provider is IracingTelemetryProvider, "iRacing setting should create the iRacing provider.");
+    Assert(result.Provider.ProviderId == "iracing", "iRacing provider id should be iracing.");
+    Assert(result.Provider.DisplayName == "iRacing", "iRacing provider display name should be iRacing.");
     Assert(
-        result.Warnings.Any(warning => warning.Contains("not implemented", StringComparison.OrdinalIgnoreCase)),
-        "iRacing stub should emit a not-implemented warning.");
+        result.Warnings.Any(warning => warning.Contains("iRacing", StringComparison.OrdinalIgnoreCase)),
+        "iRacing startup should emit an SDK availability warning.");
+}
+
+static void IracingUnavailableProviderReportsClearDiagnostic()
+{
+    var provider = new IracingTelemetryProvider(new IracingSdkTelemetrySession());
+
+    Assert(provider.Status == TelemetryProviderStatus.Offline, "Uninitialized iRacing provider should start offline.");
+    Assert(
+        provider.Diagnostics.Contains("SDK", StringComparison.OrdinalIgnoreCase),
+        "Unavailable iRacing provider should explain SDK is not connected.");
+}
+
+static void IracingCapabilitiesIncludeOpponentGapsAndStandings()
+{
+    var capabilities = TelemetryProviderCapabilities.Iracing;
+
+    Assert(capabilities.OpponentGaps, "iRacing provider should report opponent gaps as supported.");
+    Assert(capabilities.Standings, "iRacing provider should report standings as supported.");
+    Assert(capabilities.SessionInfo, "iRacing provider should report session info as supported.");
+    Assert(!capabilities.Tyres, "iRacing provider should report tyres as unsupported for now.");
+    Assert(
+        capabilities.MissingCapabilityLabels.Contains(TelemetryProviderCapabilities.CapabilityLabels.Tyres),
+        "Missing capabilities should include tyres for iRacing.");
+}
+
+static void IracingMapperMapsFixtureToTelemetrySnapshot()
+{
+    var frame = new IracingTelemetryFrame(
+        DateTimeOffset.UtcNow,
+        new IracingCarTelemetry(50.5, 7200, 4, 0.82, 0.0, -0.12, 42.5),
+        new IracingSessionTelemetry("summit_summit_raceway", "Summit Point Raceway", "MX-5 Cup", "Class C", "Race", 1, 20, 900, null),
+        new IracingRaceTelemetry(3, 2, 18, 7, 92.456, 0.61, 1.234, 0.876, "Car 12", "Car 8", 0),
+        new IracingPitTelemetry(false, false, false),
+        new IracingFlagsTelemetry("green", null));
+
+    var snapshot = IracingTelemetryMapper.Map(frame);
+
+    Assert(Math.Abs(snapshot.Car.SpeedKmh!.Value - 181.8) < 0.1, "iRacing mapper should convert m/s to km/h.");
+    Assert(snapshot.Car.Gear == 4, "iRacing mapper should preserve gear.");
+    Assert(snapshot.RaceAwareness?.GapAheadSeconds == 1.234, "iRacing mapper should map gap ahead.");
+    Assert(snapshot.RaceAwareness?.Position == 3, "iRacing mapper should map race position.");
+    Assert(snapshot.RaceAwareness?.TrackName == "Summit Point Raceway", "iRacing mapper should map track display name.");
+}
+
+static void CoachIracingUnavailableExplainsProviderLimitation()
+{
+    var coach = new CoachEngine();
+    var session = new SessionState();
+    var answer = coach.Answer(
+        session,
+        "gap ahead",
+        new CoachContext(
+            TelemetryProviderCapabilities: TelemetryProviderCapabilities.Iracing,
+            TelemetryProviderStatus: TelemetryProviderStatus.Error,
+            TelemetryProviderDiagnostics: IracingProviderDiagnostics.SdkUnavailable));
+
+    Assert(
+        answer.Content.Contains("iRacing telemetry provider is unavailable", StringComparison.OrdinalIgnoreCase),
+        "Coach should explain iRacing provider is unavailable.");
+    Assert(
+        answer.Content.Contains("SDK", StringComparison.OrdinalIgnoreCase),
+        "Coach should include SDK diagnostic detail.");
 }
 
 static void CoachTrackIdentityRoutingDoesNotFallbackToPosition()

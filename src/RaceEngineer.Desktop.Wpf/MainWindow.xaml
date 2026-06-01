@@ -148,11 +148,12 @@
                     <StackPanel>
                         <TextBlock Text="Live Telemetry" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                         <TextBlock Text="Telemetry Provider" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8" />
-                        <UniformGrid Columns="2" Rows="4" Margin="0,0,0,12">
+                        <UniformGrid Columns="2" Rows="5" Margin="0,0,0,12">
                             <TextBlock Text="Provider" /><TextBlock Text="{Binding TelemetryProviderName}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
                             <TextBlock Text="Status" /><TextBlock Text="{Binding TelemetryProviderStatusLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
                             <TextBlock Text="Capabilities" /><TextBlock Text="{Binding TelemetryProviderCapabilitiesSummary}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
                             <TextBlock Text="Missing capabilities" /><TextBlock Text="{Binding TelemetryProviderMissingCapabilitiesLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                            <TextBlock Text="Diagnostics" /><TextBlock Text="{Binding TelemetryProviderDiagnosticsLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
                         </UniformGrid>
                         <UniformGrid Columns="2" Rows="10">
                             <TextBlock Text="Speed" /><TextBlock Text="{Binding Speed}" TextAlignment="Right" Foreground="#9AA6AC" />

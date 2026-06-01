@@ -14,7 +14,8 @@ public sealed record TelemetryProviderCapabilities(
     bool Standings,
     bool PitStatus,
     bool Flags,
-    bool Incidents)
+    bool Incidents,
+    bool SessionInfo)
 {
     public static TelemetryProviderCapabilities SimHub { get; } = new(
         "simhub",
@@ -30,23 +31,28 @@ public sealed record TelemetryProviderCapabilities(
         Standings: false,
         PitStatus: false,
         Flags: false,
-        Incidents: false);
+        Incidents: false,
+        SessionInfo: false);
 
-    public static TelemetryProviderCapabilities IracingPlanned { get; } = new(
+    public static TelemetryProviderCapabilities Iracing { get; } = new(
         "iracing",
         "iRacing",
         SpeedRpmGear: true,
         ThrottleBrakeSteering: true,
         LapTiming: true,
         Fuel: true,
-        Tyres: true,
+        Tyres: false,
         TrackCarIdentity: true,
         Position: true,
         OpponentGaps: true,
         Standings: true,
         PitStatus: true,
         Flags: true,
-        Incidents: true);
+        Incidents: true,
+        SessionInfo: true);
+
+    [Obsolete("Use TelemetryProviderCapabilities.Iracing.")]
+    public static TelemetryProviderCapabilities IracingPlanned => Iracing;
 
     public IReadOnlyList<string> SupportedCapabilityLabels =>
         AllCapabilityLabels.Where(label => Supports(label)).ToArray();
@@ -79,6 +85,7 @@ public sealed record TelemetryProviderCapabilities(
             CapabilityLabels.PitStatus => PitStatus,
             CapabilityLabels.Flags => Flags,
             CapabilityLabels.Incidents => Incidents,
+            CapabilityLabels.SessionInfo => SessionInfo,
             _ => false
         };
 
@@ -99,6 +106,7 @@ public sealed record TelemetryProviderCapabilities(
         public const string PitStatus = "Pit status";
         public const string Flags = "Flags";
         public const string Incidents = "Incidents";
+        public const string SessionInfo = "Session info";
 
         public static IReadOnlyList<string> All { get; } =
         [
@@ -113,7 +121,8 @@ public sealed record TelemetryProviderCapabilities(
             Standings,
             PitStatus,
             Flags,
-            Incidents
+            Incidents,
+            SessionInfo
         ];
     }
 

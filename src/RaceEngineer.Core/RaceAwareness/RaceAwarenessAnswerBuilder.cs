@@ -18,7 +18,9 @@ public static class RaceAwarenessAnswerBuilder
         string? prepTrack = null,
         string? prepCar = null,
         OpponentIntelligenceRecommendation? opponentIntelligence = null,
-        TelemetryProviderCapabilities? telemetryProviderCapabilities = null)
+        TelemetryProviderCapabilities? telemetryProviderCapabilities = null,
+        TelemetryProviderStatus? telemetryProviderStatus = null,
+        string? telemetryProviderDiagnostics = null)
     {
         if (subtopic is RaceAwarenessSubtopic.CatchingAhead
             or RaceAwarenessSubtopic.PullingAway
@@ -27,26 +29,78 @@ public static class RaceAwarenessAnswerBuilder
             or RaceAwarenessSubtopic.RaceSituation
             or RaceAwarenessSubtopic.OpponentIdentity)
         {
-            return OpponentIntelligenceAnswerBuilder.Build(subtopic, opponentIntelligence, routing, telemetryProviderCapabilities);
+            return OpponentIntelligenceAnswerBuilder.Build(
+                subtopic,
+                opponentIntelligence,
+                routing,
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics);
         }
 
         return subtopic switch
         {
-            RaceAwarenessSubtopic.TrackIdentity => BuildTrackIdentity(raceContext, routing, prepTrack),
-            RaceAwarenessSubtopic.CarIdentity => BuildCarIdentity(raceContext, routing, prepCar),
-            RaceAwarenessSubtopic.Position => BuildPosition(session, raceContext, routing),
-            RaceAwarenessSubtopic.GapAhead => BuildGapAhead(raceContext, routing, telemetryProviderCapabilities),
-            RaceAwarenessSubtopic.GapBehind => BuildGapBehind(raceContext, routing, telemetryProviderCapabilities),
-            RaceAwarenessSubtopic.SessionType => BuildSessionType(raceContext, routing),
-            RaceAwarenessSubtopic.OpponentCount => BuildOpponentCount(raceContext, routing),
-            _ => BuildRaceContext(raceContext, routing)
+            RaceAwarenessSubtopic.TrackIdentity => BuildTrackIdentity(
+                raceContext,
+                routing,
+                prepTrack,
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
+            RaceAwarenessSubtopic.CarIdentity => BuildCarIdentity(
+                raceContext,
+                routing,
+                prepCar,
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
+            RaceAwarenessSubtopic.Position => BuildPosition(
+                session,
+                raceContext,
+                routing,
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
+            RaceAwarenessSubtopic.GapAhead => BuildGapAhead(
+                raceContext,
+                routing,
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
+            RaceAwarenessSubtopic.GapBehind => BuildGapBehind(
+                raceContext,
+                routing,
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
+            RaceAwarenessSubtopic.SessionType => BuildSessionType(
+                raceContext,
+                routing,
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
+            RaceAwarenessSubtopic.OpponentCount => BuildOpponentCount(
+                raceContext,
+                routing,
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
+            _ => BuildRaceContext(
+                raceContext,
+                routing,
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics)
         };
     }
 
     public static RaceAwarenessAnswer BuildTrackIdentity(
         LiveRaceContext? raceContext,
         RaceAwarenessRoutingResult routing,
-        string? prepTrack = null)
+        string? prepTrack = null,
+        TelemetryProviderCapabilities? telemetryProviderCapabilities = null,
+        TelemetryProviderStatus? telemetryProviderStatus = null,
+        string? telemetryProviderDiagnostics = null)
     {
         var track = FirstNonEmpty(raceContext?.TrackName, raceContext?.CircuitId, prepTrack);
         if (!string.IsNullOrWhiteSpace(track))
@@ -58,20 +112,30 @@ public static class RaceAwarenessAnswerBuilder
         }
 
         return new RaceAwarenessAnswer(
-            TrackUnavailableMessage,
+            UnavailableTelemetryMessage(
+                TrackUnavailableMessage,
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
             [],
             routing with
             {
-                FallbackReason = routing.MissingTelemetryFields.Count > 0
-                    ? $"track_name and circuit_id missing ({string.Join(", ", routing.MissingTelemetryFields)})"
-                    : "No track or circuit field is available from telemetry or prep."
+                FallbackReason = ProviderFallbackReason(
+                    telemetryProviderCapabilities,
+                    telemetryProviderStatus,
+                    routing.MissingTelemetryFields.Count > 0
+                        ? $"track_name and circuit_id missing ({string.Join(", ", routing.MissingTelemetryFields)})"
+                        : "No track or circuit field is available from telemetry or prep.")
             });
     }
 
     public static RaceAwarenessAnswer BuildCarIdentity(
         LiveRaceContext? raceContext,
         RaceAwarenessRoutingResult routing,
-        string? prepCar = null)
+        string? prepCar = null,
+        TelemetryProviderCapabilities? telemetryProviderCapabilities = null,
+        TelemetryProviderStatus? telemetryProviderStatus = null,
+        string? telemetryProviderDiagnostics = null)
     {
         var car = FirstNonEmpty(raceContext?.CarName, prepCar);
         if (!string.IsNullOrWhiteSpace(car))
@@ -83,20 +147,30 @@ public static class RaceAwarenessAnswerBuilder
         }
 
         return new RaceAwarenessAnswer(
-            CarUnavailableMessage,
+            UnavailableTelemetryMessage(
+                CarUnavailableMessage,
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
             [],
             routing with
             {
-                FallbackReason = routing.MissingTelemetryFields.Count > 0
-                    ? $"car_name missing ({string.Join(", ", routing.MissingTelemetryFields)})"
-                    : "No car field is available from telemetry or prep."
+                FallbackReason = ProviderFallbackReason(
+                    telemetryProviderCapabilities,
+                    telemetryProviderStatus,
+                    routing.MissingTelemetryFields.Count > 0
+                        ? $"car_name missing ({string.Join(", ", routing.MissingTelemetryFields)})"
+                        : "No car field is available from telemetry or prep.")
             });
     }
 
     public static RaceAwarenessAnswer BuildPosition(
         SessionState session,
         LiveRaceContext? raceContext,
-        RaceAwarenessRoutingResult routing)
+        RaceAwarenessRoutingResult routing,
+        TelemetryProviderCapabilities? telemetryProviderCapabilities = null,
+        TelemetryProviderStatus? telemetryProviderStatus = null,
+        string? telemetryProviderDiagnostics = null)
     {
         if (raceContext?.Position is { } position)
         {
@@ -116,15 +190,27 @@ public static class RaceAwarenessAnswerBuilder
         }
 
         return new RaceAwarenessAnswer(
-            PositionUnavailableMessage,
+            UnavailableTelemetryMessage(
+                PositionUnavailableMessage,
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
             [],
-            routing with { FallbackReason = "position and total_cars missing from telemetry." });
+            routing with
+            {
+                FallbackReason = ProviderFallbackReason(
+                    telemetryProviderCapabilities,
+                    telemetryProviderStatus,
+                    "position and total_cars missing from telemetry.")
+            });
     }
 
     private static RaceAwarenessAnswer BuildGapAhead(
         LiveRaceContext? raceContext,
         RaceAwarenessRoutingResult routing,
-        TelemetryProviderCapabilities? telemetryProviderCapabilities)
+        TelemetryProviderCapabilities? telemetryProviderCapabilities,
+        TelemetryProviderStatus? telemetryProviderStatus,
+        string? telemetryProviderDiagnostics)
     {
         if (raceContext?.GapAheadSeconds is { } gapAhead)
         {
@@ -135,20 +221,28 @@ public static class RaceAwarenessAnswerBuilder
         }
 
         return new RaceAwarenessAnswer(
-            TelemetryProviderCapabilityMessages.GapAheadUnavailable(telemetryProviderCapabilities),
+            TelemetryProviderCapabilityMessages.GapAheadUnavailable(
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
             [],
             routing with
             {
-                FallbackReason = telemetryProviderCapabilities is not null && !telemetryProviderCapabilities.OpponentGaps
-                    ? "provider does not expose opponent gaps"
-                    : "gap_ahead_s missing from telemetry."
+                FallbackReason = ProviderFallbackReason(
+                    telemetryProviderCapabilities,
+                    telemetryProviderStatus,
+                    telemetryProviderCapabilities is not null && !telemetryProviderCapabilities.OpponentGaps
+                        ? "provider does not expose opponent gaps"
+                        : "gap_ahead_s missing from telemetry.")
             });
     }
 
     private static RaceAwarenessAnswer BuildGapBehind(
         LiveRaceContext? raceContext,
         RaceAwarenessRoutingResult routing,
-        TelemetryProviderCapabilities? telemetryProviderCapabilities)
+        TelemetryProviderCapabilities? telemetryProviderCapabilities,
+        TelemetryProviderStatus? telemetryProviderStatus,
+        string? telemetryProviderDiagnostics)
     {
         if (raceContext?.GapBehindSeconds is { } gapBehind)
         {
@@ -159,17 +253,28 @@ public static class RaceAwarenessAnswerBuilder
         }
 
         return new RaceAwarenessAnswer(
-            TelemetryProviderCapabilityMessages.GapBehindUnavailable(telemetryProviderCapabilities),
+            TelemetryProviderCapabilityMessages.GapBehindUnavailable(
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
             [],
             routing with
             {
-                FallbackReason = telemetryProviderCapabilities is not null && !telemetryProviderCapabilities.OpponentGaps
-                    ? "provider does not expose opponent gaps"
-                    : "gap_behind_s missing from telemetry."
+                FallbackReason = ProviderFallbackReason(
+                    telemetryProviderCapabilities,
+                    telemetryProviderStatus,
+                    telemetryProviderCapabilities is not null && !telemetryProviderCapabilities.OpponentGaps
+                        ? "provider does not expose opponent gaps"
+                        : "gap_behind_s missing from telemetry.")
             });
     }
 
-    private static RaceAwarenessAnswer BuildSessionType(LiveRaceContext? raceContext, RaceAwarenessRoutingResult routing)
+    private static RaceAwarenessAnswer BuildSessionType(
+        LiveRaceContext? raceContext,
+        RaceAwarenessRoutingResult routing,
+        TelemetryProviderCapabilities? telemetryProviderCapabilities,
+        TelemetryProviderStatus? telemetryProviderStatus,
+        string? telemetryProviderDiagnostics)
     {
         if (!string.IsNullOrWhiteSpace(raceContext?.SessionType))
         {
@@ -180,12 +285,27 @@ public static class RaceAwarenessAnswerBuilder
         }
 
         return new RaceAwarenessAnswer(
-            "Session type is unavailable from telemetry.",
+            UnavailableTelemetryMessage(
+                "Session type is unavailable from telemetry.",
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
             [],
-            routing with { FallbackReason = "session_type missing from telemetry." });
+            routing with
+            {
+                FallbackReason = ProviderFallbackReason(
+                    telemetryProviderCapabilities,
+                    telemetryProviderStatus,
+                    "session_type missing from telemetry.")
+            });
     }
 
-    private static RaceAwarenessAnswer BuildOpponentCount(LiveRaceContext? raceContext, RaceAwarenessRoutingResult routing)
+    private static RaceAwarenessAnswer BuildOpponentCount(
+        LiveRaceContext? raceContext,
+        RaceAwarenessRoutingResult routing,
+        TelemetryProviderCapabilities? telemetryProviderCapabilities,
+        TelemetryProviderStatus? telemetryProviderStatus,
+        string? telemetryProviderDiagnostics)
     {
         if (raceContext?.TotalCars is { } total)
         {
@@ -196,21 +316,43 @@ public static class RaceAwarenessAnswerBuilder
         }
 
         return new RaceAwarenessAnswer(
-            "Opponent count is unavailable from telemetry.",
+            UnavailableTelemetryMessage(
+                "Opponent count is unavailable from telemetry.",
+                telemetryProviderCapabilities,
+                telemetryProviderStatus,
+                telemetryProviderDiagnostics),
             [],
-            routing with { FallbackReason = "total_cars missing from telemetry." });
+            routing with
+            {
+                FallbackReason = ProviderFallbackReason(
+                    telemetryProviderCapabilities,
+                    telemetryProviderStatus,
+                    "total_cars missing from telemetry.")
+            });
     }
 
-    private static RaceAwarenessAnswer BuildRaceContext(LiveRaceContext? raceContext, RaceAwarenessRoutingResult routing)
+    private static RaceAwarenessAnswer BuildRaceContext(
+        LiveRaceContext? raceContext,
+        RaceAwarenessRoutingResult routing,
+        TelemetryProviderCapabilities? telemetryProviderCapabilities,
+        TelemetryProviderStatus? telemetryProviderStatus,
+        string? telemetryProviderDiagnostics)
     {
         if (raceContext is null || raceContext.Confidence == RaceContextConfidence.Unavailable)
         {
             return new RaceAwarenessAnswer(
-                "Race context is unavailable.",
+                UnavailableTelemetryMessage(
+                    "Race context is unavailable.",
+                    telemetryProviderCapabilities,
+                    telemetryProviderStatus,
+                    telemetryProviderDiagnostics),
                 [],
                 routing with
                 {
-                    FallbackReason = raceContext?.Diagnostics.Summary ?? "No race awareness fields are available from telemetry or prep."
+                    FallbackReason = ProviderFallbackReason(
+                        telemetryProviderCapabilities,
+                        telemetryProviderStatus,
+                        raceContext?.Diagnostics.Summary ?? "No race awareness fields are available from telemetry or prep.")
                 });
         }
 
@@ -252,6 +394,26 @@ public static class RaceAwarenessAnswerBuilder
         }
 
         return new RaceAwarenessAnswer(string.Join(" ", parts), evidence, routing with { FallbackReason = null });
+    }
+
+    private static string UnavailableTelemetryMessage(
+        string defaultMessage,
+        TelemetryProviderCapabilities? capabilities,
+        TelemetryProviderStatus? status,
+        string? diagnostics)
+    {
+        var providerMessage = TelemetryProviderCapabilityMessages.ProviderUnavailable(capabilities, status, diagnostics);
+        return string.IsNullOrWhiteSpace(providerMessage) ? defaultMessage : providerMessage;
+    }
+
+    private static string ProviderFallbackReason(
+        TelemetryProviderCapabilities? capabilities,
+        TelemetryProviderStatus? status,
+        string defaultReason)
+    {
+        return TelemetryProviderCapabilityMessages.IsProviderUnavailable(status)
+            ? "telemetry provider unavailable"
+            : defaultReason;
     }
 
     private static string? FirstNonEmpty(params string?[] values)

@@ -1,4 +1,5 @@
 using RaceEngineer.Core;
+using RaceEngineer.Core.Telemetry.Iracing;
 
 namespace RaceEngineer.Core.Telemetry;
 
@@ -14,9 +15,8 @@ public sealed class TelemetryProviderFactory : ITelemetryProviderFactory
             "simhub" => new TelemetryProviderFactoryResult(
                 new SimHubTelemetryProvider(settings.UdpBindIp, settings.UdpPort),
                 []),
-            "iracing" => new TelemetryProviderFactoryResult(
-                UnavailableTelemetryProvider.NotImplemented("iracing", "iRacing"),
-                ["iRacing telemetry provider is not implemented yet."]),
+            "iracing" =>
+                CreateIracingProvider(),
             _ => new TelemetryProviderFactoryResult(
                 new SimHubTelemetryProvider(settings.UdpBindIp, settings.UdpPort),
                 [$"Unknown telemetry provider '{settings.TelemetryProvider}'. Using SimHub."])
@@ -31,5 +31,13 @@ public sealed class TelemetryProviderFactory : ITelemetryProviderFactory
         }
 
         return configuredProvider.Trim().ToLowerInvariant();
+    }
+
+    private static TelemetryProviderFactoryResult CreateIracingProvider()
+    {
+        var session = IracingTelemetrySessionFactory.CreateDefault();
+        var provider = new IracingTelemetryProvider(session);
+        var warnings = IracingTelemetryProvider.CreateStartupWarnings(session);
+        return new TelemetryProviderFactoryResult(provider, warnings);
     }
 }
