@@ -165,6 +165,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string opponentBattleStatusLabel = "-";
     private string opponentConfidenceLabel = "-";
     private StrategyKnowledgeRecommendation? currentStrategyKnowledge;
+    private TrackCarKnowledgeRecommendation? currentTrackCarKnowledge;
+    private string trackIntelligenceTrackLabel = "-";
+    private string trackIntelligenceCarClassLabel = "-";
+    private string trackIntelligenceBrakeDemandLabel = "-";
+    private string trackIntelligenceTyreDemandLabel = "-";
+    private string trackIntelligenceFuelExpectationLabel = "-";
+    private string trackIntelligenceSetupFocusLabel = "-";
+    private string trackIntelligenceOvertakingZonesLabel = "-";
     private string strategyKnowledgeTrackLabel = "unavailable";
     private string strategyKnowledgeCarClassLabel = "unavailable";
     private string strategyKnowledgeRecommendedFuelLabel = "-";
@@ -427,6 +435,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string StrategyKnowledgeRecommendedFuelLabel => strategyKnowledgeRecommendedFuelLabel;
     public string StrategyKnowledgeConfidenceLabel => strategyKnowledgeConfidenceLabel;
     public string StrategyKnowledgeSourceLabel => strategyKnowledgeSourceLabel;
+    public string TrackIntelligenceTrackLabel => trackIntelligenceTrackLabel;
+    public string TrackIntelligenceCarClassLabel => trackIntelligenceCarClassLabel;
+    public string TrackIntelligenceBrakeDemandLabel => trackIntelligenceBrakeDemandLabel;
+    public string TrackIntelligenceTyreDemandLabel => trackIntelligenceTyreDemandLabel;
+    public string TrackIntelligenceFuelExpectationLabel => trackIntelligenceFuelExpectationLabel;
+    public string TrackIntelligenceSetupFocusLabel => trackIntelligenceSetupFocusLabel;
+    public string TrackIntelligenceOvertakingZonesLabel => trackIntelligenceOvertakingZonesLabel;
 
     public string PerformancePanelTitle => performancePanelTitle;
     public string PerformanceBiggestLossLabel => performanceBiggestLossLabel;
@@ -1129,6 +1144,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             previousStoredSessionMemory,
             recentStoredSessionMemories,
             currentStrategyKnowledge,
+            currentTrackCarKnowledge,
             cachedTrackGuide,
             currentOpponentIntelligence,
             currentDriverCoaching,
@@ -1180,6 +1196,66 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             ReportOptionalPanelFailure("Strategy knowledge", exception);
         }
     }
+
+    private void RefreshTrackCarKnowledge()
+    {
+        try
+        {
+            var track = TrackGuideZoneMapper.CanonicalizeTrackName(
+                reviewSessionTrack
+                    ?? liveRaceContext.TrackName
+                    ?? PrepTrack);
+            currentTrackCarKnowledge = TrackCarKnowledgeService.Build(new TrackCarKnowledgeInput(
+                track,
+                liveRaceContext.CarName ?? PrepCar,
+                liveRaceContext.CarClass ?? TrackCarKnowledgeCatalog.NormalizeCarClass(PrepCar),
+                ActiveSession,
+                sessionAnalytics,
+                trackMemoryRecord,
+                previousStoredSessionMemory));
+
+            if (currentTrackCarKnowledge is not { IsAvailable: true })
+            {
+                trackIntelligenceTrackLabel = string.IsNullOrWhiteSpace(track) ? "unavailable" : track;
+                trackIntelligenceCarClassLabel = "unavailable";
+                trackIntelligenceBrakeDemandLabel = "-";
+                trackIntelligenceTyreDemandLabel = "-";
+                trackIntelligenceFuelExpectationLabel = "-";
+                trackIntelligenceSetupFocusLabel = "-";
+                trackIntelligenceOvertakingZonesLabel = "-";
+                return;
+            }
+
+            trackIntelligenceTrackLabel = currentTrackCarKnowledge.TrackName;
+            trackIntelligenceCarClassLabel = string.IsNullOrWhiteSpace(currentTrackCarKnowledge.CarClass)
+                ? currentTrackCarKnowledge.CarName ?? "unknown"
+                : currentTrackCarKnowledge.CarClass;
+            trackIntelligenceBrakeDemandLabel = ShortenPanelText(currentTrackCarKnowledge.BrakeDemand);
+            trackIntelligenceTyreDemandLabel = ShortenPanelText(currentTrackCarKnowledge.TyreWearExpectation);
+            trackIntelligenceFuelExpectationLabel = currentTrackCarKnowledge.LiveFuelPerLapLiters is { } live
+                ? $"{StrategyKnowledgeFormatting.FormatLiters(live)}/lap (live)"
+                : currentTrackCarKnowledge.BaselineFuelPerLapLiters is { } baseline
+                    ? $"{StrategyKnowledgeFormatting.FormatLiters(baseline)}/lap (knowledge)"
+                    : ShortenPanelText(currentTrackCarKnowledge.FuelUsageExpectation);
+            trackIntelligenceSetupFocusLabel = FormatProfileItems(currentTrackCarKnowledge.SetupPriorities);
+            trackIntelligenceOvertakingZonesLabel = FormatProfileItems(currentTrackCarKnowledge.OvertakingZones);
+        }
+        catch (Exception exception)
+        {
+            currentTrackCarKnowledge = null;
+            trackIntelligenceTrackLabel = "unavailable";
+            trackIntelligenceCarClassLabel = "-";
+            trackIntelligenceBrakeDemandLabel = "-";
+            trackIntelligenceTyreDemandLabel = "-";
+            trackIntelligenceFuelExpectationLabel = "-";
+            trackIntelligenceSetupFocusLabel = "-";
+            trackIntelligenceOvertakingZonesLabel = "-";
+            ReportOptionalPanelFailure("Track intelligence", exception);
+        }
+    }
+
+    private static string ShortenPanelText(string value) =>
+        value.Length <= 96 ? value : value[..93] + "...";
 
     private void AppendCoachChatLines(CoachMessage answer)
     {
@@ -2224,6 +2300,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 : $"{strategy.TyreRisk.RiskLevel} ({strategy.TyreRisk.RiskScore0To100:0}/100)";
             strategySummary = strategy.Summary;
             RefreshStrategyKnowledge();
+            RefreshTrackCarKnowledge();
         }
         catch (Exception exception)
         {
@@ -2374,6 +2451,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(StrategyKnowledgeRecommendedFuelLabel));
         OnPropertyChanged(nameof(StrategyKnowledgeConfidenceLabel));
         OnPropertyChanged(nameof(StrategyKnowledgeSourceLabel));
+        OnPropertyChanged(nameof(TrackIntelligenceTrackLabel));
+        OnPropertyChanged(nameof(TrackIntelligenceCarClassLabel));
+        OnPropertyChanged(nameof(TrackIntelligenceBrakeDemandLabel));
+        OnPropertyChanged(nameof(TrackIntelligenceTyreDemandLabel));
+        OnPropertyChanged(nameof(TrackIntelligenceFuelExpectationLabel));
+        OnPropertyChanged(nameof(TrackIntelligenceSetupFocusLabel));
+        OnPropertyChanged(nameof(TrackIntelligenceOvertakingZonesLabel));
         OnPropertyChanged(nameof(SessionModeLabel));
         OnPropertyChanged(nameof(StrategyConfidenceLabel));
         OnPropertyChanged(nameof(EngineerModeLabel));
@@ -2543,6 +2627,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             : "no stored history";
         Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
         RefreshStrategyKnowledge();
+        RefreshTrackCarKnowledge();
         Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
     }
 
@@ -2804,6 +2889,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             recentStoredSessionMemories,
             cachedTrackGuide,
             currentStrategyKnowledge,
+            currentTrackCarKnowledge,
             currentOpponentIntelligence,
             mappedDriverCoaching,
             isReviewMode ? reviewSessionTrack : null);

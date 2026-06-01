@@ -69,6 +69,7 @@ public sealed record CoachEvidenceInput(
     SessionMemorySummary? PreviousStoredSessionMemory = null,
     IReadOnlyList<SessionMemorySummary>? RecentStoredSessionMemories = null,
     Strategy.StrategyKnowledgeRecommendation? StrategyKnowledge = null,
+    Knowledge.TrackCarKnowledgeRecommendation? TrackCarKnowledge = null,
     Knowledge.TrackGuide? CachedTrackGuide = null,
     OpponentIntelligenceRecommendation? OpponentIntelligence = null,
     DriverCoachingRecommendation? DriverCoaching = null,

@@ -1,4 +1,5 @@
 using RaceEngineer.Core.Events;
+using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.SessionContext;
 
@@ -12,6 +13,7 @@ public static class EngineerAiContextBuilder
     [
         "Use only the provided facts. Do not invent telemetry, lap times, fuel, or strategy.",
         "If the facts do not support an answer, say the data is unavailable.",
+        "Distinguish stored track-car knowledge from live telemetry. Do not claim live brake or tyre state unless a fact says live telemetry.",
         "Do not make pit or strategy calls unless strategy callouts are allowed and confidence is sufficient.",
         "Keep the answer short, race-safe, and prioritize safety and uncertainty."
     ];
@@ -43,8 +45,9 @@ public static class EngineerAiContextBuilder
 
         var evidenceTopic = CoachQueryTopicClassifier.ToEvidenceTopic(primaryTopic);
         var packets = SelectPackets(evidence, primaryTopic, evidenceTopic, sessionContext);
-        var facts = packets
-            .Select(ToFact)
+        var trackCarFacts = BuildTrackCarKnowledgeFacts(context, session, question);
+        var facts = trackCarFacts
+            .Concat(packets.Select(ToFact))
             .Take(MaxFacts)
             .ToArray();
 
@@ -148,7 +151,7 @@ public static class EngineerAiContextBuilder
                     || packet.Category is "Braking" or "Throttle" or "Pace" or "Incident"
                     || packet.Category.Contains("TyreIntelligence", StringComparison.Ordinal)),
             CoachQueryTopic.FuelStrategy => packets.Where(packet =>
-                LooksLikeFuelStrategyPacket(packet) || packet.Category == "StrategyKnowledge"),
+                LooksLikeFuelStrategyPacket(packet) || packet.Category is "StrategyKnowledge" or "TrackCarKnowledge"),
             CoachQueryTopic.TrackMemory => packets.Where(packet => packet.Category == "TrackMemory"),
             CoachQueryTopic.TrackGuide => packets.Where(packet =>
                 packet.Category == "TrackGuide"
@@ -168,7 +171,7 @@ public static class EngineerAiContextBuilder
             CoachQueryTopic.FuelAmount => packets.Where(LooksLikeFuelLevelPacket),
             CoachQueryTopic.FuelConsumption => packets.Where(LooksLikeFuelConsumptionPacket),
             CoachQueryTopic.Strategy or CoachQueryTopic.Pit => packets.Where(p =>
-                LooksLikeStrategyPacket(p) || LooksLikeFuelPacket(p) || p.Category == "StrategyKnowledge"),
+                LooksLikeStrategyPacket(p) || LooksLikeFuelPacket(p) || p.Category is "StrategyKnowledge" or "TrackCarKnowledge"),
             CoachQueryTopic.Braking => packets.Where(LooksLikeBrakingPacket),
             CoachQueryTopic.Throttle => packets.Where(LooksLikeThrottlePacket),
             CoachQueryTopic.RacePace => packets.Where(LooksLikePacePacket),
@@ -300,5 +303,17 @@ public static class EngineerAiContextBuilder
     {
         var key = $"{packet.Category} {packet.Summary}".ToLowerInvariant();
         return key.Contains("incident") || key.Contains("event");
+    }
+
+    private static IReadOnlyList<EngineerAiFact> BuildTrackCarKnowledgeFacts(
+        CoachContext? context,
+        SessionState session,
+        string question)
+    {
+        var recommendation = context?.TrackCarKnowledge
+            ?? TrackCarKnowledgeService.Build(TrackCarKnowledgeService.FromCoachContext(context, session, question), question);
+        return recommendation.IsAvailable
+            ? TrackCarKnowledgeService.BuildAiFacts(recommendation)
+            : [];
     }
 }

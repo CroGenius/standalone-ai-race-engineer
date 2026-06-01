@@ -5,7 +5,8 @@ public enum TrackGuideCatalogTrack
     None,
     Monza,
     Spa,
-    RedBullRing
+    RedBullRing,
+    NurburgringGp
 }
 
 public static class TrackGuideCatalogIdentity
@@ -21,6 +22,11 @@ public static class TrackGuideCatalogIdentity
         if (MatchesRedBullRing(key))
         {
             return TrackGuideCatalogTrack.RedBullRing;
+        }
+
+        if (MatchesNurburgringGp(key))
+        {
+            return TrackGuideCatalogTrack.NurburgringGp;
         }
 
         if (MatchesMonza(key))
@@ -42,6 +48,7 @@ public static class TrackGuideCatalogIdentity
             TrackGuideCatalogTrack.Monza => "Monza",
             TrackGuideCatalogTrack.Spa => "Spa",
             TrackGuideCatalogTrack.RedBullRing => "Red Bull Ring",
+            TrackGuideCatalogTrack.NurburgringGp => "Nürburgring GP",
             _ => null
         };
 
@@ -84,6 +91,16 @@ public static class TrackGuideCatalogIdentity
         || key.EndsWith("-rbr", StringComparison.Ordinal)
         || key.Contains("redbullring_gp", StringComparison.Ordinal)
         || key.Contains("red_bull_ring", StringComparison.Ordinal);
+
+    private static bool MatchesNurburgringGp(string key) =>
+        key.Contains("nurburgring gp", StringComparison.Ordinal)
+        || key.Contains("nürburgring gp", StringComparison.Ordinal)
+        || key.Contains("nuerburgring gp", StringComparison.Ordinal)
+        || key.Contains("nurburgring-gp", StringComparison.Ordinal)
+        || key.Contains("gp_strecke", StringComparison.Ordinal)
+        || key.Contains("nurburgring grand prix", StringComparison.Ordinal)
+        || (key.Contains("nurburgring", StringComparison.Ordinal) && !key.Contains("nordschleife", StringComparison.Ordinal))
+        || (key.Contains("nürburgring", StringComparison.Ordinal) && !key.Contains("nordschleife", StringComparison.Ordinal));
 
     private static bool MatchesMonza(string key) =>
         key.Contains("monza", StringComparison.Ordinal)

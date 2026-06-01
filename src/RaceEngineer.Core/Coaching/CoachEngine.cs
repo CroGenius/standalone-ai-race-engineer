@@ -39,6 +39,7 @@ public sealed record CoachContext(
     IReadOnlyList<SessionMemorySummary>? RecentStoredSessionMemories = null,
     TrackGuide? CachedTrackGuide = null,
     Strategy.StrategyKnowledgeRecommendation? StrategyKnowledge = null,
+    TrackCarKnowledgeRecommendation? TrackCarKnowledge = null,
     OpponentIntelligenceRecommendation? OpponentIntelligence = null,
     DriverCoachingRecommendation? DriverCoaching = null,
     string? ReviewSessionTrack = null);
@@ -116,6 +117,14 @@ public sealed class CoachEngine : ICoachEngine
         if (ContainsAny(text, "combine my telemetry", "driving data say versus", "telemetry with track notes", "data versus the track guide"))
         {
             return CombinedTelemetryKnowledgeAnswer(session, recentEvents, context);
+        }
+
+        if (ContainsAny(text, CoachQueryPhrases.TrackCarKnowledge))
+        {
+            return AttachEvidence(
+                TrackCarKnowledgeAnswer(userMessage, session, context),
+                evidence,
+                CoachEvidenceTopic.Strategy);
         }
 
         if (ContainsAny(text, CoachQueryPhrases.StrategyKnowledge))
@@ -516,6 +525,34 @@ public sealed class CoachEngine : ICoachEngine
                 $"strategy source: {recommendation.SourceLabel}",
                 $"confidence: {recommendation.ConfidenceLabel}",
                 recommendation.ExpectedFuelPerLap is { } burn ? $"expected fuel per lap: {FormatNumber(burn, "0.00")} L" : "expected fuel per lap: unavailable"
+            ],
+            []);
+    }
+
+    private static CoachMessage TrackCarKnowledgeAnswer(
+        string query,
+        SessionState session,
+        CoachContext? context)
+    {
+        var recommendation = context?.TrackCarKnowledge
+            ?? TrackCarKnowledgeService.Build(TrackCarKnowledgeService.FromCoachContext(context, session, query), query);
+        if (!recommendation.IsAvailable)
+        {
+            return Unavailable(
+                "Track-car knowledge is unavailable until track and car class are known.",
+                recommendation.SourceLabel);
+        }
+
+        return Message(
+            TrackCarKnowledgeService.BuildCoachAnswer(recommendation, query, session),
+            [
+                $"knowledge source: {recommendation.SourceLabel}",
+                $"confidence: {recommendation.ConfidenceLabel}",
+                recommendation.LiveFuelPerLapLiters is { } live
+                    ? $"live fuel per lap: {FormatNumber(live, "0.00")} L"
+                    : recommendation.BaselineFuelPerLapLiters is { } baseline
+                        ? $"baseline fuel per lap: {FormatNumber(baseline, "0.0")} L"
+                        : "fuel per lap: stored qualitative baseline only"
             ],
             []);
     }

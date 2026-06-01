@@ -78,6 +78,7 @@ public sealed class CoachEvidenceBuilder
             events));
         AddStrategyPackets(packets, strategy);
         AddStrategyKnowledgePackets(packets, input.StrategyKnowledge);
+        AddTrackCarKnowledgePackets(packets, input.TrackCarKnowledge);
         AddRaceAwarenessPackets(packets, input.RaceContext);
         AddTrackMemoryPackets(packets, input.TrackMemory, input.TrackMemoryComparison);
         AddSessionMemorySummaryPackets(
@@ -1070,6 +1071,63 @@ public sealed class CoachEvidenceBuilder
                 null,
                 recommendation.PitWindowEstimate));
         }
+    }
+
+    private static void AddTrackCarKnowledgePackets(
+        List<CoachEvidencePacket> packets,
+        TrackCarKnowledgeRecommendation? recommendation)
+    {
+        if (recommendation is null || !recommendation.IsAvailable)
+        {
+            return;
+        }
+
+        packets.Add(new CoachEvidencePacket(
+            "TrackCarKnowledge",
+            "Track-car knowledge summary",
+            "Info",
+            recommendation.FuelSource == TrackCarKnowledgeDataSource.LiveTelemetry ? 0.92 : 0.84,
+            CoachEvidenceSourceType.Knowledge,
+            null,
+            [],
+            recommendation.RecommendedFuelLiters,
+            TrackCarKnowledgeEvidenceFormatter.BuildSummary(recommendation)));
+
+        if (recommendation.RecommendedFuelLiters is { } fuelTotal)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "TrackCarKnowledge",
+                "Fuel planning estimate",
+                "Info",
+                recommendation.FuelSource == TrackCarKnowledgeDataSource.LiveTelemetry ? 0.9 : 0.82,
+                CoachEvidenceSourceType.Knowledge,
+                null,
+                [],
+                fuelTotal,
+                recommendation.LiveFuelNote ?? recommendation.KnowledgeFuelNote ?? recommendation.FuelUsageExpectation));
+        }
+
+        packets.Add(new CoachEvidencePacket(
+            "TrackCarKnowledge",
+            "Brake demand baseline",
+            "Info",
+            0.82,
+            CoachEvidenceSourceType.Knowledge,
+            null,
+            [],
+            null,
+            recommendation.BrakeDemand));
+
+        packets.Add(new CoachEvidencePacket(
+            "TrackCarKnowledge",
+            "Tyre baseline",
+            "Info",
+            0.82,
+            CoachEvidenceSourceType.Knowledge,
+            null,
+            [],
+            null,
+            $"{recommendation.TyreWearExpectation} Warmup: {recommendation.TyreWarmupExpectation}"));
     }
 
     private static void AddStrategyPackets(List<CoachEvidencePacket> packets, SessionStrategy strategy)

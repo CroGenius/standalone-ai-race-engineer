@@ -254,6 +254,29 @@ public static class CoachQueryPhrases
         "pre-race strategy"
     ];
 
+    public static readonly string[] TrackCarKnowledge =
+    [
+        "how much fuel do i need",
+        "fuel for 10 laps",
+        "fuel for ",
+        "is fuel usage high",
+        "is fuel usage high here",
+        "what should i watch with tyres",
+        "what should i watch with tires",
+        "is this track hard on tyres",
+        "is this track hard on tires",
+        "is this track hard on brakes",
+        "what setup matters here",
+        "where can i overtake",
+        "hard on tyres",
+        "hard on tires",
+        "hard on brakes",
+        "tyre wear here",
+        "tire wear here",
+        "setup matters here",
+        "overtake on this track"
+    ];
+
     public static readonly string[] Position =
     [
         "what is my position",

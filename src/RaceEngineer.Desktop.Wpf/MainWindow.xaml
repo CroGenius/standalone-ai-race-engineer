@@ -453,6 +453,17 @@
                         <TextBlock Text="Data source" /><TextBlock Text="{Binding StrategyKnowledgeSourceLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
                     </UniformGrid>
 
+                    <TextBlock Text="Track Intelligence" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <UniformGrid Columns="2" Rows="7" Margin="0,0,0,18">
+                        <TextBlock Text="Track" /><TextBlock Text="{Binding TrackIntelligenceTrackLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Car class" /><TextBlock Text="{Binding TrackIntelligenceCarClassLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Brake demand" /><TextBlock Text="{Binding TrackIntelligenceBrakeDemandLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Tyre demand" /><TextBlock Text="{Binding TrackIntelligenceTyreDemandLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Fuel expectation" /><TextBlock Text="{Binding TrackIntelligenceFuelExpectationLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Setup focus" /><TextBlock Text="{Binding TrackIntelligenceSetupFocusLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Overtaking zones" /><TextBlock Text="{Binding TrackIntelligenceOvertakingZonesLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
+
                     <TextBlock Text="{Binding LapIntelligenceTitle}" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2" Rows="6" Margin="0,0,0,18">
                         <TextBlock Text="Best lap" /><TextBlock Text="{Binding LapIntelligenceBestLap}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />

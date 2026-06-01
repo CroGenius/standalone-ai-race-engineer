@@ -178,6 +178,10 @@ StrategyKnowledgeTenLapFuelFromLiveBurn();
 StrategyKnowledgeStoredCarFallback();
 StrategyKnowledgeClassBaselineFallback();
 StrategyKnowledgeMissingDataUnavailable();
+TrackCarKnowledgeFuelForTenLapsUsesKnowledgeBaseline();
+TrackCarKnowledgeFuelForTenLapsUsesLiveTelemetry();
+TrackCarKnowledgeBrakeDemandUsesStoredKnowledge();
+TrackCarKnowledgeAiContextIncludesFacts();
 CoachRaceAwarenessMissingGapSaysUnavailable();
 CoachTrackIdentityRoutingDoesNotFallbackToPosition();
 RaceAwarenessRoutingDiagnosticsCoverTrackAndPosition();
@@ -2970,8 +2974,9 @@ static void StrategyKnowledgeTenLapFuelFromLiveBurn()
             RaceContext: RaceContextService.Build(session, session.LatestSnapshot),
             StrategyKnowledge: recommendation));
     Assert(
-        answer.Content.Contains("Based on your current burn", StringComparison.OrdinalIgnoreCase),
-        "Coach fuel planning answer should include live burn adjustment.");
+        answer.Content.Contains("live telemetry", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("Based on your current burn", StringComparison.OrdinalIgnoreCase),
+        "Coach fuel planning answer should include live burn (TrackCarKnowledge or StrategyKnowledge).");
 }
 
 static void StrategyKnowledgeStoredCarFallback()
@@ -3050,6 +3055,122 @@ static void StrategyKnowledgeMissingDataUnavailable()
     Assert(
         answer.Content.Contains("unavailable", StringComparison.OrdinalIgnoreCase),
         "Missing strategy data should return unavailable response.");
+}
+
+static void TrackCarKnowledgeFuelForTenLapsUsesKnowledgeBaseline()
+{
+    var recommendation = TrackCarKnowledgeService.Build(new TrackCarKnowledgeInput(
+        "Red Bull Ring",
+        "GT3 Car",
+        "GT3",
+        new SessionState(),
+        null,
+        null,
+        null,
+        RequestedLapCount: 10));
+
+    Assert(recommendation.IsAvailable, "Red Bull Ring GT3 knowledge should be available.");
+    Assert(
+        recommendation.FuelSource == TrackCarKnowledgeDataSource.StoredKnowledge,
+        "Baseline fuel should come from stored knowledge without live burn.");
+    Assert(
+        recommendation.KnowledgeFuelNote?.Contains("Stored knowledge", StringComparison.OrdinalIgnoreCase) == true,
+        "Fuel note should label stored knowledge.");
+
+    var coach = new CoachEngine();
+    var answer = coach.Answer(
+        new SessionState(),
+        "fuel for 10 laps",
+        new CoachContext(
+            RacePrepPlan: new RacePrepPlan("GT3 Car", "Red Bull Ring", "Practice", null, null, null, null, null, null, null),
+            TrackCarKnowledge: recommendation));
+
+    Assert(
+        answer.Content.Contains("Stored knowledge", StringComparison.OrdinalIgnoreCase),
+        "Coach answer should label stored knowledge when live burn is unavailable.");
+    Assert(
+        answer.Content.Contains("10 laps", StringComparison.OrdinalIgnoreCase),
+        "Coach answer should reference requested lap count.");
+}
+
+static void TrackCarKnowledgeFuelForTenLapsUsesLiveTelemetry()
+{
+    var engine = new EventEngine();
+    var session = new SessionState();
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":10.0,"track_name":"Red Bull Ring","car_name":"GT3","car_class":"GT3"}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":90.0,"fuel":7.7,"track_name":"Red Bull Ring","car_name":"GT3","car_class":"GT3"}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":7.7,"track_name":"Red Bull Ring","car_name":"GT3","car_class":"GT3"}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":89.5,"fuel":5.3,"track_name":"Red Bull Ring","car_name":"GT3","car_class":"GT3"}"""));
+
+    Assert(session.FuelUsedPerLap is > 0, "Smoke setup should produce at least two valid lap fuel samples.");
+
+    var recommendation = TrackCarKnowledgeService.Build(new TrackCarKnowledgeInput(
+        "Red Bull Ring",
+        "GT3",
+        "GT3",
+        session,
+        null,
+        null,
+        null,
+        RequestedLapCount: 10));
+
+    Assert(
+        recommendation.FuelSource == TrackCarKnowledgeDataSource.LiveTelemetry,
+        "Live burn should override stored baseline when valid laps exist.");
+    Assert(
+        recommendation.LiveFuelNote?.Contains("live telemetry", StringComparison.OrdinalIgnoreCase) == true,
+        "Live fuel note should label telemetry source.");
+
+    var answer = new CoachEngine().Answer(
+        session,
+        "fuel for 10 laps",
+        new CoachContext(
+            RaceContext: RaceContextService.Build(session, session.LatestSnapshot),
+            TrackCarKnowledge: recommendation));
+
+    Assert(
+        answer.Content.Contains("live telemetry", StringComparison.OrdinalIgnoreCase),
+        "Coach answer should prefer live telemetry fuel estimate when available.");
+}
+
+static void TrackCarKnowledgeBrakeDemandUsesStoredKnowledge()
+{
+    var recommendation = TrackCarKnowledgeService.Build(new TrackCarKnowledgeInput(
+        "Red Bull Ring",
+        "GT3",
+        "GT3",
+        new SessionState(),
+        null,
+        null,
+        null));
+
+    var answer = TrackCarKnowledgeService.BuildCoachAnswer(recommendation, "is this track hard on brakes", new SessionState());
+    Assert(
+        answer.Contains("Stored knowledge", StringComparison.OrdinalIgnoreCase),
+        "Brake demand answer should be labelled as stored knowledge.");
+    Assert(
+        answer.Contains("Red Bull Ring", StringComparison.OrdinalIgnoreCase),
+        "Brake demand answer should name the track.");
+    Assert(
+        !answer.Contains("overheating", StringComparison.OrdinalIgnoreCase),
+        "Brake demand answer must not invent live telemetry state.");
+}
+
+static void TrackCarKnowledgeAiContextIncludesFacts()
+{
+    var recommendation = TrackCarKnowledgeService.Build(new TrackCarKnowledgeInput(
+        "Monza",
+        "GT3",
+        "GT3",
+        new SessionState(),
+        null,
+        null,
+        null));
+    var facts = TrackCarKnowledgeService.BuildAiFacts(recommendation);
+    Assert(facts.Count >= 3, "AI facts should include track, brake, and tyre baselines.");
+    Assert(
+        facts.Any(fact => fact.Topic == "TrackCarKnowledge" && fact.Source == "stored knowledge"),
+        "AI facts should label stored knowledge source.");
 }
 
 static async Task TrackMemoryRetrievalAndHistoricalComparison()
