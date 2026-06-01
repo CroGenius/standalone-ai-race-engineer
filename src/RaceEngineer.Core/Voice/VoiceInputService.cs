@@ -179,7 +179,10 @@ public sealed class VoiceInputService : IDisposable
 
         if (!provider.IsAvailable)
         {
-            RaiseDiagnostic("PTT ignored", "Speech provider is unavailable.");
+            RaiseDiagnostic(
+                "PTT ignored",
+                "Speech provider is unavailable.",
+                provider.AvailabilityDetail);
             return;
         }
 

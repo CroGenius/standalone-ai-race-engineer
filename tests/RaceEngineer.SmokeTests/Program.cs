@@ -63,6 +63,7 @@ VoiceInputConfirmationPrefixesSpokenResponse();
 SpokenSummaryConfirmationPreservesAnswerAfterCopyPrefix();
 SpokenSummaryGeneratorExtractsActionableSentence();
 VoiceInputStartupHandlesLazyProviderFailures();
+LazySpeechRecognitionProviderInitializesOnPushToTalk();
 SpeechRecognitionCultureResolverSupportsConfiguredAndAutoFallback();
 SpeechRecognitionProviderSelectionSupportsConfiguredValues();
 WhisperModelLocatorResolvesDefaultAndConfiguredPaths();
@@ -644,6 +645,19 @@ static void VoiceInputStartupHandlesLazyProviderFailures()
 
     Assert(!service.IsListening || service.StatusText.Contains("unavailable", StringComparison.OrdinalIgnoreCase),
         "Failed lazy speech initialization should degrade without crashing.");
+}
+
+static void LazySpeechRecognitionProviderInitializesOnPushToTalk()
+{
+    var lazy = new LazySpeechRecognitionProvider(() => new UnavailableSpeechRecognitionProvider("provider init probe"));
+    Assert(!lazy.IsInitialized, "Lazy provider should not initialize before first use.");
+    Assert(lazy.IsAvailable, "Lazy provider should allow initialization attempt before first use.");
+
+    var service = VoiceInputStartup.CreateService(lazy, enabled: true);
+    service.BeginPushToTalk();
+
+    Assert(lazy.IsInitialized, "PTT should initialize lazy speech provider.");
+    Assert(!lazy.IsAvailable, "Unavailable inner provider should report unavailable after init.");
 }
 
 static void SpeechRecognitionCultureResolverSupportsConfiguredAndAutoFallback()

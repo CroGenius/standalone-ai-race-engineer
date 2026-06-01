@@ -14,9 +14,12 @@ public sealed class LazySpeechRecognitionProvider : ISpeechRecognitionProvider
     }
 
     public string ProviderName => inner?.ProviderName ?? "Speech Recognition";
-    public bool IsAvailable => inner?.IsAvailable ?? false;
+    public bool IsInitialized => inner is not null;
+    public bool IsAvailable => inner?.IsAvailable ?? !initializationAttempted;
     public bool IsListening => inner?.IsListening ?? false;
     public string AvailabilityDetail => inner?.AvailabilityDetail ?? availabilityDetail;
+
+    public ISpeechRecognitionProvider EnsureInitialized() => EnsureInner();
 
     public event EventHandler<SpeechRecognizedResult>? SpeechRecognized;
     public event EventHandler<SpeechRecognitionStatusChangedEventArgs>? StatusChanged;

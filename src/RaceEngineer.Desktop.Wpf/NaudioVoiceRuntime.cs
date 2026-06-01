@@ -12,19 +12,39 @@ internal static class NaudioVoiceRuntime
         VoiceInputOptions options,
         Action<string> reportWarning,
         out VoiceInputService? service,
+        out VoiceInitializationReport? report,
         out string? errorMessage)
     {
         service = null;
+        report = null;
         errorMessage = null;
 
         try
         {
-            service = NaudioVoiceServices.CreateVoiceInputService(settings, options, reportWarning);
-            return true;
+            (service, report) = NaudioVoiceServices.CreateVoiceInputServiceWithDiagnostics(settings, options, reportWarning);
+            if (report.ProviderAvailable)
+            {
+                return true;
+            }
+
+            errorMessage = report.SummaryForChat;
+            return false;
         }
         catch (Exception exception)
         {
             errorMessage = DescribeVoiceFailure(exception);
+            service = VoiceInputStartup.CreateUnavailableService(errorMessage, options);
+            report = new VoiceInitializationReport(
+                SelectedProvider: settings.SpeechRecognitionProvider,
+                NaudioAvailable: false,
+                NaudioError: errorMessage,
+                MicrophoneDeviceCount: 0,
+                MicrophoneSummary: "unavailable",
+                ActiveProviderName: "Speech Recognition",
+                ProviderAvailable: false,
+                ProviderAvailabilityDetail: errorMessage,
+                FailedComponent: "NAudio runtime",
+                InitializationException: exception.Message);
             return false;
         }
     }

@@ -1450,23 +1450,69 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 BuildVoiceInputOptions(appSettings, userPreferences.Coach),
                 message => AddStartupChat($"Startup: {message}"),
                 out var service,
+                out var report,
                 out var errorMessage))
         {
             voiceInputRuntimeError = errorMessage ?? NaudioVoiceRuntime.BlockedWasapiMessage;
+            if (service is not null)
+            {
+                ReplaceVoiceInputService(service, wasEnabled, wasMuted);
+            }
+
+            if (report is not null)
+            {
+                LogVoiceInitializationReport(report);
+            }
+
             ReportVoiceInputUnavailable(voiceInputRuntimeError);
             return false;
         }
 
+        ReplaceVoiceInputService(service!, wasEnabled, wasMuted);
+        if (report is not null)
+        {
+            LogVoiceInitializationReport(report);
+        }
+
+        TryRefreshMicrophoneDevices();
+        RaiseVoiceProperties();
+        return true;
+    }
+
+    private void ReplaceVoiceInputService(VoiceInputService service, bool wasEnabled, bool wasMuted)
+    {
         UnwireVoiceInputServiceEvents(voiceInputService);
         voiceInputService.Dispose();
-        voiceInputService = service!;
+        voiceInputService = service;
         WireVoiceInputServiceEvents(voiceInputService);
         voiceInputService.Configure(BuildVoiceInputOptions(appSettings, userPreferences.Coach));
         voiceInputService.SetEnabled(wasEnabled);
         voiceInputService.SetInputMuted(wasMuted);
-        TryRefreshMicrophoneDevices();
-        RaiseVoiceProperties();
-        return true;
+    }
+
+    private void LogVoiceInitializationReport(VoiceInitializationReport report)
+    {
+        AddStartupChat($"Voice diag: Provider selected — {report.SelectedProvider}");
+        AddStartupChat(report.NaudioAvailable
+            ? $"Voice diag: Microphones detected — {report.MicrophoneDeviceCount} ({report.MicrophoneSummary})"
+            : $"Voice diag: Microphone enumeration unavailable — {report.NaudioError ?? "unknown error"}");
+        AddStartupChat($"Voice diag: Active provider — {report.ActiveProviderName} ({(report.ProviderAvailable ? "available" : "unavailable")})");
+        if (!string.IsNullOrWhiteSpace(report.ProviderAvailabilityDetail))
+        {
+            AddStartupChat($"Voice diag: Provider detail — {report.ProviderAvailabilityDetail}");
+        }
+
+        if (!string.Equals(report.FailedComponent, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            AddStartupChat($"Voice diag: Failed component — {report.FailedComponent}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(report.InitializationException))
+        {
+            AddStartupChat($"Voice diag: Initialization exception — {report.InitializationException}");
+        }
+
+        AddStartupChat($"Voice diag: {report.SummaryForChat}");
     }
 
     private void TryRefreshMicrophoneDevices()
