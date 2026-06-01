@@ -100,6 +100,13 @@ public static class RaceContextService
             new RaceFieldDiagnostics(present, missing, summary));
     }
 
+    public static OpponentTelemetrySourceReport BuildOpponentTelemetryDiagnostics(
+        TelemetrySnapshot? snapshot,
+        string? rawJson = null)
+    {
+        return OpponentTelemetryFieldDiscovery.AnalyzeSnapshot(snapshot, rawJson);
+    }
+
     public static RaceFieldDiagnostics BuildTelemetryDiagnostics(TelemetrySnapshot? snapshot)
     {
         if (snapshot?.RaceAwareness is null)

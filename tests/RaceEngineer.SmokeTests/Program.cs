@@ -29,6 +29,15 @@ if (args is ["--write-fixture", ..])
     return;
 }
 
+if (args is ["--report-opponent-fields", ..])
+{
+    var capturePath = args.Length > 1
+        ? args[1]
+        : SampleThreeLapFixture.ResolvePath();
+    OpponentTelemetryCaptureReport.PrintReport(capturePath);
+    return;
+}
+
 ValidPacketParsesCorrectly();
 WrongSchemaIsRejected();
 WrongSchemaVersionIsRejected();
@@ -139,6 +148,11 @@ ThrottleUsesLiveTraceWithoutCompletedLap();
 TyreAnswerIncludesAllCornersOrUnavailableRear();
 RaceAwarenessPacketParsesPartialFields();
 RaceContextServiceReportsMissingOpponentGaps();
+OpponentTelemetryDiscoveryMapsCamelCaseFields();
+OpponentTelemetryDiscoveryFindsUnmappedCandidates();
+ProviderDiagOnlyPacketReportsOpponentGapsUnavailable();
+ProviderDiagOnlyGapTrendSaysUnavailable();
+OpponentTelemetryCaptureReportReadsJsonl();
 await TrackMemoryRetrievalAndHistoricalComparison();
 SessionMemorySummaryBuildsFromFixtureLaps();
 await SessionMemoryRetrievalByTrackCar();
@@ -2316,6 +2330,79 @@ static void RaceContextServiceReportsMissingOpponentGaps()
     Assert(context.Position == 3, "Race context should expose parsed position.");
     Assert(context.GapAheadSeconds is null, "Gap ahead must stay unavailable when telemetry omits it.");
     Assert(context.Diagnostics.MissingFields.Contains("gap_ahead_s"), "Missing opponent gap should be reported in diagnostics.");
+}
+
+static void OpponentTelemetryDiscoveryMapsCamelCaseFields()
+{
+    const string json =
+        """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"speed_kmh":180,"position":4,"totalCars":20,"gapAhead":1.250,"gapBehind":2.500,"carAhead":"Pilot A","carBehind":"Pilot B"}""";
+    var snapshot = SimHubPacketParser.Parse(json);
+    var report = RaceContextService.BuildOpponentTelemetryDiagnostics(snapshot, json);
+
+    Assert(snapshot.RaceAwareness?.GapAheadSeconds == 1.250, "gapAhead should map to GapAheadSeconds.");
+    Assert(snapshot.RaceAwareness?.GapBehindSeconds == 2.500, "gapBehind should map to GapBehindSeconds.");
+    Assert(snapshot.RaceAwareness?.CarAhead == "Pilot A", "carAhead should map to CarAhead.");
+    Assert(snapshot.RaceAwareness?.CarBehind == "Pilot B", "carBehind should map to CarBehind.");
+    Assert(snapshot.RaceAwareness?.TotalCars == 20, "totalCars should map to TotalCars.");
+    Assert(report.PresentFields.Contains("gap_ahead_s"), "Discovery report should mark gap_ahead_s present.");
+    Assert(report.ResolvedPropertyNames["gap_ahead_s"] == "gapAhead", "Discovery report should record resolved source path.");
+}
+
+static void OpponentTelemetryDiscoveryFindsUnmappedCandidates()
+{
+    const string json =
+        """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"speed_kmh":180,"standings":[{"position":1,"driver":"A","gap":0.0}],"leaderboard":[{"name":"A","gapSeconds":0.0}]}""";
+    var snapshot = SimHubPacketParser.Parse(json);
+    var report = RaceContextService.BuildOpponentTelemetryDiagnostics(snapshot, json);
+
+    Assert(snapshot.RaceAwareness?.GapAheadSeconds is null, "Nested standings/leaderboard must not invent gap values.");
+    Assert(report.MissingFields.Contains("gap_ahead_s"), "Gap ahead should remain missing when only nested candidates exist.");
+    Assert(report.CandidateRawFields.Any(candidate => candidate.JsonPath.Contains("standings", StringComparison.OrdinalIgnoreCase)), "Discovery should report standings candidate path.");
+    Assert(report.CandidateRawFields.Any(candidate => candidate.JsonPath.Contains("leaderboard", StringComparison.OrdinalIgnoreCase)), "Discovery should report leaderboard candidate path.");
+}
+
+static void ProviderDiagOnlyPacketReportsOpponentGapsUnavailable()
+{
+    const string json =
+        """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"speed_kmh":180,"provider_diag":{"pm_last_track_id":"Monza-GP","pm_last_car_id":"Ferrari F2004","pm_game_name":"Assetto Corsa"}}""";
+    var snapshot = SimHubPacketParser.Parse(json);
+    var report = RaceContextService.BuildOpponentTelemetryDiagnostics(snapshot, json);
+    var context = RaceContextService.Build(new SessionState(), snapshot);
+
+    Assert(context.GapAheadSeconds is null, "provider_diag-only packet must not invent gap ahead.");
+    Assert(context.GapBehindSeconds is null, "provider_diag-only packet must not invent gap behind.");
+    Assert(report.MissingFields.Contains("gap_ahead_s"), "Discovery should report gap_ahead_s missing for provider_diag-only packet.");
+    Assert(report.MissingFields.Contains("gap_behind_s"), "Discovery should report gap_behind_s missing for provider_diag-only packet.");
+}
+
+static void ProviderDiagOnlyGapTrendSaysUnavailable()
+{
+    const string json =
+        """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"speed_kmh":180,"provider_diag":{"pm_last_track_id":"Monza-GP","pm_last_car_id":"Ferrari F2004"}}""";
+    var snapshot = SimHubPacketParser.Parse(json);
+    var session = new SessionState();
+    session.ApplySnapshot(snapshot, []);
+    var raceContext = RaceContextService.Build(session, snapshot);
+    var recommendation = OpponentIntelligenceService.Build(new OpponentIntelligenceInput(
+        raceContext,
+        [snapshot],
+        null,
+        null,
+        null));
+
+    Assert(
+        recommendation.GapTrend.Summary.Contains("Gap trend is unavailable from telemetry.", StringComparison.OrdinalIgnoreCase),
+        "Gap trend must stay unavailable when provider_diag-only packet has no gap fields.");
+}
+
+static void OpponentTelemetryCaptureReportReadsJsonl()
+{
+    var fixturePath = SampleThreeLapFixture.ResolvePath();
+    var report = OpponentTelemetryCaptureReport.BuildReport(fixturePath);
+
+    Assert(report.Contains("Opponent/gap telemetry report:", StringComparison.Ordinal), "Capture report should include header.");
+    Assert(report.Contains("gap_ahead_s", StringComparison.Ordinal), "Fixture aggregate report should list missing gap_ahead_s.");
+    Assert(report.Contains("Valid SimHub packets:", StringComparison.Ordinal), "Capture report should include valid packet count.");
 }
 
 static void SessionMemorySummaryBuildsFromFixtureLaps()

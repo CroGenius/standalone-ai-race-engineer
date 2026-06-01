@@ -143,6 +143,7 @@ public static class SimHubPacketParser
         var carName = StringOrNull(root, "car_name")
             ?? StringOrNull(root, "car")
             ?? providerCarId;
+        var opponentFields = OpponentTelemetryFieldDiscovery.Resolve(root, raceElement);
 
         return new RaceAwarenessState(
             trackName,
@@ -152,12 +153,12 @@ public static class SimHubPacketParser
             StringOrNull(root, "session_type"),
             IntOrNull(root, "lap_number") ?? IntOrNull(root, "current_lap"),
             IntOrNull(root, "total_laps"),
-            IntOrNull(root, "position") ?? (raceElement.ValueKind == JsonValueKind.Object ? IntOrNull(raceElement, "position") : null),
-            IntOrNull(root, "total_cars") ?? IntOrNull(root, "opponents"),
-            DoubleOrNull(root, "gap_ahead_s") ?? DoubleOrNull(root, "gap_ahead"),
-            DoubleOrNull(root, "gap_behind_s") ?? DoubleOrNull(root, "gap_behind"),
-            StringOrNull(root, "car_ahead"),
-            StringOrNull(root, "car_behind"),
+            opponentFields.Position,
+            opponentFields.TotalCars,
+            opponentFields.GapAheadSeconds,
+            opponentFields.GapBehindSeconds,
+            opponentFields.CarAhead,
+            opponentFields.CarBehind,
             StringOrNull(root, "pit_state"),
             StringOrNull(root, "flags") ?? (raceElement.ValueKind == JsonValueKind.Object ? StringOrNull(raceElement, "flags") : null),
             IntOrNull(root, "sector"),

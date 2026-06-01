@@ -178,6 +178,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string raceGapBehindLabel = "-";
     private string raceContextConfidenceLabel = "-";
     private string raceFieldDiagnosticsLabel = "-";
+    private string opponentTelemetryPresentLabel = "present: (none); missing: gap_ahead_s, gap_behind_s, car_ahead, car_behind, total_cars, position";
+    private string opponentTelemetryResolvedLabel = "resolved: (none)";
+    private string opponentTelemetryCandidatesLabel = "candidates: (none)";
+    private string telemetryOpponentFieldsLabel = "present: (none); missing: gap_ahead_s, gap_behind_s, car_ahead, car_behind, total_cars, position";
+    private string telemetryOpponentResolvedLabel = "resolved: (none)";
+    private string telemetryOpponentCandidatesLabel = "candidates: (none)";
+    private string? lastRawTelemetryJson;
     private string raceMemoryPreviousBestLabel = "-";
     private string raceMemoryPreviousAverageLabel = "-";
     private string performancePanelTitle = "Performance Intelligence (Live Session)";
@@ -374,6 +381,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string RaceGapBehindLabel => raceGapBehindLabel;
     public string RaceContextConfidenceLabel => raceContextConfidenceLabel;
     public string RaceFieldDiagnosticsLabel => raceFieldDiagnosticsLabel;
+    public string OpponentTelemetryPresentLabel => opponentTelemetryPresentLabel;
+    public string OpponentTelemetryResolvedLabel => opponentTelemetryResolvedLabel;
+    public string OpponentTelemetryCandidatesLabel => opponentTelemetryCandidatesLabel;
+    public string TelemetryOpponentFieldsLabel => telemetryOpponentFieldsLabel;
+    public string TelemetryOpponentResolvedLabel => telemetryOpponentResolvedLabel;
+    public string TelemetryOpponentCandidatesLabel => telemetryOpponentCandidatesLabel;
     public string RaceMemoryPreviousBestLabel => raceMemoryPreviousBestLabel;
     public string RaceMemoryPreviousAverageLabel => raceMemoryPreviousAverageLabel;
 
@@ -886,6 +899,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         if (packet.IsValid)
         {
             validPacketsCount++;
+            if (!string.IsNullOrWhiteSpace(packet.RawJson))
+            {
+                lastRawTelemetryJson = packet.RawJson;
+            }
+
+            UpdateOpponentTelemetryDiagnostics(packet.Snapshot, packet.RawJson);
         }
         else
         {
@@ -2232,6 +2251,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(RaceGapBehindLabel));
         OnPropertyChanged(nameof(RaceContextConfidenceLabel));
         OnPropertyChanged(nameof(RaceFieldDiagnosticsLabel));
+        OnPropertyChanged(nameof(OpponentTelemetryPresentLabel));
+        OnPropertyChanged(nameof(OpponentTelemetryResolvedLabel));
+        OnPropertyChanged(nameof(OpponentTelemetryCandidatesLabel));
+        OnPropertyChanged(nameof(TelemetryOpponentFieldsLabel));
+        OnPropertyChanged(nameof(TelemetryOpponentResolvedLabel));
+        OnPropertyChanged(nameof(TelemetryOpponentCandidatesLabel));
         OnPropertyChanged(nameof(RaceMemoryPreviousBestLabel));
         OnPropertyChanged(nameof(RaceMemoryPreviousAverageLabel));
         OnPropertyChanged(nameof(OpponentPositionLabel));
@@ -2310,6 +2335,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             : "unavailable";
         raceContextConfidenceLabel = liveRaceContext.Confidence.ToString();
         raceFieldDiagnosticsLabel = telemetryDiagnostics.Summary;
+        UpdateOpponentTelemetryDiagnostics(ActiveSession.LatestSnapshot, lastRawTelemetryJson);
         trackMemoryComparison = trackMemoryService.Compare(trackMemoryRecord, ActiveSession, sessionAnalytics);
         raceMemoryPreviousBestLabel = trackMemoryRecord?.BestLapSeconds is { } best
             ? TrackMemoryService.FormatLapTime(best)
@@ -2835,6 +2861,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(InvalidPacketsCount));
         OnPropertyChanged(nameof(LastPacketTimestamp));
         OnPropertyChanged(nameof(LastParserWarning));
+        OnPropertyChanged(nameof(TelemetryOpponentFieldsLabel));
+        OnPropertyChanged(nameof(TelemetryOpponentResolvedLabel));
+        OnPropertyChanged(nameof(TelemetryOpponentCandidatesLabel));
     }
 
     private void RaiseDiagnosticsProperties()
@@ -2849,6 +2878,30 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(CurrentSchemaSeen));
         OnPropertyChanged(nameof(RawCaptureState));
         OnPropertyChanged(nameof(RawCapturePath));
+        OnPropertyChanged(nameof(TelemetryOpponentFieldsLabel));
+        OnPropertyChanged(nameof(TelemetryOpponentResolvedLabel));
+        OnPropertyChanged(nameof(TelemetryOpponentCandidatesLabel));
+    }
+
+    private void UpdateOpponentTelemetryDiagnostics(TelemetrySnapshot? snapshot, string? rawJson)
+    {
+        var report = RaceContextService.BuildOpponentTelemetryDiagnostics(snapshot, rawJson);
+        var presentLabel = report.PresentFields.Count == 0
+            ? "(none)"
+            : string.Join(", ", report.PresentFields);
+        var missingLabel = report.MissingFields.Count == 0
+            ? "(none)"
+            : string.Join(", ", report.MissingFields);
+        opponentTelemetryPresentLabel = $"present: {presentLabel}; missing: {missingLabel}";
+        opponentTelemetryResolvedLabel = report.ResolvedPropertyNames.Count == 0
+            ? "resolved: (none)"
+            : "resolved: " + string.Join("; ", report.ResolvedPropertyNames.Select(pair => $"{pair.Key}<-{pair.Value}"));
+        opponentTelemetryCandidatesLabel = report.CandidateRawFields.Count == 0
+            ? "candidates: (none)"
+            : "candidates: " + string.Join("; ", report.CandidateRawFields.Take(8).Select(candidate => $"{candidate.JsonPath}={candidate.SampleValue}"));
+        telemetryOpponentFieldsLabel = opponentTelemetryPresentLabel;
+        telemetryOpponentResolvedLabel = opponentTelemetryResolvedLabel;
+        telemetryOpponentCandidatesLabel = opponentTelemetryCandidatesLabel;
     }
 
     private static string Format(double? value, string format)
