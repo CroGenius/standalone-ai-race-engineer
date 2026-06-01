@@ -177,65 +177,8 @@ public static class SessionMemoryCoachingFormatter
             : $"Focus on reducing time loss through {location}.";
     }
 
-    private static string ResolveHumanLocation(string location, TrackGuide? guide)
-    {
-        if (string.IsNullOrWhiteSpace(location))
-        {
-            return string.Empty;
-        }
-
-        var trimmed = location.Trim();
-        if (guide?.Corners is { Count: > 0 })
-        {
-            var turnMatch = Regex.Match(trimmed, @"\b(?:turn|t)\s*(?<num>\d+)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-            if (turnMatch.Success
-                && int.TryParse(turnMatch.Groups["num"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var turnNumber))
-            {
-                var namedTurn = guide.Corners.FirstOrDefault(corner =>
-                    corner.Name.Contains($"Turn {turnNumber}", StringComparison.OrdinalIgnoreCase)
-                    || corner.Name.Contains($"T{turnNumber}", StringComparison.OrdinalIgnoreCase));
-                if (namedTurn is not null)
-                {
-                    return namedTurn.Name;
-                }
-            }
-
-            var zoneMatch = Regex.Match(trimmed, @"\bzone\s*(?<num>\d+)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-            if (zoneMatch.Success
-                && int.TryParse(zoneMatch.Groups["num"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var zoneNumber)
-                && zoneNumber > 0
-                && zoneNumber <= guide.Corners.Count)
-            {
-                return guide.Corners[zoneNumber - 1].Name;
-            }
-
-            var directCorner = guide.Corners.FirstOrDefault(corner =>
-                trimmed.Contains(corner.Name, StringComparison.OrdinalIgnoreCase));
-            if (directCorner is not null)
-            {
-                return directCorner.Name;
-            }
-        }
-
-        if (Regex.IsMatch(trimmed, @"\bzone\s*\d+\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
-        {
-            return "that section of the lap";
-        }
-
-        if (trimmed.Contains("sector", StringComparison.OrdinalIgnoreCase))
-        {
-            var sectorNote = guide?.SectorNotes.FirstOrDefault(note =>
-                note.Contains(trimmed, StringComparison.OrdinalIgnoreCase));
-            if (!string.IsNullOrWhiteSpace(sectorNote))
-            {
-                return sectorNote.Split('.')[0].Trim();
-            }
-
-            return trimmed.Replace("delta", "pace", StringComparison.OrdinalIgnoreCase).Trim();
-        }
-
-        return trimmed;
-    }
+    private static string ResolveHumanLocation(string location, TrackGuide? guide) =>
+        TrackGuideZoneMapper.MapLocationReference(location, guide);
 
     private static string HumanizeBehavior(string behavior)
     {

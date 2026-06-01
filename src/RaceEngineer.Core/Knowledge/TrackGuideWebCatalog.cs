@@ -87,10 +87,11 @@ public static class TrackGuideWebCatalog
                 "Slipstream battles can push you over fuel target if you stay in dirty air too long."
             ],
             [
-                new("Turn 1", 0.08, 0.12, "Heavy braking from top speed."),
-                new("Lesmo 1", 0.24, 0.28, "Trail-brake and protect inside front."),
-                new("Ascari", 0.52, 0.58, "Rhythm corner; keep rear settled."),
-                new("Parabolica", 0.88, 0.95, "Commit to exit for straight speed.")
+                new("Rettifilo", 0.06, 0.14, "Heavy braking from top speed into Turn 1."),
+                new("Lesmo 1", 0.20, 0.30, "Trail-brake and protect inside front."),
+                new("Lesmo 2", 0.34, 0.44, "Rhythm corner; keep rear settled on exit."),
+                new("Ascari", 0.50, 0.62, "Two-part chicane; traction on exit matters."),
+                new("Parabolica", 0.85, 0.96, "Commit to exit for straight speed.")
             ],
             [
                 new("Built-in track guide catalog", "catalog://track/monza"),

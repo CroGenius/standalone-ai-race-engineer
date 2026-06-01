@@ -12,14 +12,14 @@ public static class DriverCoachingIntelligenceService
 
     public static DriverCoachingRecommendation Build(DriverCoachingInput input)
     {
-        var performance = input.Performance;
+        var performance = TrackGuideZoneMapper.MapPerformance(input.Performance, input.TrackGuide);
         if (performance.ValidLapCount == 0 || performance.Availability != "Available")
         {
             return DriverCoachingRecommendation.Unavailable;
         }
 
         var mappedZones = performance.ZoneMetrics
-            .Select(metric => metric with { Zone = metric.Zone with { Label = FormatZoneLabel(metric.Zone, input.TrackGuide) } })
+            .Select(metric => metric with { Zone = metric.Zone with { Label = TrackGuideZoneMapper.MapZoneLabel(metric.Zone, input.TrackGuide) } })
             .ToArray();
         var biggestLoss = mappedZones
             .OrderByDescending(metric => metric.EstimatedLossSeconds ?? 0)
@@ -27,20 +27,22 @@ public static class DriverCoachingIntelligenceService
         var strongest = ResolveStrongestArea(mappedZones, input.LapIntelligence, input.TrackGuide);
         var weakest = biggestLoss is not null
             ? $"{biggestLoss.Zone.Label}: {ShortBehavior(biggestLoss.Behaviors)}"
-            : performance.MainWeakness;
-        var repeatedWeaknesses = BuildRepeatedWeaknesses(performance, input.TrackMemory, input.PreviousStoredSessionMemory);
+            : TrackGuideZoneMapper.MapZoneReferences(performance.MainWeakness, input.TrackGuide);
+        var repeatedWeaknesses = BuildRepeatedWeaknesses(performance, input.TrackMemory, input.PreviousStoredSessionMemory, input.TrackGuide);
         var progress = DetectProgressTrend(input);
         var previousDelta = BuildPreviousSessionDeltaSummary(input);
         var targets = BuildTopCoachingTargets(performance, mappedZones, repeatedWeaknesses, input.TrackGuide);
         var insights = BuildCoachingInsights(performance, mappedZones, progress, previousDelta, targets, input.TrackGuide);
         var summary = BuildSummary(progress, weakest, strongest, performance.Consistency.Detail, previousDelta);
 
+        var biggestWeakness = TrackGuideZoneMapper.MapZoneReferences(performance.MainWeakness, input.TrackGuide) ?? weakest;
+
         return new DriverCoachingRecommendation(
             true,
             performance.Availability,
             progress.Trend,
             progress.Summary,
-            performance.MainWeakness ?? weakest,
+            biggestWeakness,
             strongest,
             weakest,
             performance.Consistency.Detail,
@@ -51,25 +53,8 @@ public static class DriverCoachingIntelligenceService
             summary);
     }
 
-    public static string FormatZoneLabel(PerformanceZone zone, TrackGuide? guide)
-    {
-        if (guide?.Corners is { Count: > 0 })
-        {
-            var mid = (zone.ProgressStart + zone.ProgressEnd) / 2.0;
-            foreach (var corner in guide.Corners)
-            {
-                if (corner.LapProgressStart is { } start
-                    && corner.LapProgressEnd is { } end
-                    && mid >= start
-                    && mid <= end)
-                {
-                    return corner.Name;
-                }
-            }
-        }
-
-        return zone.Label;
-    }
+    public static string FormatZoneLabel(PerformanceZone zone, TrackGuide? guide) =>
+        TrackGuideZoneMapper.MapZoneLabel(zone, guide);
 
     private static string? ResolveStrongestArea(
         IReadOnlyList<ZonePerformanceMetric> zones,
@@ -100,15 +85,16 @@ public static class DriverCoachingIntelligenceService
     private static IReadOnlyList<string> BuildRepeatedWeaknesses(
         SessionDriverPerformance performance,
         TrackMemoryRecord? trackMemory,
-        SessionMemorySummary? previousSession)
+        SessionMemorySummary? previousSession,
+        TrackGuide? guide)
     {
         var items = new List<string>();
         items.AddRange(performance.MistakeClusters
             .Where(cluster => cluster.Count >= 2)
-            .Select(cluster => $"{cluster.Behavior} in {cluster.ZoneLabel}"));
-        items.AddRange(trackMemory?.RepeatedWeaknesses ?? []);
-        items.AddRange(previousSession?.RepeatedWeaknesses ?? []);
-        items.AddRange(trackMemory?.PerformanceWeaknessPatterns ?? []);
+            .Select(cluster => TrackGuideZoneMapper.MapZoneReferences($"{cluster.Behavior} in {cluster.ZoneLabel}", guide)));
+        items.AddRange((trackMemory?.RepeatedWeaknesses ?? []).Select(item => TrackGuideZoneMapper.MapZoneReferences(item, guide)));
+        items.AddRange((previousSession?.RepeatedWeaknesses ?? []).Select(item => TrackGuideZoneMapper.MapZoneReferences(item, guide)));
+        items.AddRange((trackMemory?.PerformanceWeaknessPatterns ?? []).Select(item => TrackGuideZoneMapper.MapZoneReferences(item, guide)));
 
         return Distinct(items).Take(5).ToArray();
     }
@@ -201,7 +187,7 @@ public static class DriverCoachingIntelligenceService
         var targets = new List<string>();
         if (!string.IsNullOrWhiteSpace(performance.MainWeakness))
         {
-            targets.Add(performance.MainWeakness);
+            targets.Add(TrackGuideZoneMapper.MapZoneReferences(performance.MainWeakness, guide));
         }
 
         foreach (var zone in mappedZones.Where(metric => metric.EstimatedLossSeconds is > 0.05).Take(2))
@@ -209,7 +195,9 @@ public static class DriverCoachingIntelligenceService
             targets.Add(BuildActionableTarget(zone, guide));
         }
 
-        targets.AddRange(performance.CoachingMessages.Take(2));
+        targets.AddRange(performance.CoachingMessages
+            .Select(message => TrackGuideZoneMapper.MapZoneReferences(message, guide))
+            .Take(2));
         targets.AddRange(repeatedWeaknesses.Take(2));
 
         return Distinct(targets).Take(3).ToArray();

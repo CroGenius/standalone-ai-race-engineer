@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using RaceEngineer.Core.Knowledge;
 
 namespace RaceEngineer.Core.RaceAwareness;
 
@@ -7,18 +8,19 @@ public static class SessionDebriefGenerator
 {
     public static SessionDebrief Generate(SessionMemorySummary summary, SessionMemoryBuildInput? input = null)
     {
+        var guide = input?.CachedTrackGuide;
         var strengths = BuildStrengths(summary, input);
-        var weaknesses = BuildWeaknesses(summary);
+        var weaknesses = MapTextItems(BuildWeaknesses(summary), guide);
         var fuelAnalysis = BuildFuelAnalysis(summary);
         var tyreAnalysis = BuildTyreAnalysis(summary);
-        var brakingAnalysis = BuildBrakingAnalysis(summary);
-        var throttleAnalysis = BuildThrottleAnalysis(summary);
-        var consistencyAnalysis = BuildConsistencyAnalysis(summary);
+        var brakingAnalysis = BuildBrakingAnalysis(summary, guide);
+        var throttleAnalysis = BuildThrottleAnalysis(summary, guide);
+        var consistencyAnalysis = BuildConsistencyAnalysis(summary, guide);
         var strategyNotes = summary.StrategyNotes.Count > 0
-            ? string.Join(" ", summary.StrategyNotes)
+            ? string.Join(" ", TrackGuideZoneMapper.MapTextItems(summary.StrategyNotes, guide))
             : "No strategy notes were recorded for this session.";
         var nextActions = summary.ImprovementTargets.Count > 0
-            ? summary.ImprovementTargets.Take(3).ToArray()
+            ? MapTextItems(summary.ImprovementTargets.Take(3).ToArray(), guide)
             : weaknesses.Take(3).ToArray();
 
         return new SessionDebrief(
@@ -101,20 +103,25 @@ public static class SessionDebriefGenerator
             : "Tyre warmup and degradation notes are unavailable for this session.";
     }
 
-    private static string BuildBrakingAnalysis(SessionMemorySummary summary) =>
+    private static string BuildBrakingAnalysis(SessionMemorySummary summary, TrackGuide? guide) =>
         summary.BrakingWeaknesses.Count > 0
-            ? string.Join("; ", summary.BrakingWeaknesses)
+            ? string.Join("; ", MapTextItems(summary.BrakingWeaknesses, guide))
             : "No braking weaknesses were recorded for this session.";
 
-    private static string BuildThrottleAnalysis(SessionMemorySummary summary) =>
+    private static string BuildThrottleAnalysis(SessionMemorySummary summary, TrackGuide? guide) =>
         summary.ThrottleWeaknesses.Count > 0
-            ? string.Join("; ", summary.ThrottleWeaknesses)
+            ? string.Join("; ", MapTextItems(summary.ThrottleWeaknesses, guide))
             : "No throttle weaknesses were recorded for this session.";
 
-    private static string BuildConsistencyAnalysis(SessionMemorySummary summary) =>
+    private static string BuildConsistencyAnalysis(SessionMemorySummary summary, TrackGuide? guide) =>
         summary.ConsistencyScore is { } score
-            ? $"Consistency score was {score.ToString("0", CultureInfo.InvariantCulture)}/100."
+            ? TrackGuideZoneMapper.MapZoneReferences(
+                $"Consistency score was {score.ToString("0", CultureInfo.InvariantCulture)}/100.",
+                guide)
             : "Consistency score is unavailable for this session.";
+
+    private static IReadOnlyList<string> MapTextItems(IReadOnlyList<string> items, TrackGuide? guide) =>
+        TrackGuideZoneMapper.MapTextItems(items, guide);
 
     private static string BuildMarkdown(
         SessionMemorySummary summary,

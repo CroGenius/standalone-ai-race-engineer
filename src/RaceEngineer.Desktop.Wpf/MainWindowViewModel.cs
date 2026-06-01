@@ -2751,7 +2751,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             sessionStrategy,
             sessionDriverPerformance,
             currentOpponentIntelligence,
-            currentDriverCoaching);
+            currentDriverCoaching,
+            cachedTrackGuide);
     }
 
     private async Task SaveMemorySummaryAsync()

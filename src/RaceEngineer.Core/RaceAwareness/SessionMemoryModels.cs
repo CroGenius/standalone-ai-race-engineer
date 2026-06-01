@@ -54,7 +54,8 @@ public sealed record SessionMemoryBuildInput(
     Strategy.SessionStrategy? Strategy,
     Analytics.SessionDriverPerformance? DriverPerformance,
     OpponentIntelligenceRecommendation? OpponentIntelligence = null,
-    Coaching.DriverCoachingRecommendation? DriverCoaching = null);
+    Coaching.DriverCoachingRecommendation? DriverCoaching = null,
+    Knowledge.TrackGuide? CachedTrackGuide = null);
 
 public static class SessionMemoryFormatting
 {

@@ -194,6 +194,8 @@ DriverCoachingComparesPreviousSession();
 DriverCoachingExtractsRepeatedWeaknesses();
 DriverCoachingBuildsTopThreeTargets();
 DriverCoachingNoDataFallback();
+TrackGuideZoneMapperMapsMonzaZones();
+DriverCoachingUsesTrackGuideCornerNames();
 EngineerAiContextIncludesDriverCoachingSummary();
 TelemetryTraceBuilderCreatesDeterministicTimeline();
 EndToEndFixtureReplayVerifiesPipeline();
@@ -2614,8 +2616,8 @@ static void StoredSessionMemoryUsesNaturalLanguage()
         !answer.Contains("Zone 4", StringComparison.OrdinalIgnoreCase),
         "Struggle answer should not expose raw zone identifiers when corner mapping exists.");
     Assert(
-        answer.Contains("Parabolica", StringComparison.OrdinalIgnoreCase),
-        "Zone 4 should map to the named Monza corner in the cached guide.");
+        answer.Contains("Ascari", StringComparison.OrdinalIgnoreCase),
+        "Zone 4 should map to Ascari in the cached Monza guide.");
 }
 
 static void CoachingTrackGuidePhrasesPassTranscriptGate()
@@ -3693,6 +3695,85 @@ static void DriverCoachingNoDataFallback()
     Assert(
         answer.Contains(SessionDriverPerformance.NeedCleanLapMessage, StringComparison.Ordinal),
         "Driver coaching answer should fall back when no data exists.");
+}
+
+static void TrackGuideZoneMapperMapsMonzaZones()
+{
+    Assert(TrackGuideWebCatalog.TryGetGuide("Monza", out var guide), "Fixture catalog should provide Monza guide.");
+    Assert(
+        TrackGuideZoneMapper.MapZoneLabel("Zone 1", guide) == "Rettifilo",
+        "Monza Zone 1 should map to Rettifilo.");
+    Assert(
+        TrackGuideZoneMapper.MapZoneLabel("Zone 2", guide) == "Lesmo 1",
+        "Monza Zone 2 should map to Lesmo 1.");
+    Assert(
+        TrackGuideZoneMapper.MapZoneLabel("Zone 3", guide) == "Lesmo 2",
+        "Monza Zone 3 should map to Lesmo 2.");
+    Assert(
+        TrackGuideZoneMapper.MapZoneLabel("Zone 4", guide) == "Ascari",
+        "Monza Zone 4 should map to Ascari.");
+    Assert(
+        TrackGuideZoneMapper.MapZoneLabel("Zone 5", guide) == "Parabolica",
+        "Monza Zone 5 should map to Parabolica.");
+    Assert(
+        TrackGuideZoneMapper.MapZoneLabel("Zone 4", null) == "Zone 4",
+        "Without a track guide, Zone labels should remain unchanged.");
+}
+
+static void DriverCoachingUsesTrackGuideCornerNames()
+{
+    Assert(TrackGuideWebCatalog.TryGetGuide("Monza", out var guide), "Fixture catalog should provide Monza guide.");
+    var zone4 = new PerformanceZone(4, "Zone 4", 2, 0.50, 0.65);
+    var performance = SessionWithPerformanceContext().Performance with
+    {
+        ZoneMetrics =
+        [
+            new ZonePerformanceMetric(zone4, 0.18, ["delayed throttle pickup (0.05s/lap)"])
+        ],
+        MainWeakness = "Zone 4: delayed throttle pickup",
+        CoachingMessages =
+        [
+            "You are losing time on corner exits, mainly from delayed throttle pickup in Zone 4."
+        ]
+    };
+
+    var coaching = DriverCoachingIntelligenceService.Build(new DriverCoachingInput(
+        performance,
+        TrackGuide: guide));
+    var losingTimeAnswer = DriverCoachingAnswerBuilder.BuildLosingTime(coaching);
+    var insight = coaching.CoachingInsights.FirstOrDefault(item =>
+        item.Contains("delayed throttle pickup", StringComparison.OrdinalIgnoreCase));
+
+    Assert(
+        !losingTimeAnswer.Contains("Zone 4", StringComparison.OrdinalIgnoreCase),
+        "Losing-time answer should not expose raw zone identifiers when a corner map exists.");
+    Assert(
+        losingTimeAnswer.Contains("Ascari", StringComparison.OrdinalIgnoreCase),
+        "Losing-time answer should use the mapped Monza corner name.");
+    Assert(
+        insight is not null && insight.Contains("Ascari", StringComparison.OrdinalIgnoreCase),
+        "Driver coaching insights should use mapped corner names.");
+    Assert(
+        !insight!.Contains("Zone 4", StringComparison.OrdinalIgnoreCase),
+        "Driver coaching insights should not expose raw zone identifiers.");
+
+    var (session, _, context) = SessionWithPerformanceContext();
+    var coach = new CoachEngine();
+    var coachAnswer = coach.Answer(
+        session,
+        "where am i losing time",
+        context with
+        {
+            DriverPerformance = performance,
+            CachedTrackGuide = guide,
+            DriverCoaching = coaching
+        });
+    Assert(
+        !coachAnswer.Content.Contains("Zone 4", StringComparison.OrdinalIgnoreCase),
+        "Coach losing-time route should not expose raw zone identifiers.");
+    Assert(
+        coachAnswer.Content.Contains("Ascari", StringComparison.OrdinalIgnoreCase),
+        "Coach losing-time route should use mapped corner names.");
 }
 
 static void EngineerAiContextIncludesDriverCoachingSummary()

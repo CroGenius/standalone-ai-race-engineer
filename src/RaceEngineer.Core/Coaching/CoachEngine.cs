@@ -708,10 +708,11 @@ public sealed class CoachEngine : ICoachEngine
 
         if (context?.DriverPerformance is { Availability: "Available" } performance)
         {
+            var mapped = TrackGuideZoneMapper.MapPerformance(performance, context.CachedTrackGuide);
             return AttachEvidence(
                 new CoachMessage(
                     "coach",
-                    DriverPerformanceIntelligenceService.BuildThrottleAnswer(performance),
+                    DriverPerformanceIntelligenceService.BuildThrottleAnswer(mapped),
                     [],
                     null,
                     []),
@@ -1335,7 +1336,7 @@ public sealed class CoachEngine : ICoachEngine
         if (context?.DriverPerformance is { Availability: "Available", MainWeakness: var weakness }
             && !string.IsNullOrWhiteSpace(weakness))
         {
-            notes.Add($"current weakness: {weakness}");
+            notes.Add($"current weakness: {TrackGuideZoneMapper.MapZoneReferences(weakness, context.CachedTrackGuide)}");
         }
 
         return notes;
@@ -1483,8 +1484,9 @@ public sealed class CoachEngine : ICoachEngine
         var gate = DrivingTechniqueGate.Evaluate(topic, session, context?.SessionContext);
         if (context?.DriverPerformance is { Availability: "Available" } performance)
         {
+            var mapped = TrackGuideZoneMapper.MapPerformance(performance, context.CachedTrackGuide);
             return AttachEvidence(
-                new CoachMessage("coach", performanceAnswer(performance), [], null, []),
+                new CoachMessage("coach", performanceAnswer(mapped), [], null, []),
                 evidence,
                 evidenceTopic);
         }
@@ -1517,8 +1519,9 @@ public sealed class CoachEngine : ICoachEngine
         var gate = DrivingTechniqueGate.Evaluate(topic, session, context?.SessionContext);
         if (context?.DriverPerformance is { Availability: "Available" } performance)
         {
+            var mapped = TrackGuideZoneMapper.MapPerformance(performance, context.CachedTrackGuide);
             return AttachEvidence(
-                new CoachMessage("coach", performanceAnswer(performance), [], null, []),
+                new CoachMessage("coach", performanceAnswer(mapped), [], null, []),
                 evidence,
                 evidenceTopic);
         }
