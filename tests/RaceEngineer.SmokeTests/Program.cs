@@ -636,7 +636,8 @@ static void VoiceInputStartupHandlesLazyProviderFailures()
     var service = VoiceInputStartup.CreateService(lazy, enabled: true);
 
     Assert(service.StatusText.Contains("ready", StringComparison.OrdinalIgnoreCase)
-        || service.StatusText.Contains("disabled", StringComparison.OrdinalIgnoreCase),
+        || service.StatusText.Contains("disabled", StringComparison.OrdinalIgnoreCase)
+        || service.StatusText.Contains("unavailable", StringComparison.OrdinalIgnoreCase),
         "Startup should leave voice input in a safe state before first use.");
 
     service.BeginPushToTalk();

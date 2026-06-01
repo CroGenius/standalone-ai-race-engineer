@@ -42,7 +42,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly TelemetryTraceBuilder traceBuilder = new();
     private readonly CoachEvidenceBuilder evidenceBuilder = new();
     private readonly VoiceService voiceService;
-    private readonly VoiceInputService voiceInputService;
+    private VoiceInputService voiceInputService;
+    private bool voiceInputRuntimeInitialized;
+    private string? voiceInputRuntimeError;
+    private bool voiceInputUnavailableReported;
     private readonly CalloutManager calloutManager = new();
     private readonly StrategyEngine strategyEngine = new();
     private readonly StrategyCalloutManager strategyCalloutManager = new();
@@ -249,12 +252,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             voiceService.SetMuted(false);
         }
-        voiceInputService = CreateVoiceInputServiceSafely(settings);
-        voiceInputService.QueryRecognized += OnVoiceQueryRecognized;
-        voiceInputService.TranscriptRejected += OnVoiceTranscriptRejected;
-        voiceInputService.TranscriptPendingConfirmation += OnVoiceTranscriptPendingConfirmation;
-        voiceInputService.DiagnosticRaised += OnVoiceDiagnosticRaised;
-        voiceInputService.StateChanged += (_, _) => RaiseVoiceProperties();
+        voiceInputService = CreatePlaceholderVoiceInputService(settings);
+        WireVoiceInputServiceEvents(voiceInputService);
         CoachQueryDiagnosticLog.TraceRaised += OnCoachQueryTraceRaised;
         CoachQueryDiagnosticLog.RuntimeTraceRaised += OnCoachQueryRuntimeTraceRaised;
         CoachQueryDiagnosticLog.AiTraceRaised += OnAiTraceRaised;
@@ -302,10 +301,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         FetchTrackGuideCommand = new RelayCommand(() => _ = FetchTrackGuideAsync());
         receiver.PacketProcessed += OnPacketProcessed;
         receiver.SnapshotReceived += OnSnapshotReceived;
-        foreach (var device in MicrophoneDeviceCatalog.ListDevices())
+        MicrophoneDevices.Add(new MicrophoneDeviceOption
         {
-            MicrophoneDevices.Add(device);
-        }
+            DeviceNumber = -1,
+            DisplayName = "System default (Communications)"
+        });
 
         _ = StartAsyncSafe();
     }
@@ -1411,6 +1411,95 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         RaiseVoiceProperties();
     }
 
+    private VoiceInputService CreatePlaceholderVoiceInputService(AppSettings settings)
+    {
+        var options = BuildVoiceInputOptions(settings, CoachPreferencesRecord.FromAppSettings(settings));
+        return VoiceInputStartup.CreateUnavailableService("Voice input loads on first mic use.", options);
+    }
+
+    private void WireVoiceInputServiceEvents(VoiceInputService service)
+    {
+        service.QueryRecognized += OnVoiceQueryRecognized;
+        service.TranscriptRejected += OnVoiceTranscriptRejected;
+        service.TranscriptPendingConfirmation += OnVoiceTranscriptPendingConfirmation;
+        service.DiagnosticRaised += OnVoiceDiagnosticRaised;
+        service.StateChanged += (_, _) => RaiseVoiceProperties();
+    }
+
+    private void UnwireVoiceInputServiceEvents(VoiceInputService service)
+    {
+        service.QueryRecognized -= OnVoiceQueryRecognized;
+        service.TranscriptRejected -= OnVoiceTranscriptRejected;
+        service.TranscriptPendingConfirmation -= OnVoiceTranscriptPendingConfirmation;
+        service.DiagnosticRaised -= OnVoiceDiagnosticRaised;
+    }
+
+    private bool TryEnsureVoiceInputRuntime()
+    {
+        if (voiceInputRuntimeInitialized)
+        {
+            return voiceInputRuntimeError is null;
+        }
+
+        voiceInputRuntimeInitialized = true;
+        var wasEnabled = voiceInputService.VoiceInputEnabled;
+        var wasMuted = voiceInputService.InputMuted;
+
+        if (!NaudioVoiceRuntime.TryCreateVoiceInputService(
+                appSettings,
+                BuildVoiceInputOptions(appSettings, userPreferences.Coach),
+                message => AddStartupChat($"Startup: {message}"),
+                out var service,
+                out var errorMessage))
+        {
+            voiceInputRuntimeError = errorMessage ?? NaudioVoiceRuntime.BlockedWasapiMessage;
+            ReportVoiceInputUnavailable(voiceInputRuntimeError);
+            return false;
+        }
+
+        UnwireVoiceInputServiceEvents(voiceInputService);
+        voiceInputService.Dispose();
+        voiceInputService = service!;
+        WireVoiceInputServiceEvents(voiceInputService);
+        voiceInputService.Configure(BuildVoiceInputOptions(appSettings, userPreferences.Coach));
+        voiceInputService.SetEnabled(wasEnabled);
+        voiceInputService.SetInputMuted(wasMuted);
+        TryRefreshMicrophoneDevices();
+        RaiseVoiceProperties();
+        return true;
+    }
+
+    private void TryRefreshMicrophoneDevices()
+    {
+        if (!NaudioVoiceRuntime.TryListMicrophoneDevices(out var devices, out var errorMessage))
+        {
+            if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                ReportVoiceInputUnavailable(errorMessage);
+            }
+
+            return;
+        }
+
+        MicrophoneDevices.Clear();
+        foreach (var device in devices)
+        {
+            MicrophoneDevices.Add(device);
+        }
+    }
+
+    private void ReportVoiceInputUnavailable(string message)
+    {
+        if (voiceInputUnavailableReported)
+        {
+            return;
+        }
+
+        voiceInputUnavailableReported = true;
+        AddStartupChat(message);
+        RaiseVoiceProperties();
+    }
+
     private IVoiceOutput CreateVoiceOutputSafely()
     {
         try
@@ -1424,25 +1513,34 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         }
     }
 
-    private VoiceInputService CreateVoiceInputServiceSafely(AppSettings settings)
+    private void ToggleVoiceInputMute()
     {
-        var options = BuildVoiceInputOptions(settings, CoachPreferencesRecord.FromAppSettings(settings));
+        var nextMuted = !voiceInputService.InputMuted;
+        if (!nextMuted && !TryEnsureVoiceInputRuntime())
+        {
+            return;
+        }
 
-        try
+        voiceInputService.SetInputMuted(nextMuted);
+        RaiseVoiceProperties();
+    }
+
+    public bool MatchesPushToTalkHotkey(KeyEventArgs args) => pushToTalkHotkey.Matches(args);
+
+    public void BeginPushToTalk()
+    {
+        if (!voiceService.VoiceEnabled)
         {
-            var mergedSettings = settings;
-            var speechProvider = SpeechRecognitionProviderFactory.CreateOrFallback(
-                mergedSettings,
-                startupWarnings.Add);
-            return VoiceInputStartup.CreateService(speechProvider, options, settings.VoiceEnabledDefault);
+            return;
         }
-        catch (Exception exception)
+
+        if (!TryEnsureVoiceInputRuntime())
         {
-            return VoiceInputStartup.CreateUnavailableService(
-                exception.Message,
-                options,
-                startupWarnings.Add);
+            return;
         }
+
+        voiceInputService.BeginPushToTalk();
+        RaiseVoiceProperties();
     }
 
     private static VoiceInputOptions BuildVoiceInputOptions(AppSettings settings, CoachPreferencesRecord coach)
@@ -1469,25 +1567,6 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         startupWarnings.Add($"Push-to-talk hotkey '{configuredHotkey ?? ""}' is invalid. Using F6.");
         return PushToTalkHotkey.Default;
-    }
-
-    private void ToggleVoiceInputMute()
-    {
-        voiceInputService.SetInputMuted(!voiceInputService.InputMuted);
-        RaiseVoiceProperties();
-    }
-
-    public bool MatchesPushToTalkHotkey(KeyEventArgs args) => pushToTalkHotkey.Matches(args);
-
-    public void BeginPushToTalk()
-    {
-        if (!voiceService.VoiceEnabled)
-        {
-            return;
-        }
-
-        voiceInputService.BeginPushToTalk();
-        RaiseVoiceProperties();
     }
 
     public void EndPushToTalk()
@@ -1607,6 +1686,11 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private void ToggleVoice()
     {
         var enabled = !voiceService.VoiceEnabled;
+        if (enabled && !TryEnsureVoiceInputRuntime())
+        {
+            return;
+        }
+
         voiceService.SetVoiceEnabled(enabled);
         voiceInputService.SetEnabled(enabled);
         RaiseVoiceProperties();
@@ -1614,26 +1698,35 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private async Task RunMicCalibrationTestAsync()
     {
+        if (!TryEnsureVoiceInputRuntime())
+        {
+            MicCalibrationStatus = voiceInputRuntimeError ?? NaudioVoiceRuntime.BlockedWasapiMessage;
+            ChatMessages.Add($"Voice diag [mic test]: {MicCalibrationStatus}");
+            RaiseVoiceProperties();
+            return;
+        }
+
         MicCalibrationStatus = "Recording 3 seconds... speak normally.";
         ChatMessages.Add("Coach: Mic test started — speak normally for 3 seconds.");
         RaiseVoiceProperties();
 
         var deviceNumber = SelectedMicrophoneDeviceNumber;
+        var (result, errorMessage) = await NaudioVoiceRuntime.TryRunMicCalibrationAsync(
+            deviceNumber,
+            TimeSpan.FromSeconds(3));
 
-        try
+        if (result is null)
         {
-            var result = await MicrophoneCalibrationRunner.RunAsync(deviceNumber, TimeSpan.FromSeconds(3));
-            MicCalibrationStatus =
-                $"Peak {result.PeakRms:0} | Raw {result.RawPeakRms:0} | Conv {result.ConvertedPeakRms:0} | Quality {result.SignalQualityLabel} | {result.AssessmentMessage}";
-            ChatMessages.Add($"Voice diag [mic test]: {result.CaptureFormatSummary}");
-            ChatMessages.Add($"Voice diag [mic test]: Raw={result.RawPeakRms:0} Conv={result.ConvertedPeakRms:0} Peak={result.PeakRms:0} Quality={result.SignalQualityLabel} — {result.AssessmentMessage}");
-        }
-        catch (Exception exception)
-        {
-            MicCalibrationStatus = $"Mic test failed: {exception.Message}";
-            ChatMessages.Add($"Voice diag [mic test failed]: {exception.Message}");
+            MicCalibrationStatus = errorMessage ?? "Mic test unavailable.";
+            ChatMessages.Add($"Voice diag [mic test failed]: {MicCalibrationStatus}");
+            RaiseVoiceProperties();
+            return;
         }
 
+        MicCalibrationStatus =
+            $"Peak {result.PeakRms:0} | Raw {result.RawPeakRms:0} | Conv {result.ConvertedPeakRms:0} | Quality {result.SignalQualityLabel} | {result.AssessmentMessage}";
+        ChatMessages.Add($"Voice diag [mic test]: {result.CaptureFormatSummary}");
+        ChatMessages.Add($"Voice diag [mic test]: Raw={result.RawPeakRms:0} Conv={result.ConvertedPeakRms:0} Peak={result.PeakRms:0} Quality={result.SignalQualityLabel} — {result.AssessmentMessage}");
         RaiseVoiceProperties();
     }
 

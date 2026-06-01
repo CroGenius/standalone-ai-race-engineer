@@ -14,7 +14,7 @@ public sealed class LazySpeechRecognitionProvider : ISpeechRecognitionProvider
     }
 
     public string ProviderName => inner?.ProviderName ?? "Speech Recognition";
-    public bool IsAvailable => inner?.IsAvailable ?? true;
+    public bool IsAvailable => inner?.IsAvailable ?? false;
     public bool IsListening => inner?.IsListening ?? false;
     public string AvailabilityDetail => inner?.AvailabilityDetail ?? availabilityDetail;
 
