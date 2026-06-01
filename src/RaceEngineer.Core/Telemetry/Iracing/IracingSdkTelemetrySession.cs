@@ -1,30 +1,150 @@
 namespace RaceEngineer.Core.Telemetry.Iracing;
 
-public sealed class IracingSdkTelemetrySession : IIracingTelemetrySession
+public sealed class IracingSdkTelemetrySession : IIracingTelemetrySession, IDisposable
 {
-    // TODO: Replace this stub with a live iRacing SDK session adapter (e.g. IRSDKSharper).
-    // IracingTelemetryProvider polls TryReadLatest once the SDK dependency is wired here.
+    private readonly IIracingSdkClient sdkClient;
+    private readonly TimeSpan connectTimeout;
+    private readonly object sync = new();
+    private IracingTelemetryFrame? latestFrame;
+    private IracingConnectionDiagnostics connectionDiagnostics = IracingConnectionDiagnostics.Disconnected();
+    private IracingSessionConnectionState connectionState = IracingSessionConnectionState.Disconnected;
+    private bool started;
 
-    public IracingSessionConnectionState ConnectionState { get; private set; } = IracingSessionConnectionState.SdkUnavailable;
-
-    public string DiagnosticMessage =>
-        IracingProviderDiagnostics.DescribeConnection(ConnectionState);
-
-    public Task<bool> TryConnectAsync(CancellationToken cancellationToken = default)
+    public IracingSdkTelemetrySession(IIracingSdkClient? sdkClient = null, TimeSpan? connectTimeout = null)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        ConnectionState = IracingSessionConnectionState.SdkUnavailable;
-        return Task.FromResult(false);
+        this.sdkClient = sdkClient ?? new IracingSdkClient();
+        this.connectTimeout = connectTimeout ?? TimeSpan.FromSeconds(5);
+    }
+
+    public IracingSessionConnectionState ConnectionState
+    {
+        get
+        {
+            lock (sync)
+            {
+                return connectionState;
+            }
+        }
+    }
+
+    public IracingConnectionDiagnostics ConnectionDiagnostics
+    {
+        get
+        {
+            lock (sync)
+            {
+                return connectionDiagnostics;
+            }
+        }
+    }
+
+    public string DiagnosticMessage => ConnectionDiagnostics.Summary;
+
+    public async Task<bool> TryConnectAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            sdkClient.Start();
+            started = true;
+        }
+        catch (Exception exception)
+        {
+            SetState(
+                IracingSessionConnectionState.SdkUnavailable,
+                IracingConnectionDiagnostics.SdkUnavailable(exception.Message));
+            return false;
+        }
+
+        var deadline = DateTime.UtcNow + connectTimeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (sdkClient.IsConnected && sdkClient.Data is not null)
+            {
+                var diagnostics = IracingSdkFrameReader.BuildDiagnostics(sdkClient.Data, sdkConnected: true);
+                SetState(IracingSessionConnectionState.Connected, diagnostics);
+                CaptureLatestFrame();
+                return true;
+            }
+
+            await Task.Delay(100, cancellationToken);
+        }
+
+        SetState(
+            IracingSessionConnectionState.SessionNotActive,
+            IracingConnectionDiagnostics.Disconnected(IracingProviderDiagnostics.SessionNotActive));
+        return false;
     }
 
     public void Disconnect()
     {
-        ConnectionState = IracingSessionConnectionState.Disconnected;
+        if (started)
+        {
+            sdkClient.Stop();
+            started = false;
+        }
+
+        latestFrame = null;
+        SetState(
+            IracingSessionConnectionState.Disconnected,
+            IracingConnectionDiagnostics.Disconnected());
     }
 
     public bool TryReadLatest(out IracingTelemetryFrame? frame)
     {
-        frame = null;
-        return false;
+        lock (sync)
+        {
+            if (!sdkClient.IsConnected || sdkClient.Data is null)
+            {
+                if (started && !sdkClient.IsConnected)
+                {
+                    connectionState = IracingSessionConnectionState.SessionNotActive;
+                    connectionDiagnostics = IracingConnectionDiagnostics.Disconnected(IracingProviderDiagnostics.SessionNotActive);
+                }
+
+                frame = null;
+                return false;
+            }
+
+            CaptureLatestFrameUnsafe();
+            frame = latestFrame;
+            return frame is not null;
+        }
+    }
+
+    public void Dispose()
+    {
+        Disconnect();
+        sdkClient.Dispose();
+    }
+
+    private void CaptureLatestFrame()
+    {
+        lock (sync)
+        {
+            CaptureLatestFrameUnsafe();
+        }
+    }
+
+    private void CaptureLatestFrameUnsafe()
+    {
+        if (sdkClient.Data is null)
+        {
+            latestFrame = null;
+            return;
+        }
+
+        connectionDiagnostics = IracingSdkFrameReader.BuildDiagnostics(sdkClient.Data, sdkConnected: sdkClient.IsConnected);
+        latestFrame = IracingSdkFrameReader.TryRead(sdkClient.Data);
+    }
+
+    private void SetState(IracingSessionConnectionState state, IracingConnectionDiagnostics diagnostics)
+    {
+        lock (sync)
+        {
+            connectionState = state;
+            connectionDiagnostics = diagnostics;
+        }
     }
 }

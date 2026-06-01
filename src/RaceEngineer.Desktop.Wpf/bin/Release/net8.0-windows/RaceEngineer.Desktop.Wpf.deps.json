@@ -17,6 +17,17 @@
           "RaceEngineer.Desktop.Wpf.dll": {}
         }
       },
+      "IRSDKSharper/1.1.6": {
+        "dependencies": {
+          "YamlDotNet": "16.3.0"
+        },
+        "runtime": {
+          "lib/net8.0-windows7.0/IRSDKSharper.dll": {
+            "assemblyVersion": "1.1.6.0",
+            "fileVersion": "1.1.6.0"
+          }
+        }
+      },
       "Microsoft.Data.Sqlite/10.0.0": {
         "dependencies": {
           "Microsoft.Data.Sqlite.Core": "10.0.0",
@@ -338,8 +349,17 @@
           }
         }
       },
+      "YamlDotNet/16.3.0": {
+        "runtime": {
+          "lib/net8.0/YamlDotNet.dll": {
+            "assemblyVersion": "16.0.0.0",
+            "fileVersion": "16.3.0.0"
+          }
+        }
+      },
       "RaceEngineer.Core/1.0.0": {
         "dependencies": {
+          "IRSDKSharper": "1.1.6",
           "Microsoft.Data.Sqlite": "10.0.0"
         },
         "runtime": {
@@ -356,6 +376,13 @@
       "type": "project",
       "serviceable": false,
       "sha512": ""
+    },
+    "IRSDKSharper/1.1.6": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-Vu3sDSFeRzGyQOE5VHPIQ4fmSj1akHgzj6dRoNq3Rp+AIOdVigcvbZpAmJ44gCNhX4uqGTXNaOFgTVsIUdklzA==",
+      "path": "irsdksharper/1.1.6",
+      "hashPath": "irsdksharper.1.1.6.nupkg.sha512"
     },
     "Microsoft.Data.Sqlite/10.0.0": {
       "type": "package",
@@ -489,6 +516,13 @@
       "sha512": "sha512-oIDi3oa+EYQgPdAsGxEZJmheUuyHI8imN4GUE0rA2xme38uiImE8pqJNYvKsseug3+2Dp9dOud38fl159kROIA==",
       "path": "whisper.net/1.9.0",
       "hashPath": "whisper.net.1.9.0.nupkg.sha512"
+    },
+    "YamlDotNet/16.3.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-SgMOdxbz8X65z8hraIs6hOEdnkH6hESTAIUa7viEngHOYaH+6q5XJmwr1+yb9vJpNQ19hCQY69xbFsLtXpobQA==",
+      "path": "yamldotnet/16.3.0",
+      "hashPath": "yamldotnet.16.3.0.nupkg.sha512"
     },
     "RaceEngineer.Core/1.0.0": {
       "type": "project",

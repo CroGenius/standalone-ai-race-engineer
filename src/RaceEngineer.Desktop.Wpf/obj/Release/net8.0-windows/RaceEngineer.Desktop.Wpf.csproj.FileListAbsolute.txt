@@ -81,3 +81,5 @@ C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-enginee
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Desktop.Wpf\obj\Release\net8.0-windows\RaceEngineer.Desktop.Wpf.pdb
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Desktop.Wpf\obj\Release\net8.0-windows\RaceEngineer.Desktop.Wpf.genruntimeconfig.cache
 C:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Desktop.Wpf\obj\Release\net8.0-windows\ref\RaceEngineer.Desktop.Wpf.dll
+c:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Desktop.Wpf\bin\Release\net8.0-windows\IRSDKSharper.dll
+c:\Users\budis\Documents\Codex\2026-05-27\new-project-standalone-ai-race-engineer\src\RaceEngineer.Desktop.Wpf\bin\Release\net8.0-windows\YamlDotNet.dll

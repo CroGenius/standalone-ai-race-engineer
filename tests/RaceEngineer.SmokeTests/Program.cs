@@ -236,9 +236,11 @@ CoachGapQuestionExplainsProviderLimitation();
 TelemetryProviderFactorySelectsSimHub();
 TelemetryProviderFactoryUnknownProviderFallsBackSafely();
 TelemetryProviderFactorySelectsIracing();
-IracingUnavailableProviderReportsClearDiagnostic();
+IracingOfflineProviderReportsClearDiagnostic();
+IracingConnectionDiagnosticsSummarizesConnectedState();
+await IracingSdkSessionWithoutSimulatorReportsSessionNotActive();
 IracingCapabilitiesIncludeOpponentGapsAndStandings();
-IracingMapperMapsFixtureToTelemetrySnapshot();
+IracingMapperValidatesRequiredTelemetryFields();
 CoachIracingUnavailableExplainsProviderLimitation();
 EndToEndFixtureReplayVerifiesPipeline();
 await ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint();
@@ -3547,19 +3549,50 @@ static void TelemetryProviderFactorySelectsIracing()
     Assert(result.Provider is IracingTelemetryProvider, "iRacing setting should create the iRacing provider.");
     Assert(result.Provider.ProviderId == "iracing", "iRacing provider id should be iracing.");
     Assert(result.Provider.DisplayName == "iRacing", "iRacing provider display name should be iRacing.");
-    Assert(
-        result.Warnings.Any(warning => warning.Contains("iRacing", StringComparison.OrdinalIgnoreCase)),
-        "iRacing startup should emit an SDK availability warning.");
 }
 
-static void IracingUnavailableProviderReportsClearDiagnostic()
+static void IracingOfflineProviderReportsClearDiagnostic()
 {
-    var provider = new IracingTelemetryProvider(new IracingSdkTelemetrySession());
+    var provider = new IracingTelemetryProvider(new IracingOfflineTelemetrySession());
 
-    Assert(provider.Status == TelemetryProviderStatus.Offline, "Uninitialized iRacing provider should start offline.");
+    Assert(provider.Status == TelemetryProviderStatus.Offline, "Offline iRacing provider should start offline.");
     Assert(
         provider.Diagnostics.Contains("SDK", StringComparison.OrdinalIgnoreCase),
-        "Unavailable iRacing provider should explain SDK is not connected.");
+        "Offline iRacing provider should explain SDK is not connected.");
+}
+
+static void IracingConnectionDiagnosticsSummarizesConnectedState()
+{
+    var diagnostics = new IracingConnectionDiagnostics(
+        SdkConnected: true,
+        SessionActive: true,
+        DriverDetected: true,
+        TrackDetected: true,
+        DriverName: "Test Driver",
+        TrackName: "Monza",
+        CarName: "MX-5 Cup");
+
+    Assert(diagnostics.Summary.Contains("SDK connected", StringComparison.OrdinalIgnoreCase), "Diagnostics should report SDK connected.");
+    Assert(diagnostics.Summary.Contains("Session active", StringComparison.OrdinalIgnoreCase), "Diagnostics should report session active.");
+    Assert(diagnostics.Summary.Contains("Driver detected", StringComparison.OrdinalIgnoreCase), "Diagnostics should report driver detected.");
+    Assert(diagnostics.Summary.Contains("Track detected", StringComparison.OrdinalIgnoreCase), "Diagnostics should report track detected.");
+    Assert(diagnostics.Summary.Contains("Monza", StringComparison.OrdinalIgnoreCase), "Diagnostics should include track name.");
+}
+
+static async Task IracingSdkSessionWithoutSimulatorReportsSessionNotActive()
+{
+    var fakeClient = new FakeIracingSdkClient();
+    var session = new IracingSdkTelemetrySession(fakeClient, TimeSpan.FromMilliseconds(200));
+
+    var connected = await session.TryConnectAsync();
+    Assert(!connected, "Fake SDK client without simulator data should not connect.");
+    Assert(
+        session.ConnectionState == IracingSessionConnectionState.SessionNotActive,
+        "Missing simulator session should report session not active.");
+    Assert(
+        session.ConnectionDiagnostics.Summary.Contains("not running", StringComparison.OrdinalIgnoreCase)
+            || session.ConnectionDiagnostics.Summary.Contains("no session", StringComparison.OrdinalIgnoreCase),
+        "Missing simulator session should explain iRacing is not running.");
 }
 
 static void IracingCapabilitiesIncludeOpponentGapsAndStandings()
@@ -3575,23 +3608,29 @@ static void IracingCapabilitiesIncludeOpponentGapsAndStandings()
         "Missing capabilities should include tyres for iRacing.");
 }
 
-static void IracingMapperMapsFixtureToTelemetrySnapshot()
+static void IracingMapperValidatesRequiredTelemetryFields()
 {
     var frame = new IracingTelemetryFrame(
         DateTimeOffset.UtcNow,
         new IracingCarTelemetry(50.5, 7200, 4, 0.82, 0.0, -0.12, 42.5),
-        new IracingSessionTelemetry("summit_summit_raceway", "Summit Point Raceway", "MX-5 Cup", "Class C", "Race", 1, 20, 900, null),
-        new IracingRaceTelemetry(3, 2, 18, 7, 92.456, 0.61, 1.234, 0.876, "Car 12", "Car 8", 0),
+        new IracingSessionTelemetry("summit_summit_raceway", "Summit Point Raceway", "MX-5 Cup", "Class C", "Race", 1, 20, 900, 0),
+        new IracingRaceTelemetry(3, 2, 18, 7, 92.456, 0.61, 1.234, 0.876, "Car 12", "Car 8", 2),
         new IracingPitTelemetry(false, false, false),
-        new IracingFlagsTelemetry("green", null));
+        new IracingFlagsTelemetry("0x4", null));
 
     var snapshot = IracingTelemetryMapper.Map(frame);
 
-    Assert(Math.Abs(snapshot.Car.SpeedKmh!.Value - 181.8) < 0.1, "iRacing mapper should convert m/s to km/h.");
-    Assert(snapshot.Car.Gear == 4, "iRacing mapper should preserve gear.");
-    Assert(snapshot.RaceAwareness?.GapAheadSeconds == 1.234, "iRacing mapper should map gap ahead.");
-    Assert(snapshot.RaceAwareness?.Position == 3, "iRacing mapper should map race position.");
-    Assert(snapshot.RaceAwareness?.TrackName == "Summit Point Raceway", "iRacing mapper should map track display name.");
+    Assert(Math.Abs(snapshot.Car.SpeedKmh!.Value - 181.8) < 0.1, "Mapper should convert speed to km/h.");
+    Assert(snapshot.Condition.Fuel == 42.5, "Mapper should preserve fuel.");
+    Assert(snapshot.RaceAwareness?.TrackName == "Summit Point Raceway", "Mapper should preserve track name.");
+    Assert(snapshot.RaceAwareness?.CarName == "MX-5 Cup", "Mapper should preserve car name.");
+    Assert(snapshot.RaceAwareness?.Position == 3, "Mapper should preserve race position.");
+    Assert(snapshot.RaceAwareness?.TotalCars == 18, "Mapper should preserve standings field count.");
+    Assert(snapshot.RaceAwareness?.GapAheadSeconds == 1.234, "Mapper should preserve gap ahead.");
+    Assert(snapshot.RaceAwareness?.GapBehindSeconds == 0.876, "Mapper should preserve gap behind.");
+    Assert(snapshot.RaceAwareness?.PitState == "on track", "Mapper should preserve pit state.");
+    Assert(Equals(snapshot.Car.Damage, 2), "Mapper should preserve incidents via damage field.");
+    Assert(snapshot.RaceAwareness?.Flags == "0x4", "Mapper should preserve flags.");
 }
 
 static void CoachIracingUnavailableExplainsProviderLimitation()

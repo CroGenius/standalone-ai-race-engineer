@@ -65,11 +65,11 @@ public sealed class IracingTelemetryProvider : ITelemetryProvider
                 session.ConnectionState == IracingSessionConnectionState.SessionNotActive
                     ? TelemetryProviderStatus.Offline
                     : TelemetryProviderStatus.Error,
-                session.DiagnosticMessage);
+                session.ConnectionDiagnostics.Summary);
             return;
         }
 
-        SetState(TelemetryProviderStatus.Running, session.DiagnosticMessage);
+        SetState(TelemetryProviderStatus.Running, session.ConnectionDiagnostics.Summary);
         StartPolling();
     }
 
@@ -105,6 +105,7 @@ public sealed class IracingTelemetryProvider : ITelemetryProvider
             {
                 if (session.TryReadLatest(out var frame) && frame is not null)
                 {
+                    SetState(TelemetryProviderStatus.Running, session.ConnectionDiagnostics.Summary);
                     var snapshot = IracingTelemetryMapper.Map(frame);
                     LatestSnapshot = snapshot;
                     SnapshotReceived?.Invoke(this, snapshot);

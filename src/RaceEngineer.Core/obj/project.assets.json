@@ -1,7 +1,19 @@
 {
   "version": 4,
   "targets": {
-    "net8.0": {
+    "net8.0-windows": {
+      "IRSDKSharper/1.1.6": {
+        "type": "package",
+        "dependencies": {
+          "YamlDotNet": "16.3.0"
+        },
+        "compile": {
+          "lib/net8.0-windows7.0/IRSDKSharper.dll": {}
+        },
+        "runtime": {
+          "lib/net8.0-windows7.0/IRSDKSharper.dll": {}
+        }
+      },
       "Microsoft.Data.Sqlite/10.0.0": {
         "type": "package",
         "dependencies": {
@@ -169,10 +181,10 @@
           "SQLitePCLRaw.core": "2.1.11"
         },
         "compile": {
-          "lib/net6.0/SQLitePCLRaw.provider.e_sqlite3.dll": {}
+          "lib/net6.0-windows7.0/SQLitePCLRaw.provider.e_sqlite3.dll": {}
         },
         "runtime": {
-          "lib/net6.0/SQLitePCLRaw.provider.e_sqlite3.dll": {}
+          "lib/net6.0-windows7.0/SQLitePCLRaw.provider.e_sqlite3.dll": {}
         }
       },
       "System.Memory/4.5.3": {
@@ -183,10 +195,41 @@
         "runtime": {
           "lib/netcoreapp2.1/_._": {}
         }
+      },
+      "YamlDotNet/16.3.0": {
+        "type": "package",
+        "compile": {
+          "lib/net8.0/YamlDotNet.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/YamlDotNet.dll": {
+            "related": ".xml"
+          }
+        }
       }
     }
   },
   "libraries": {
+    "IRSDKSharper/1.1.6": {
+      "sha512": "Vu3sDSFeRzGyQOE5VHPIQ4fmSj1akHgzj6dRoNq3Rp+AIOdVigcvbZpAmJ44gCNhX4uqGTXNaOFgTVsIUdklzA==",
+      "type": "package",
+      "path": "irsdksharper/1.1.6",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "LICENSE",
+        "README.md",
+        "irsdksharper.1.1.6.nupkg.sha512",
+        "irsdksharper.nuspec",
+        "lib/net471/IRSDKSharper.dll",
+        "lib/net6.0-windows7.0/IRSDKSharper.dll",
+        "lib/net7.0-windows7.0/IRSDKSharper.dll",
+        "lib/net8.0-windows7.0/IRSDKSharper.dll",
+        "lib/net9.0-windows7.0/IRSDKSharper.dll"
+      ]
+    },
     "Microsoft.Data.Sqlite/10.0.0": {
       "sha512": "I/azQ5WjwoLvSlTyDydkhARPSjYJN8jkXRjR5D92OeyTLbTrQ1K93rgf6XU+HYWHZA6lBI9SUOfl69OqEHb4ow==",
       "type": "package",
@@ -332,10 +375,34 @@
         "useSharedDesignerContext.txt",
         "version.txt"
       ]
+    },
+    "YamlDotNet/16.3.0": {
+      "sha512": "SgMOdxbz8X65z8hraIs6hOEdnkH6hESTAIUa7viEngHOYaH+6q5XJmwr1+yb9vJpNQ19hCQY69xbFsLtXpobQA==",
+      "type": "package",
+      "path": "yamldotnet/16.3.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "README.md",
+        "images/yamldotnet.png",
+        "lib/net47/YamlDotNet.dll",
+        "lib/net47/YamlDotNet.xml",
+        "lib/net6.0/YamlDotNet.dll",
+        "lib/net6.0/YamlDotNet.xml",
+        "lib/net8.0/YamlDotNet.dll",
+        "lib/net8.0/YamlDotNet.xml",
+        "lib/netstandard2.0/YamlDotNet.dll",
+        "lib/netstandard2.0/YamlDotNet.xml",
+        "lib/netstandard2.1/YamlDotNet.dll",
+        "lib/netstandard2.1/YamlDotNet.xml",
+        "yamldotnet.16.3.0.nupkg.sha512",
+        "yamldotnet.nuspec"
+      ]
     }
   },
   "projectFileDependencyGroups": {
-    "net8.0": [
+    "net8.0-windows": [
+      "IRSDKSharper >= 1.1.6",
       "Microsoft.Data.Sqlite >= 10.0.0"
     ]
   },
@@ -355,15 +422,15 @@
         "C:\\Users\\budis\\AppData\\Roaming\\NuGet\\NuGet.Config"
       ],
       "originalTargetFrameworks": [
-        "net8.0"
+        "net8.0-windows"
       ],
       "sources": {
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
-        "net8.0": {
-          "framework": "net8.0",
-          "targetAlias": "net8.0",
+        "net8.0-windows": {
+          "framework": "net8.0-windows7.0",
+          "targetAlias": "net8.0-windows",
           "projectReferences": {}
         }
       },
@@ -380,10 +447,14 @@
       "SdkAnalysisLevel": "10.0.300"
     },
     "frameworks": {
-      "net8.0": {
-        "framework": "net8.0",
-        "targetAlias": "net8.0",
+      "net8.0-windows": {
+        "framework": "net8.0-windows7.0",
+        "targetAlias": "net8.0-windows",
         "dependencies": {
+          "IRSDKSharper": {
+            "target": "Package",
+            "version": "[1.1.6, )"
+          },
           "Microsoft.Data.Sqlite": {
             "target": "Package",
             "version": "[10.0.0, )"
