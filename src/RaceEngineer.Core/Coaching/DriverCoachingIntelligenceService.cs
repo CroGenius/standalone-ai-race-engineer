@@ -259,9 +259,9 @@ public static class DriverCoachingIntelligenceService
         }
 
         insights.AddRange(targets);
-        if (guide?.SectorNotes.Count > 0)
+        if (guide?.SectorNotes is { Count: > 0 } sectorNotes)
         {
-            insights.Add($"Track guide note: {guide.SectorNotes[0]}");
+            insights.Add($"Track guide note: {sectorNotes[0]}");
         }
 
         return Distinct(insights).Take(6).ToArray();

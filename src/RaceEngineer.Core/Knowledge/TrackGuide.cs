@@ -163,7 +163,7 @@ public static class TrackGuideFormatter
         AppendSection(parts, "Tyre degradation notes", guide.TyreDegradationNotes);
         AppendSection(parts, "Fuel characteristics", guide.FuelCharacteristics);
         AppendSection(parts, "Fuel/strategy notes", guide.FuelStrategyNotes);
-        AppendCornerSection(parts, guide.Corners);
+        AppendCornerSection(parts, guide.Corners ?? []);
 
         if (!string.IsNullOrWhiteSpace(focus))
         {
@@ -205,7 +205,7 @@ public static class TrackGuideFormatter
 
     public static string BuildKeyCornersSummary(TrackGuide guide)
     {
-        if (guide.Corners.Count == 0)
+        if (guide.Corners is not { Count: > 0 })
         {
             return "No corner map is stored in the cached track guide.";
         }
@@ -234,8 +234,8 @@ public static class TrackGuideFormatter
             ? "No setup priorities are stored in the cached track guide."
             : $"Setup priorities: {string.Join("; ", guide.SetupPriorities)}.";
 
-    public static string FormatCornerList(IReadOnlyList<TrackGuideCorner> corners) =>
-        corners.Count == 0
+    public static string FormatCornerList(IReadOnlyList<TrackGuideCorner>? corners) =>
+        corners is not { Count: > 0 }
             ? "-"
             : string.Join("; ", corners.Select(FormatCorner));
 

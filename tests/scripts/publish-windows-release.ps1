@@ -79,6 +79,22 @@ Copy-Item -Path $appSettingsSource -Destination (Join-Path $publishDir "appsetti
 
 Remove-ShippingArtifacts -OutputPath $publishDir
 
+Write-Host "Unblocking published files (removes Zone.Identifier / Mark of the Web)..."
+$publishedFiles = @(Get-ChildItem -Path $publishDir -Recurse -File -Force)
+foreach ($file in $publishedFiles) {
+    Unblock-File -LiteralPath $file.FullName -ErrorAction SilentlyContinue
+}
+
+$blockedAfterUnblock = @(
+    $publishedFiles | Where-Object { Test-Path -LiteralPath ($_.FullName + ':Zone.Identifier') }
+)
+if ($blockedAfterUnblock.Count -gt 0) {
+    $sample = ($blockedAfterUnblock | Select-Object -First 3 | ForEach-Object { $_.Name }) -join ', '
+    throw "Unblock-File did not clear Zone.Identifier on $($blockedAfterUnblock.Count) file(s) (e.g. $sample). Run as admin or check Application Control policy."
+}
+
+Write-Host "Unblocked $($publishedFiles.Count) published file(s)."
+
 if (-not (Test-Path $exePath)) {
     throw "Published executable was not found: $exePath"
 }

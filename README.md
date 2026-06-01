@@ -195,7 +195,7 @@ powershell -ExecutionPolicy Bypass -File .\test.ps1
 
 ### Publish (recommended)
 
-Use the repeatable release workflow script. It cleans `bin/` and `obj/`, builds Release, runs smoke tests, publishes a self-contained Windows x64 folder, copies `appsettings.json`, strips temp artifacts, verifies the executable starts, and prints the final path:
+Use the repeatable release workflow script. It cleans `bin/` and `obj/`, builds Release, runs smoke tests, publishes a self-contained Windows x64 folder, copies `appsettings.json`, unblocks all published files, strips temp artifacts, verifies the executable starts, and prints the final path:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tests\scripts\publish-windows-release.ps1
@@ -206,6 +206,16 @@ Published output:
 ```text
 artifacts\publish\win-x64\RaceEngineer.Desktop.Wpf.exe
 ```
+
+The publish script runs `Unblock-File` on every file in the output folder so Windows does not block dependency DLLs (for example `NAudio.Wasapi.dll`) with Mark of the Web / Application Control policy.
+
+If you copy the folder from another machine, a zip download, or email, unblock it manually before launch:
+
+```powershell
+Get-ChildItem -Path .\artifacts\publish\win-x64 -Recurse -File | Unblock-File
+```
+
+If voice or microphone features fail with `FileLoadException` and an Application Control policy message, run the same command on the folder containing `RaceEngineer.Desktop.Wpf.exe`. The app also logs a startup warning in chat when blocked DLLs are detected.
 
 Equivalent manual publish command (without clean/test/verify steps):
 

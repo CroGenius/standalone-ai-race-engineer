@@ -215,13 +215,30 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public MainWindowViewModel()
     {
+        startupWarnings.AddRange(App.PendingStartupWarnings);
         var settingsResult = AppSettings.Load(Path.Combine(AppContext.BaseDirectory, "appsettings.json"));
         startupWarnings.AddRange(settingsResult.Warnings);
         appSettings = settingsResult.Settings;
         var settings = appSettings;
-        coachEngine = HybridCoachEngine.FromSettings(settings);
-        Directory.CreateDirectory(settings.CaptureFolder);
-        Directory.CreateDirectory(settings.ReplayFolder);
+        try
+        {
+            coachEngine = HybridCoachEngine.FromSettings(settings);
+        }
+        catch (Exception exception)
+        {
+            startupWarnings.Add($"AI coach initialization failed. Deterministic coaching only. {exception.Message}");
+            coachEngine = HybridCoachEngine.FromSettings(AppSettings.Default with { AiEngineerEnabled = false, AiProvider = "disabled" });
+        }
+
+        try
+        {
+            Directory.CreateDirectory(settings.CaptureFolder);
+            Directory.CreateDirectory(settings.ReplayFolder);
+        }
+        catch (Exception exception)
+        {
+            startupWarnings.Add($"Debug folders could not be created. {exception.Message}");
+        }
 
         receiver = new TelemetryReceiver(settings.UdpBindIp, settings.UdpPort);
         diagnostics = new TelemetryDiagnostics(settings.UdpBindIp, settings.UdpPort);
@@ -245,7 +262,17 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         storageService = new StorageService(settings.DatabasePath);
         profilePreferencesService = new ProfilePreferencesService(storageService);
         researchService = new StoredResearchService(storageService);
-        trackResearchService = TrackResearchService.FromSettings(storageService, settings);
+        try
+        {
+            trackResearchService = TrackResearchService.FromSettings(storageService, settings);
+        }
+        catch (Exception exception)
+        {
+            startupWarnings.Add($"Track guide service unavailable. {exception.Message}");
+            trackResearchService = TrackResearchService.FromSettings(
+                storageService,
+                AppSettings.Default with { TrackResearchEnabled = false, TrackResearchProvider = "disabled" });
+        }
         sessionLabel = $"Session {session.SessionId}";
         SendChatCommand = new RelayCommand(SendChat, () => !string.IsNullOrWhiteSpace(ChatInput));
         SavePrepCommand = new RelayCommand(() => _ = SavePrepAsync());
@@ -280,7 +307,19 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             MicrophoneDevices.Add(device);
         }
 
-        _ = StartAsync();
+        _ = StartAsyncSafe();
+    }
+
+    private async Task StartAsyncSafe()
+    {
+        try
+        {
+            await StartAsync();
+        }
+        catch (Exception exception)
+        {
+            ReportStartupWarning($"Startup initialization failed. Core telemetry UI remains available. {exception.Message}");
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -758,27 +797,35 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         foreach (var warning in startupWarnings)
         {
-            ChatMessages.Add($"Startup: {warning}");
+            AddStartupChat($"Startup: {warning}");
         }
 
-        ChatMessages.Add($"Startup: Voice input status — {voiceInputService.StatusText}. Provider: {voiceInputService.ProviderStatus}");
-        ChatMessages.Add($"Startup: AI engineer status — {AiEngineerStatus}. Set RACE_ENGINEER_AI_API_KEY for OpenAI.");
+        AddStartupChat($"Startup: Voice input status — {voiceInputService.StatusText}. Provider: {voiceInputService.ProviderStatus}");
+        AddStartupChat($"Startup: AI engineer status — {AiEngineerStatus}. Set RACE_ENGINEER_AI_API_KEY for OpenAI.");
 
         try
         {
             await storageService.InitializeAsync();
             userPreferences = await profilePreferencesService.LoadAsync(appSettings);
             appSettings = ProfilePreferencesService.MergeAppSettings(appSettings, userPreferences);
-            trackResearchService = TrackResearchService.FromSettings(storageService, appSettings);
+            try
+            {
+                trackResearchService = TrackResearchService.FromSettings(storageService, appSettings);
+            }
+            catch (Exception exception)
+            {
+                ReportStartupWarning($"Track guide service unavailable. {exception.Message}");
+            }
+
             BindPreferencesToView(userPreferences);
             ApplyUserPreferences();
             await storageService.CreateSessionAsync(session.SessionId, session.StartedAt);
             await RefreshSessionsAsync();
             await RefreshKnowledgeAsync();
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
+        catch (Exception exception)
         {
-            ChatMessages.Add($"Startup: Database could not be opened. {exception.Message}");
+            ReportStartupWarning($"Database or profile initialization failed. {exception.Message}");
         }
 
         try
@@ -789,13 +836,36 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         catch (InvalidOperationException exception)
         {
             diagnostics.SetReceiverRunning(false);
-            ChatMessages.Add($"Startup: {exception.Message}");
+            ReportStartupWarning(exception.Message);
             lastParserWarning = exception.Message;
         }
 
         RaiseDiagnosticsProperties();
         RaiseVoiceProperties();
-        RefreshAnalytics();
+        try
+        {
+            RefreshAnalytics();
+        }
+        catch (Exception exception)
+        {
+            ReportStartupWarning($"Initial analytics refresh failed. {exception.Message}");
+        }
+    }
+
+    private void AddStartupChat(string message)
+    {
+        if (Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(() => ChatMessages.Add(message));
+            return;
+        }
+
+        ChatMessages.Add(message);
+    }
+
+    private void ReportOptionalPanelFailure(string panelName, Exception exception)
+    {
+        ReportStartupWarning($"{panelName} panel unavailable: {exception.Message}");
     }
 
     private void OnPacketProcessed(object? sender, TelemetryPacketResult packet)
@@ -1016,35 +1086,48 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private void RefreshStrategyKnowledge()
     {
-        currentStrategyKnowledge = StrategyKnowledgeService.Build(new StrategyKnowledgeInput(
-            liveRaceContext.TrackName ?? PrepTrack,
-            liveRaceContext.CarName ?? PrepCar,
-            liveRaceContext.CarClass,
-            liveRaceContext.SessionType ?? PrepSessionType,
-            liveRaceContext.TotalLaps ?? liveRaceContext.LapsRemaining,
-            ActiveSession,
-            sessionAnalytics,
-            sessionStrategy,
-            sessionTyreIntelligence,
-            trackMemoryRecord,
-            previousStoredSessionMemory,
-            cachedTrackGuide,
-            CurrentPrepPlan(),
-            userPreferences.Strategy.FuelSafetyMarginLaps));
+        try
+        {
+            currentStrategyKnowledge = StrategyKnowledgeService.Build(new StrategyKnowledgeInput(
+                liveRaceContext.TrackName ?? PrepTrack,
+                liveRaceContext.CarName ?? PrepCar,
+                liveRaceContext.CarClass,
+                liveRaceContext.SessionType ?? PrepSessionType,
+                liveRaceContext.TotalLaps ?? liveRaceContext.LapsRemaining,
+                ActiveSession,
+                sessionAnalytics,
+                sessionStrategy,
+                sessionTyreIntelligence,
+                trackMemoryRecord,
+                previousStoredSessionMemory,
+                cachedTrackGuide,
+                CurrentPrepPlan(),
+                userPreferences.Strategy.FuelSafetyMarginLaps));
 
-        strategyKnowledgeTrackLabel = string.IsNullOrWhiteSpace(currentStrategyKnowledge.TrackName)
-            ? "unavailable"
-            : currentStrategyKnowledge.TrackName;
-        strategyKnowledgeCarClassLabel = string.IsNullOrWhiteSpace(currentStrategyKnowledge.CarClass)
-            ? (string.IsNullOrWhiteSpace(currentStrategyKnowledge.CarName) ? "unavailable" : currentStrategyKnowledge.CarName)
-            : $"{currentStrategyKnowledge.CarName ?? "unknown car"} / {currentStrategyKnowledge.CarClass}";
-        strategyKnowledgeRecommendedFuelLabel = currentStrategyKnowledge.RecommendedStartingFuelLiters is { } fuel
-            ? StrategyKnowledgeFormatting.FormatLiters(fuel)
-            : currentStrategyKnowledge.ExpectedFuelPerLap is { } burn
-                ? $"{StrategyKnowledgeFormatting.FormatLiters(burn)}/lap"
-                : "-";
-        strategyKnowledgeConfidenceLabel = currentStrategyKnowledge.ConfidenceLabel;
-        strategyKnowledgeSourceLabel = currentStrategyKnowledge.SourceLabel;
+            strategyKnowledgeTrackLabel = string.IsNullOrWhiteSpace(currentStrategyKnowledge.TrackName)
+                ? "unavailable"
+                : currentStrategyKnowledge.TrackName;
+            strategyKnowledgeCarClassLabel = string.IsNullOrWhiteSpace(currentStrategyKnowledge.CarClass)
+                ? (string.IsNullOrWhiteSpace(currentStrategyKnowledge.CarName) ? "unavailable" : currentStrategyKnowledge.CarName)
+                : $"{currentStrategyKnowledge.CarName ?? "unknown car"} / {currentStrategyKnowledge.CarClass}";
+            strategyKnowledgeRecommendedFuelLabel = currentStrategyKnowledge.RecommendedStartingFuelLiters is { } fuel
+                ? StrategyKnowledgeFormatting.FormatLiters(fuel)
+                : currentStrategyKnowledge.ExpectedFuelPerLap is { } burn
+                    ? $"{StrategyKnowledgeFormatting.FormatLiters(burn)}/lap"
+                    : "-";
+            strategyKnowledgeConfidenceLabel = currentStrategyKnowledge.ConfidenceLabel;
+            strategyKnowledgeSourceLabel = currentStrategyKnowledge.SourceLabel;
+        }
+        catch (Exception exception)
+        {
+            currentStrategyKnowledge = null;
+            strategyKnowledgeTrackLabel = "unavailable";
+            strategyKnowledgeCarClassLabel = "unavailable";
+            strategyKnowledgeRecommendedFuelLabel = "-";
+            strategyKnowledgeConfidenceLabel = "-";
+            strategyKnowledgeSourceLabel = "unavailable";
+            ReportOptionalPanelFailure("Strategy knowledge", exception);
+        }
     }
 
     private void AppendCoachChatLines(CoachMessage answer)
@@ -1667,7 +1750,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private void SetKnowledgeSources(IReadOnlyList<KnowledgeSource> sources)
     {
-        Application.Current.Dispatcher.Invoke(() =>
+        if (Application.Current?.Dispatcher is not { } dispatcher)
+        {
+            KnowledgeSources.Clear();
+            foreach (var source in sources)
+            {
+                KnowledgeSources.Add(new KnowledgeSourceItem(source));
+            }
+
+            return;
+        }
+
+        dispatcher.Invoke(() =>
         {
             KnowledgeSources.Clear();
             foreach (var source in sources)
@@ -1812,59 +1906,114 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             : "-";
 
         performancePanelTitle = isReviewMode ? "Performance Intelligence (Review Session)" : "Performance Intelligence (Live Session)";
-        RefreshRaceAwareness();
-        sessionDriverPerformance = driverPerformanceService.Analyze(new DriverPerformanceInput(
-            ActiveSession,
-            ActiveTraceSnapshots.Count >= 4 ? ActiveTraceSnapshots : null,
-            ActiveSession.Events,
-            metrics,
-            intelligence,
-            trackMemoryRecord,
-            trackMemoryComparison,
-            ActiveSession.LastLap?.LapNumber));
-        var performance = sessionDriverPerformance;
-        performanceBiggestLossLabel = performance.Availability != "Available"
-            ? performance.Availability
-            : performance.BiggestTimeLoss is { } loss
-                ? $"{loss.Zone.Label}: {string.Join(", ", loss.Behaviors)} ({loss.EstimatedLossSeconds?.ToString("+0.000;-0.000;0.000", CultureInfo.InvariantCulture) ?? "n/a"}s)"
-                : "No clear zone loss yet.";
-        performanceMainWeaknessLabel = performance.MainWeakness ?? performance.Availability;
-        performanceBrakingQualityLabel = performance.BrakingQuality.Detail;
-        performanceThrottleQualityLabel = performance.ThrottleQuality.Detail;
-        performanceConsistencyLabel = performance.Consistency.Detail;
-        performanceCurrentVsBestLabel = performance.CurrentVsBestDeltaSeconds is { } delta
-            ? $"Δ {delta:+0.000;-0.000;0.000}s vs session best"
-            : performance.Availability;
-        performanceStoredBaselineLabel = performance.StoredBaselineComparison
-            ?? trackMemoryComparison?.Summary
-            ?? "no stored baseline";
+        try
+        {
+            RefreshRaceAwareness();
+        }
+        catch (Exception exception)
+        {
+            ReportOptionalPanelFailure("Race awareness", exception);
+        }
 
-        RefreshDriverCoaching();
+        try
+        {
+            sessionDriverPerformance = driverPerformanceService.Analyze(new DriverPerformanceInput(
+                ActiveSession,
+                ActiveTraceSnapshots.Count >= 4 ? ActiveTraceSnapshots : null,
+                ActiveSession.Events,
+                metrics,
+                intelligence,
+                trackMemoryRecord,
+                trackMemoryComparison,
+                ActiveSession.LastLap?.LapNumber));
+            var performance = sessionDriverPerformance;
+            performanceBiggestLossLabel = performance.Availability != "Available"
+                ? performance.Availability
+                : performance.BiggestTimeLoss is { } loss
+                    ? $"{loss.Zone.Label}: {string.Join(", ", loss.Behaviors)} ({loss.EstimatedLossSeconds?.ToString("+0.000;-0.000;0.000", CultureInfo.InvariantCulture) ?? "n/a"}s)"
+                    : "No clear zone loss yet.";
+            performanceMainWeaknessLabel = performance.MainWeakness ?? performance.Availability;
+            performanceBrakingQualityLabel = performance.BrakingQuality.Detail;
+            performanceThrottleQualityLabel = performance.ThrottleQuality.Detail;
+            performanceConsistencyLabel = performance.Consistency.Detail;
+            performanceCurrentVsBestLabel = performance.CurrentVsBestDeltaSeconds is { } delta
+                ? $"Δ {delta:+0.000;-0.000;0.000}s vs session best"
+                : performance.Availability;
+            performanceStoredBaselineLabel = performance.StoredBaselineComparison
+                ?? trackMemoryComparison?.Summary
+                ?? "no stored baseline";
+        }
+        catch (Exception exception)
+        {
+            sessionDriverPerformance = SessionDriverPerformance.Unavailable(SessionDriverPerformance.NeedCleanLapMessage);
+            performanceBiggestLossLabel = "Performance analysis unavailable.";
+            performanceMainWeaknessLabel = exception.Message;
+            performanceBrakingQualityLabel = "-";
+            performanceThrottleQualityLabel = "-";
+            performanceConsistencyLabel = "-";
+            performanceCurrentVsBestLabel = "-";
+            performanceStoredBaselineLabel = "no stored baseline";
+            ReportOptionalPanelFailure("Performance intelligence", exception);
+        }
+
+        try
+        {
+            RefreshDriverCoaching();
+        }
+        catch (Exception exception)
+        {
+            currentDriverCoaching = DriverCoachingRecommendation.Unavailable;
+            driverCoachingTrendLabel = DriverCoachingRecommendation.Unavailable.ProgressTrendSummary;
+            driverCoachingBiggestWeaknessLabel = DriverCoachingRecommendation.Unavailable.Availability;
+            driverCoachingStrongestAreaLabel = "-";
+            driverCoachingConsistencyLabel = "-";
+            driverCoachingPreviousDeltaLabel = "no previous session data";
+            driverCoachingTopTargetsLabel = "-";
+            ReportOptionalPanelFailure("Driver coaching", exception);
+        }
 
         strategyPanelTitle = isReviewMode ? "Strategy (Review Session)" : "Strategy (Live Session)";
-        var rawStrategy = strategyEngine.Analyze(new StrategyInput(
-            ActiveSession,
-            metrics,
-            intelligence,
-            CurrentPrepPlan(),
-            ActiveSession.Events,
-            userPreferences.Strategy));
-        sessionStrategy = StrategyGate.Apply(rawStrategy, sessionContextAssessment, ActiveSession);
-        strategyConfidenceLabel = sessionStrategy.StrategyConfidenceLabel;
-        var strategy = sessionStrategy;
-        strategyFuelRisk = strategy.Fuel.RiskLevel.ToString();
-        strategyLapsRemaining = strategy.Fuel.LapsRemaining?.ToString("0.0", CultureInfo.InvariantCulture)
-            ?? strategy.Fuel.Availability;
-        strategyPitRecommendation = strategy.Pit.Recommendation == PitRecommendation.Unknown
-            ? strategy.Pit.Availability
-            : $"{strategy.Pit.Recommendation} — {strategy.Pit.RecommendationReason}";
-        strategyTyreRisk = strategy.TyreRisk.RiskLevel == TyreRiskLevel.Unknown
-            ? strategy.TyreRisk.Availability
-            : $"{strategy.TyreRisk.RiskLevel} ({strategy.TyreRisk.RiskScore0To100:0}/100)";
-        strategySummary = strategy.Summary;
-        RefreshStrategyKnowledge();
+        try
+        {
+            var rawStrategy = strategyEngine.Analyze(new StrategyInput(
+                ActiveSession,
+                metrics,
+                intelligence,
+                CurrentPrepPlan(),
+                ActiveSession.Events,
+                userPreferences.Strategy));
+            sessionStrategy = StrategyGate.Apply(rawStrategy, sessionContextAssessment, ActiveSession);
+            strategyConfidenceLabel = sessionStrategy.StrategyConfidenceLabel;
+            var strategy = sessionStrategy;
+            strategyFuelRisk = strategy.Fuel.RiskLevel.ToString();
+            strategyLapsRemaining = strategy.Fuel.LapsRemaining?.ToString("0.0", CultureInfo.InvariantCulture)
+                ?? strategy.Fuel.Availability;
+            strategyPitRecommendation = strategy.Pit.Recommendation == PitRecommendation.Unknown
+                ? strategy.Pit.Availability
+                : $"{strategy.Pit.Recommendation} — {strategy.Pit.RecommendationReason}";
+            strategyTyreRisk = strategy.TyreRisk.RiskLevel == TyreRiskLevel.Unknown
+                ? strategy.TyreRisk.Availability
+                : $"{strategy.TyreRisk.RiskLevel} ({strategy.TyreRisk.RiskScore0To100:0}/100)";
+            strategySummary = strategy.Summary;
+            RefreshStrategyKnowledge();
+        }
+        catch (Exception exception)
+        {
+            sessionStrategy = SessionStrategy.Empty;
+            strategyFuelRisk = "-";
+            strategyLapsRemaining = "-";
+            strategyPitRecommendation = "-";
+            strategyTyreRisk = "-";
+            strategySummary = "Strategy analysis unavailable.";
+            strategyKnowledgeTrackLabel = "unavailable";
+            strategyKnowledgeCarClassLabel = "unavailable";
+            strategyKnowledgeRecommendedFuelLabel = "-";
+            strategyKnowledgeConfidenceLabel = "-";
+            strategyKnowledgeSourceLabel = "unavailable";
+            ReportOptionalPanelFailure("Strategy", exception);
+        }
 
-        _ = RefreshTrackMemoryAsync();
+        _ = RefreshTrackMemorySafeAsync();
 
         RaiseAnalyticsProperties();
 
@@ -2029,7 +2178,23 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         raceMemoryPreviousAverageLabel = trackMemoryRecord?.AverageCleanLapSeconds is { } average
             ? TrackMemoryService.FormatLapTime(average)
             : "no stored history";
-        RefreshOpponentIntelligence();
+        try
+        {
+            RefreshOpponentIntelligence();
+        }
+        catch (Exception exception)
+        {
+            opponentPositionLabel = "unavailable";
+            opponentCarAheadLabel = "-";
+            opponentCarBehindLabel = "-";
+            opponentGapAheadLabel = "-";
+            opponentGapBehindLabel = "-";
+            opponentTrendLabel = OpponentIntelligenceAnswerBuilder.UnavailableMessage;
+            opponentBattleStatusLabel = "unavailable";
+            opponentConfidenceLabel = "-";
+            currentOpponentIntelligence = null;
+            ReportOptionalPanelFailure("Opponent intelligence", exception);
+        }
     }
 
     private void RefreshOpponentIntelligence()
@@ -2106,6 +2271,18 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             : string.Join(" | ", coaching.TopCoachingTargets);
     }
 
+    private async Task RefreshTrackMemorySafeAsync()
+    {
+        try
+        {
+            await RefreshTrackMemoryAsync();
+        }
+        catch (Exception exception)
+        {
+            ReportOptionalPanelFailure("Session memory", exception);
+        }
+    }
+
     private async Task RefreshTrackMemoryAsync()
     {
         var track = liveRaceContext.TrackName ?? PrepTrack;
@@ -2167,36 +2344,46 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private async Task RefreshTrackResearchAsync(string track)
     {
-        trackResearchDetectedTrackLabel = string.IsNullOrWhiteSpace(track) ? "unavailable" : track;
-        if (string.IsNullOrWhiteSpace(track))
+        try
+        {
+            trackResearchDetectedTrackLabel = string.IsNullOrWhiteSpace(track) ? "unavailable" : track;
+            if (string.IsNullOrWhiteSpace(track))
+            {
+                cachedTrackGuide = null;
+                UpdateTrackResearchLabels();
+                Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
+                return;
+            }
+
+            var cached = await trackResearchService.GetCachedGuideAsync(track);
+            cachedTrackGuide = cached.Guide;
+            var trackKey = TrackGuide.NormalizeTrackKey(track);
+            if (trackResearchService.Options.Enabled
+                && !string.Equals(lastEnsuredTrackGuideKey, trackKey, StringComparison.Ordinal))
+            {
+                var researchContext = new TrackResearchContext(sessionContextAssessment.Activity, isReviewMode);
+                if (!researchContext.IsActiveDriving || trackResearchService.Options.AllowTrackResearchDuringDriving)
+                {
+                    var ensured = await trackResearchService.EnsureGuideCachedAsync(track, researchContext);
+                    if (ensured.Guide is not null)
+                    {
+                        cachedTrackGuide = ensured.Guide;
+                        lastEnsuredTrackGuideKey = trackKey;
+                        await RefreshKnowledgeAsync();
+                    }
+                }
+            }
+
+            UpdateTrackResearchLabels();
+            Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
+        }
+        catch (Exception exception)
         {
             cachedTrackGuide = null;
             UpdateTrackResearchLabels();
+            ReportOptionalPanelFailure("Track guide", exception);
             Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
-            return;
         }
-
-        var cached = await trackResearchService.GetCachedGuideAsync(track);
-        cachedTrackGuide = cached.Guide;
-        var trackKey = TrackGuide.NormalizeTrackKey(track);
-        if (trackResearchService.Options.Enabled
-            && !string.Equals(lastEnsuredTrackGuideKey, trackKey, StringComparison.Ordinal))
-        {
-            var researchContext = new TrackResearchContext(sessionContextAssessment.Activity, isReviewMode);
-            if (!researchContext.IsActiveDriving || trackResearchService.Options.AllowTrackResearchDuringDriving)
-            {
-                var ensured = await trackResearchService.EnsureGuideCachedAsync(track, researchContext);
-                if (ensured.Guide is not null)
-                {
-                    cachedTrackGuide = ensured.Guide;
-                    lastEnsuredTrackGuideKey = trackKey;
-                    await RefreshKnowledgeAsync();
-                }
-            }
-        }
-
-        UpdateTrackResearchLabels();
-        Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
     }
 
     private void UpdateTrackResearchLabels()
@@ -2208,7 +2395,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         trackGuideTractionZonesLabel = FormatProfileItems(cachedTrackGuide?.TractionZones ?? []);
         trackGuideKeyCornersLabel = cachedTrackGuide is null
             ? "-"
-            : TrackGuideFormatter.FormatCornerList(cachedTrackGuide.Corners);
+            : TrackGuideFormatter.FormatCornerList(cachedTrackGuide.Corners ?? []);
         trackGuideSetupNotesLabel = FormatProfileItems(cachedTrackGuide?.SetupPriorities ?? []);
     }
 
@@ -2442,26 +2629,41 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private async Task RefreshStoredSessionMemoryAsync(string track, string car)
     {
-        recentStoredSessionMemories = await sessionMemoryService.LoadRecentAsync(
-            storageService,
-            track,
-            car,
-            5,
-            session.SessionId);
-        previousStoredSessionMemory = recentStoredSessionMemories.FirstOrDefault();
-        sessionMemoryLastSummaryLabel = previousStoredSessionMemory?.OneLineSummary ?? "No stored session summary yet.";
-        sessionMemoryKnownWeaknessesLabel = previousStoredSessionMemory is null
-            ? "-"
-            : FormatProfileItems(
-                previousStoredSessionMemory.MainTimeLossZones
-                    .Concat(previousStoredSessionMemory.BrakingWeaknesses)
-                    .Concat(previousStoredSessionMemory.ThrottleWeaknesses)
-                    .Concat(previousStoredSessionMemory.ImprovementTargets)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Take(4)
-                    .ToArray());
-        Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
+        try
+        {
+            recentStoredSessionMemories = await sessionMemoryService.LoadRecentAsync(
+                storageService,
+                track,
+                car,
+                5,
+                session.SessionId);
+            previousStoredSessionMemory = recentStoredSessionMemories.FirstOrDefault();
+            sessionMemoryLastSummaryLabel = previousStoredSessionMemory?.OneLineSummary ?? "No stored session summary yet.";
+            sessionMemoryKnownWeaknessesLabel = previousStoredSessionMemory is null
+                ? "-"
+                : FormatProfileItems(BuildSessionMemoryWeaknessLines(previousStoredSessionMemory));
+            Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
+        }
+        catch (Exception exception)
+        {
+            recentStoredSessionMemories = [];
+            previousStoredSessionMemory = null;
+            sessionMemoryLastSummaryLabel = "Stored session memory unavailable.";
+            sessionMemoryKnownWeaknessesLabel = "-";
+            ReportOptionalPanelFailure("Session memory", exception);
+            Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
+        }
     }
+
+    private static IReadOnlyList<string> BuildSessionMemoryWeaknessLines(SessionMemorySummary summary) =>
+        (summary.MainTimeLossZones ?? [])
+            .Concat(summary.BrakingWeaknesses ?? [])
+            .Concat(summary.ThrottleWeaknesses ?? [])
+            .Concat(summary.ImprovementTargets ?? [])
+            .Concat(summary.RepeatedWeaknesses ?? [])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(4)
+            .ToArray();
 
     private void RaiseReviewModeProperties()
     {
