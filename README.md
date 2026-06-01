@@ -195,7 +195,7 @@ powershell -ExecutionPolicy Bypass -File .\test.ps1
 
 ### Publish (recommended)
 
-Use the repeatable release workflow script. It cleans `bin/` and `obj/`, builds Release, runs smoke tests, publishes a self-contained Windows x64 folder, copies `appsettings.json`, unblocks all published files, strips temp artifacts, verifies the executable starts, and prints the final path:
+Use the repeatable release workflow script. It cleans `bin/` and `obj/`, builds Release, runs smoke tests, publishes a self-contained Windows x64 folder, copies `appsettings.json`, unblocks all published files, strips temp artifacts, verifies the executable starts, reports Smart App Control status, and prints the final path:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tests\scripts\publish-windows-release.ps1
@@ -207,7 +207,7 @@ Published output:
 artifacts\publish\win-x64\RaceEngineer.Desktop.Wpf.exe
 ```
 
-The publish script runs `Unblock-File` on every file in the output folder so Windows does not block dependency DLLs (for example `NAudio.Wasapi.dll`) with Mark of the Web / Application Control policy.
+The publish script runs `Unblock-File` on every file in the output folder so Windows does not block dependency DLLs (for example `NAudio.Wasapi.dll`) with Mark of the Web.
 
 If you copy the folder from another machine, a zip download, or email, unblock it manually before launch:
 
@@ -229,6 +229,50 @@ Legacy shortcut at the repo root:
 powershell -ExecutionPolicy Bypass -File .\publish.ps1
 ```
 
+### Development publish (Smart App Control / WDAC)
+
+On Windows 11 systems with **Smart App Control** or strict **WDAC** policy enabled, unsigned self-contained builds are often blocked even after `Unblock-File`. Mark-of-the-Web removal does not bypass Smart App Control.
+
+For local development and testing on those machines, use the framework-dependent dev publish workflow. It requires the [.NET 8 Windows Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) but produces a smaller output folder that is easier to run locally:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tests\scripts\publish-windows-release.ps1 -Development
+```
+
+Shortcut:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\publish-dev.ps1
+```
+
+Dev publish output:
+
+```text
+artifacts\publish\win-x64-dev\RaceEngineer.Desktop.Wpf.dll
+```
+
+Launch the dev build with the shared .NET host (recommended when Smart App Control is On):
+
+```powershell
+dotnet .\artifacts\publish\win-x64-dev\RaceEngineer.Desktop.Wpf.dll
+```
+
+For day-to-day coding, you can also skip publish entirely:
+
+```powershell
+dotnet run --project src/RaceEngineer.Desktop.Wpf/RaceEngineer.Desktop.Wpf.csproj
+```
+
+The publish scripts detect Smart App Control state via `Get-MpComputerStatus` (with registry fallback) and print guidance when it is On or in Eval mode. If launch verification fails, the script reports whether Smart App Control likely blocked the build and lists dev-workflow alternatives.
+
+Manual framework-dependent publish:
+
+```powershell
+dotnet publish src/RaceEngineer.Desktop.Wpf/RaceEngineer.Desktop.Wpf.csproj -c Release -r win-x64 --self-contained false -o artifacts\publish\win-x64-dev
+```
+
+Use self-contained release publish (`win-x64`) for sharing builds to machines without Smart App Control, or after the app is code-signed.
+
 ### Run the app
 
 Development:
@@ -237,10 +281,16 @@ Development:
 dotnet run --project src/RaceEngineer.Desktop.Wpf/RaceEngineer.Desktop.Wpf.csproj
 ```
 
-Published build:
+Published build (self-contained release):
 
 ```powershell
 .\artifacts\publish\win-x64\RaceEngineer.Desktop.Wpf.exe
+```
+
+Published build (framework-dependent dev, Smart App Control friendly):
+
+```powershell
+dotnet .\artifacts\publish\win-x64-dev\RaceEngineer.Desktop.Wpf.dll
 ```
 
 Runtime settings are read from `appsettings.json` in the same folder as the executable.
