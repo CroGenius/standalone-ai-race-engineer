@@ -36,9 +36,13 @@ public sealed class CoachEvidenceBuilder
         var guide = TrackGuideZoneMapper.ResolveGuide(
             input.CachedTrackGuide,
             input.KnowledgeSources,
-            input.RaceContext?.TrackName
-                ?? input.PreviousStoredSessionMemory?.TrackName
-                ?? input.Session.LatestSnapshot?.RaceAwareness?.TrackName);
+            TrackGuideZoneMapper.ResolveTrackName(
+                input.RaceContext,
+                null,
+                input.Session,
+                input.PreviousStoredSessionMemory,
+                input.ReviewSessionTrack,
+                input.Snapshots));
         var driverPerformance = TrackGuideZoneMapper.MapPerformance(
             input.DriverPerformance ?? driverPerformanceService.Analyze(new DriverPerformanceInput(
                 input.Session,
@@ -481,7 +485,8 @@ public sealed class CoachEvidenceBuilder
             performance.Consistency.Score0To100,
             performance.Consistency.Detail));
 
-        if (performance.CurrentVsBestDeltaSeconds is { } delta)
+        if (performance.CurrentVsBestDeltaSeconds is { } delta
+            && LapDeltaSanity.IsReasonableLapDelta(delta))
         {
             packets.Add(new CoachEvidencePacket(
                 "Performance",
@@ -532,16 +537,32 @@ public sealed class CoachEvidenceBuilder
         if (deltaRow?.Series.FirstOrDefault()?.Points is { Count: > 0 } deltaPoints)
         {
             var worst = deltaPoints.OrderByDescending(point => point.Value).First();
-            packets.Add(new CoachEvidencePacket(
-                "DeltaTrace",
-                "Largest delta point",
-                worst.Value > 0 ? "Warning" : "Info",
-                0.75,
-                CoachEvidenceSourceType.Trace,
-                timeline.SelectedLapNumber,
-                [],
-                worst.RawValue ?? worst.Value,
-                $"Largest time delta versus best lap is {worst.Value.ToString("0.000", CultureInfo.InvariantCulture)}s at {worst.Progress.ToString("0.00", CultureInfo.InvariantCulture)} lap progress."));
+            if (LapDeltaSanity.IsReasonableLapDelta(worst.Value))
+            {
+                packets.Add(new CoachEvidencePacket(
+                    "DeltaTrace",
+                    "Largest delta point",
+                    worst.Value > 0 ? "Warning" : "Info",
+                    0.75,
+                    CoachEvidenceSourceType.Trace,
+                    timeline.SelectedLapNumber,
+                    [],
+                    worst.RawValue ?? worst.Value,
+                    $"Largest time delta versus best lap is {worst.Value.ToString("0.000", CultureInfo.InvariantCulture)}s at {worst.Progress.ToString("0.00", CultureInfo.InvariantCulture)} lap progress."));
+            }
+            else
+            {
+                packets.Add(new CoachEvidencePacket(
+                    "DeltaTrace",
+                    "Largest delta point",
+                    "Info",
+                    0.40,
+                    CoachEvidenceSourceType.Trace,
+                    timeline.SelectedLapNumber,
+                    [],
+                    null,
+                    "Lap delta trace is unavailable because selected and best lap timestamps are not aligned."));
+            }
         }
 
         foreach (var marker in timeline.Markers.Where(item => item.Category == "Event").Take(3))

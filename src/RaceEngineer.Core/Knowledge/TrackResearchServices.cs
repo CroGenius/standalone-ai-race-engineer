@@ -129,18 +129,12 @@ public static class TrackGuideMatcher
             return false;
         }
 
-        var key = TrackGuide.NormalizeTrackKey(trackName);
-        if (TrackGuide.NormalizeTrackKey(guide.TrackName) == key)
+        if (TrackGuideCatalogIdentity.Matches(guide.TrackName, trackName))
         {
             return true;
         }
 
-        return guide.Aliases.Any(alias =>
-        {
-            var aliasKey = TrackGuide.NormalizeTrackKey(alias);
-            return key.Contains(aliasKey, StringComparison.Ordinal)
-                || aliasKey.Contains(key, StringComparison.Ordinal);
-        });
+        return guide.Aliases.Any(alias => TrackGuideCatalogIdentity.Matches(alias, trackName));
     }
 }
 

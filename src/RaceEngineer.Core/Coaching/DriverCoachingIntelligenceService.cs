@@ -37,7 +37,7 @@ public static class DriverCoachingIntelligenceService
 
         var biggestWeakness = TrackGuideZoneMapper.MapZoneReferences(performance.MainWeakness, input.TrackGuide) ?? weakest;
 
-        return new DriverCoachingRecommendation(
+        var recommendation = new DriverCoachingRecommendation(
             true,
             performance.Availability,
             progress.Trend,
@@ -51,6 +51,11 @@ public static class DriverCoachingIntelligenceService
             targets,
             insights,
             summary);
+
+        return TrackGuideZoneMapper.MapDriverCoachingRecommendation(
+            recommendation,
+            input.TrackGuide,
+            "DriverCoaching.Build");
     }
 
     public static string FormatZoneLabel(PerformanceZone zone, TrackGuide? guide) =>
@@ -226,7 +231,7 @@ public static class DriverCoachingIntelligenceService
             metric.Behaviors.Any(behavior => behavior.Contains("throttle", StringComparison.OrdinalIgnoreCase)));
         if (delayedThrottle is not null)
         {
-            insights.Add($"Your main loss is delayed throttle pickup after {delayedThrottle.Zone.Label}.");
+            insights.Add($"Your main loss is delayed throttle pickup after {TrackGuideZoneMapper.MapZoneLabel(delayedThrottle.Zone, guide)}.");
         }
 
         var abruptBrake = mappedZones.FirstOrDefault(metric =>
@@ -288,18 +293,19 @@ public static class DriverCoachingIntelligenceService
 
     private static string BuildActionableTarget(ZonePerformanceMetric zone, TrackGuide? guide)
     {
+        var label = TrackGuideZoneMapper.MapZoneLabel(zone.Zone, guide);
         var behavior = ShortBehavior(zone.Behaviors);
         if (behavior.Contains("throttle", StringComparison.OrdinalIgnoreCase))
         {
-            return $"Improve throttle pickup through {zone.Zone.Label}.";
+            return $"Improve throttle pickup through {label}.";
         }
 
         if (behavior.Contains("brak", StringComparison.OrdinalIgnoreCase))
         {
-            return $"Smooth brake release into {zone.Zone.Label}.";
+            return $"Smooth brake release into {label}.";
         }
 
-        return $"Reduce time loss in {zone.Zone.Label}: {behavior}.";
+        return $"Reduce time loss in {label}: {behavior}.";
     }
 
     private static string BuildTrendSummary(

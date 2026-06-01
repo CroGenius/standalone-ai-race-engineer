@@ -1,3 +1,4 @@
+using RaceEngineer.Core.Analytics;
 using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.Telemetry;
@@ -121,6 +122,20 @@ public sealed class TelemetryTraceBuilder
     {
         var selectedOrdered = NormalizeSnapshots(selectedSnapshots);
         var bestOrdered = NormalizeSnapshots(bestSnapshots);
+        if (selectedOrdered.Count == 0 || bestOrdered.Count == 0)
+        {
+            return new TraceRow("Delta", [], 0, 1);
+        }
+
+        var selectedStartMs = selectedOrdered[0].Timestamp.ToUnixTimeMilliseconds();
+        var bestStartMs = bestOrdered[0].Timestamp.ToUnixTimeMilliseconds();
+        var selectedLapDuration = Math.Max(
+            1,
+            (selectedOrdered[^1].Timestamp.ToUnixTimeMilliseconds() - selectedStartMs) / 1000.0);
+        var bestLapDuration = Math.Max(
+            1,
+            (bestOrdered[^1].Timestamp.ToUnixTimeMilliseconds() - bestStartMs) / 1000.0);
+        var referenceDuration = Math.Max(selectedLapDuration, bestLapDuration);
         var points = new List<TracePoint>();
         for (var step = 0; step <= 40; step++)
         {
@@ -132,7 +147,14 @@ public sealed class TelemetryTraceBuilder
                 continue;
             }
 
-            var deltaSeconds = (selectedMs.Value - bestMs.Value) / 1000.0;
+            var selectedElapsed = (selectedMs.Value - selectedStartMs) / 1000.0;
+            var bestElapsed = (bestMs.Value - bestStartMs) / 1000.0;
+            var deltaSeconds = selectedElapsed - bestElapsed;
+            if (!LapDeltaSanity.IsReasonableLapDelta(deltaSeconds, referenceDuration))
+            {
+                continue;
+            }
+
             points.Add(new TracePoint(progress, deltaSeconds, deltaSeconds));
         }
 

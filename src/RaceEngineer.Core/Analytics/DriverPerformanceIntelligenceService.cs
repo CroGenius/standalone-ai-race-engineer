@@ -93,14 +93,18 @@ public sealed class DriverPerformanceIntelligenceService
         CompletedLap bestLap,
         SessionLapIntelligence? lapIntelligence)
     {
-        var computed = Round(selectedLap.Duration!.Value.TotalSeconds - bestLap.Duration!.Value.TotalSeconds);
+        var selectedDuration = selectedLap.Duration!.Value.TotalSeconds;
+        var bestDuration = bestLap.Duration!.Value.TotalSeconds;
+        var referenceDuration = Math.Max(selectedDuration, bestDuration);
+        var computed = Round(selectedDuration - bestDuration);
         if (lapIntelligence?.LapComparison.SelectedLapNumber == selectedLap.LapNumber
-            && lapIntelligence.LapComparison.DeltaSeconds is { } intelligenceDelta)
+            && lapIntelligence.LapComparison.DeltaSeconds is { } intelligenceDelta
+            && LapDeltaSanity.IsReasonableLapDelta(intelligenceDelta, referenceDuration))
         {
-            return intelligenceDelta;
+            return Round(intelligenceDelta);
         }
 
-        return computed;
+        return LapDeltaSanity.ClampOrNull(computed, referenceDuration);
     }
 
     private static SessionDriverPerformance BuildPartialPerformance(

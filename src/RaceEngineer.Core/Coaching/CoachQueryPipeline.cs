@@ -105,17 +105,31 @@ public static class CoachQueryPipeline
             requiresUnifiedOutput ? gate.EvidenceReason : sanitizedWritten.Uncertainty,
             requiresUnifiedOutput ? [] : sanitizedWritten.EvidencePackets);
 
-        var guide = TrackGuideZoneMapper.ResolveGuide(
+        var (trackName, resolutionTrace) = TrackGuideZoneMapper.ResolveTrackNameWithTrace(
+            context?.RaceContext,
+            context?.RacePrepPlan,
+            session,
+            context?.PreviousStoredSessionMemory,
+            context?.ReviewSessionTrack,
+            context?.RecentSnapshots,
             context?.CachedTrackGuide,
             context?.KnowledgeSources,
-            context?.RaceContext?.TrackName
-                ?? context?.RacePrepPlan?.Track
-                ?? context?.PreviousStoredSessionMemory?.TrackName
-                ?? session.LatestSnapshot?.RaceAwareness?.TrackName);
-        finalWritten = TrackGuideZoneMapper.MapCoachMessage(finalWritten, guide);
+            raiseDiagnostic: true);
+        var (guide, guideSource) = TrackGuideZoneMapper.ResolveGuideWithSource(
+            context?.CachedTrackGuide,
+            context?.KnowledgeSources,
+            trackName);
+        finalWritten = TrackGuideZoneMapper.MapCoachMessage(finalWritten, guide, "CoachQueryPipeline");
         displayText = finalWritten.Content;
-        enforcedSummary = TrackGuideZoneMapper.MapZoneReferences(enforcedSummary, guide);
-        payload = TrackGuideZoneMapper.MapZoneReferences(payload, guide);
+        enforcedSummary = TrackGuideZoneMapper.MapZoneReferences(enforcedSummary, guide, "CoachQueryPipeline.Summary");
+        payload = TrackGuideZoneMapper.MapZoneReferences(payload, guide, "CoachQueryPipeline.Tts");
+        TrackGuideZoneMapper.LogMappingAudit(
+            "CoachQueryPipeline.Resolution",
+            trackName,
+            guide,
+            guideSource,
+            resolutionTrace.GuideLookup,
+            guide?.TrackName ?? "none");
 
         var answerSource = InferAnswerSource(primaryWritten, deterministicWritten, sanitizedWritten, gate, requiresUnifiedOutput);
         var evidenceSelection = DescribeEvidence(evidence, topic);

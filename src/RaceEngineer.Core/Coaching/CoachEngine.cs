@@ -40,7 +40,8 @@ public sealed record CoachContext(
     TrackGuide? CachedTrackGuide = null,
     Strategy.StrategyKnowledgeRecommendation? StrategyKnowledge = null,
     OpponentIntelligenceRecommendation? OpponentIntelligence = null,
-    DriverCoachingRecommendation? DriverCoaching = null);
+    DriverCoachingRecommendation? DriverCoaching = null,
+    string? ReviewSessionTrack = null);
 
 public sealed class CoachEngine : ICoachEngine
 {
@@ -70,8 +71,12 @@ public sealed class CoachEngine : ICoachEngine
     public CoachMessage Answer(SessionState session, string userMessage, CoachContext? context = null, CoachEvidenceBundle? evidence = null)
     {
         var message = RouteAnswer(session, userMessage, context, evidence);
-        var guide = ResolveTrackGuide(context, session);
-        message = TrackGuideZoneMapper.MapCoachMessage(message, guide);
+        var trackName = ResolveTrackName(context, session);
+        var (guide, _) = TrackGuideZoneMapper.ResolveGuideWithSource(
+            context?.CachedTrackGuide,
+            context?.KnowledgeSources,
+            trackName);
+        message = TrackGuideZoneMapper.MapCoachMessage(message, guide, "CoachEngine.Answer");
         return CoachResponseFormatter.ApplyPreferences(message, context?.Preferences);
     }
 
@@ -1323,16 +1328,21 @@ public sealed class CoachEngine : ICoachEngine
 
     private static TrackGuide? ResolveTrackGuide(CoachContext? context, SessionState? session = null)
     {
+        var trackName = ResolveTrackName(context, session);
         return TrackGuideZoneMapper.ResolveGuide(
             context?.CachedTrackGuide,
             context?.KnowledgeSources,
-            ResolveTrackName(context, session));
+            trackName);
     }
 
     private static string? ResolveTrackName(CoachContext? context, SessionState? session) =>
-        context?.RaceContext?.TrackName
-        ?? context?.RacePrepPlan?.Track
-        ?? session?.LatestSnapshot?.RaceAwareness?.TrackName;
+        TrackGuideZoneMapper.ResolveTrackName(
+            context?.RaceContext,
+            context?.RacePrepPlan,
+            session,
+            context?.PreviousStoredSessionMemory,
+            context?.ReviewSessionTrack,
+            context?.RecentSnapshots);
 
     private static List<string> BuildLiveTelemetryNotes(SessionState session, CoachContext? context)
     {
@@ -1436,7 +1446,11 @@ public sealed class CoachEngine : ICoachEngine
         }
 
         var coaching = context?.DriverCoaching;
-        var guide = ResolveTrackGuide(context, session);
+        var trackName = ResolveTrackName(context, session);
+        var (guide, guideSource) = TrackGuideZoneMapper.ResolveGuideWithSource(
+            context?.CachedTrackGuide,
+            context?.KnowledgeSources,
+            trackName);
         if (coaching is null && context?.DriverPerformance is { Availability: "Available" } performance)
         {
             coaching = DriverCoachingIntelligenceService.Build(new DriverCoachingInput(
@@ -1448,6 +1462,10 @@ public sealed class CoachEngine : ICoachEngine
                 context.RecentStoredSessionMemories,
                 guide,
                 context.TrackMemory));
+        }
+        else if (coaching is { HasData: true })
+        {
+            coaching = TrackGuideZoneMapper.MapDriverCoachingRecommendation(coaching, guide, "DriverCoaching.Answer");
         }
 
         if (coaching is null || !coaching.HasData)
@@ -1481,8 +1499,18 @@ public sealed class CoachEngine : ICoachEngine
             _ => CoachEvidenceTopic.Improvement
         };
 
+        var rawContent = DriverCoachingAnswerBuilder.Build(userMessage, coaching);
+        var mappedContent = TrackGuideZoneMapper.MapZoneReferences(rawContent, guide);
+        TrackGuideZoneMapper.LogMappingAudit(
+            "DriverCoaching.Answer",
+            trackName,
+            guide,
+            guideSource,
+            rawContent,
+            mappedContent);
+
         return AttachEvidence(
-            new CoachMessage("coach", DriverCoachingAnswerBuilder.Build(userMessage, coaching), [], null, []),
+            new CoachMessage("coach", mappedContent, [], null, []),
             evidence,
             evidenceTopic);
     }

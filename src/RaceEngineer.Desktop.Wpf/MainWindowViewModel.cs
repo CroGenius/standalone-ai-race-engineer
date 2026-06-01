@@ -60,6 +60,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private readonly List<TelemetrySnapshot> liveTraceSnapshots = [];
     private bool isReviewMode;
     private IReadOnlyList<string> reviewSessionNotes = [];
+    private string? reviewSessionTrack;
     private string sessionLabel;
     private RacePrepPlan? loadedPrepPlan;
     private string chatInput = "";
@@ -264,6 +265,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         CoachQueryDiagnosticLog.TraceRaised += OnCoachQueryTraceRaised;
         CoachQueryDiagnosticLog.RuntimeTraceRaised += OnCoachQueryRuntimeTraceRaised;
         CoachQueryDiagnosticLog.AiTraceRaised += OnAiTraceRaised;
+        TrackGuideZoneMappingDiagnosticLog.TraceRaised += OnZoneMappingTraceRaised;
+        TrackGuideZoneMappingDiagnosticLog.AuditRaised += OnZoneMappingAuditRaised;
+        TrackGuideZoneMappingDiagnosticLog.ResolutionRaised += OnZoneMappingResolutionRaised;
         pushToTalkHotkey = ParsePushToTalkHotkeySafely(settings.PushToTalkHotkey);
         storageService = new StorageService(settings.DatabasePath);
         profilePreferencesService = new ProfilePreferencesService(storageService);
@@ -1059,6 +1063,33 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         });
     }
 
+    private void OnZoneMappingTraceRaised(TrackGuideZoneMappingTrace trace)
+    {
+        Application.Current?.Dispatcher.Invoke(() =>
+        {
+            ChatMessages.Add(
+                $"Zone map [{trace.Field}]: '{trace.Original}' -> '{trace.Mapped}' (guide={trace.GuideTrackName ?? "none"}, source={trace.GuideSource})");
+        });
+    }
+
+    private void OnZoneMappingAuditRaised(TrackGuideZoneMappingAuditTrace trace)
+    {
+        Application.Current?.Dispatcher.Invoke(() =>
+        {
+            ChatMessages.Add(
+                $"Zone audit [{trace.Path}]: track={trace.TrackName ?? "none"} guide={trace.GuideTrackName ?? "none"} source={trace.GuideSource} corners={trace.CornerCount} placeholderCorners={trace.UsesZonePlaceholderCorners} mapper={trace.MapperExecuted} stillZone={trace.StillContainsZoneToken} | '{trace.Original}' -> '{trace.Mapped}'");
+        });
+    }
+
+    private void OnZoneMappingResolutionRaised(TrackGuideResolutionTrace trace)
+    {
+        Application.Current?.Dispatcher.Invoke(() =>
+        {
+            ChatMessages.Add(
+                $"Track guide resolution: trackName={trace.TrackName ?? "none"} prepTrack={trace.PrepTrack ?? "none"} reviewTrack={trace.ReviewTrack ?? "none"} guideLookup={trace.GuideLookup} guideResolved={trace.GuideResolved ?? "none"} source={trace.GuideSource} trackConfidence={trace.TrackConfidence} guideConfidence={trace.GuideConfidence} status={trace.GuideStatus}");
+        });
+    }
+
     private void SendChat()
     {
         var message = ChatInput.Trim();
@@ -1100,7 +1131,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             currentStrategyKnowledge,
             cachedTrackGuide,
             currentOpponentIntelligence,
-            currentDriverCoaching));
+            currentDriverCoaching,
+            isReviewMode ? reviewSessionTrack : null));
     }
 
     private void RefreshStrategyKnowledge()
@@ -1337,21 +1369,53 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         isReviewMode = true;
         LoadedSessionSummary = bundle.SummaryMarkdown;
 
+        reviewSessionTrack = TrackGuideZoneMapper.ResolveReviewSessionTrack(
+            bundle.Track,
+            SelectedSession.Track,
+            bundle.Snapshots);
         var car = bundle.Car ?? "";
-        var track = bundle.Track ?? "";
+        var track = reviewSessionTrack ?? "";
         var startedLabel = bundle.StartedAt.LocalDateTime.ToString("g", CultureInfo.CurrentCulture);
         SessionLabel = $"Review Mode | {startedLabel} | {car} | {track}".Trim(' ', '|');
 
-        loadedPrepPlan = await storageService.LoadRacePrepPlanAsync(bundle.Car, bundle.Track);
+        loadedPrepPlan = await storageService.LoadRacePrepPlanAsync(bundle.Car, reviewSessionTrack ?? bundle.Track);
+        if (!string.IsNullOrWhiteSpace(track))
+        {
+            PrepTrack = track;
+        }
+
+        if (!string.IsNullOrWhiteSpace(car))
+        {
+            PrepCar = car;
+        }
+
         if (loadedPrepPlan is not null)
         {
             ApplyPrepPlan(loadedPrepPlan);
+            if (!string.IsNullOrWhiteSpace(reviewSessionTrack))
+            {
+                PrepTrack = reviewSessionTrack;
+            }
+            else if (string.IsNullOrWhiteSpace(PrepTrack) && !string.IsNullOrWhiteSpace(track))
+            {
+                PrepTrack = track;
+            }
+
+            if (string.IsNullOrWhiteSpace(PrepCar) && !string.IsNullOrWhiteSpace(car))
+            {
+                PrepCar = car;
+            }
         }
         else if (!string.IsNullOrWhiteSpace(car) || !string.IsNullOrWhiteSpace(track))
         {
-            PrepCar = car;
-            PrepTrack = track;
             await RefreshKnowledgeAsync();
+        }
+
+        if (cachedTrackGuide is not null
+            && !string.IsNullOrWhiteSpace(reviewSessionTrack)
+            && !TrackGuideMatcher.Matches(cachedTrackGuide, reviewSessionTrack))
+        {
+            cachedTrackGuide = null;
         }
 
         Application.Current.Dispatcher.Invoke(() =>
@@ -1386,6 +1450,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         isReviewMode = false;
         reviewSession = null;
+        reviewSessionTrack = null;
         reviewSnapshots = [];
         reviewSessionNotes = [];
         SessionLabel = $"Session {session.SessionId}";
@@ -2708,6 +2773,17 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private CoachContext CurrentCoachContext()
     {
+        var guide = ResolveActiveTrackGuide();
+        var mappedDriverCoaching = currentDriverCoaching is null
+            ? null
+            : TrackGuideZoneMapper.MapDriverCoachingRecommendation(
+                currentDriverCoaching,
+                guide,
+                "DriverCoaching.Context");
+        var mappedDriverPerformance = sessionDriverPerformance is null
+            ? null
+            : TrackGuideZoneMapper.MapPerformance(sessionDriverPerformance, guide);
+
         return new CoachContext(
             reviewSessionNotes.Count > 0 ? reviewSessionNotes : null,
             LoadedSessionSummary,
@@ -2718,7 +2794,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             sessionContextAssessment,
             sessionTyreIntelligence,
             sessionAnalytics,
-            sessionDriverPerformance,
+            mappedDriverPerformance,
             sessionStrategy,
             ActiveTraceSnapshots.Count > 0 ? ActiveTraceSnapshots.TakeLast(40).ToArray() : null,
             liveRaceContext,
@@ -2729,7 +2805,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             cachedTrackGuide,
             currentStrategyKnowledge,
             currentOpponentIntelligence,
-            currentDriverCoaching);
+            mappedDriverCoaching,
+            isReviewMode ? reviewSessionTrack : null);
     }
 
     private bool HasExternalResearchSources() =>
@@ -2839,11 +2916,23 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             .Select(item => TrackGuideZoneMapper.MapZoneReferences(item, guide))
             .ToArray();
 
-    private TrackGuide? ResolveActiveTrackGuide(string? trackName = null) =>
-        TrackGuideZoneMapper.ResolveGuide(
+    private TrackGuide? ResolveActiveTrackGuide(string? trackName = null)
+    {
+        var resolvedTrack = TrackGuideZoneMapper.CanonicalizeTrackName(
+            trackName
+                ?? reviewSessionTrack
+                ?? liveRaceContext.TrackName
+                ?? PrepTrack
+                ?? previousStoredSessionMemory?.TrackName
+                ?? TrackGuideZoneMapper.ResolveTrackNameFromSnapshots(ActiveTraceSnapshots)
+                ?? ActiveSession.LatestSnapshot?.RaceAwareness?.TrackName
+                ?? ActiveSession.LatestSnapshot?.RaceAwareness?.CircuitId);
+
+        return TrackGuideZoneMapper.ResolveGuide(
             cachedTrackGuide,
             KnowledgeSources.Select(item => item.Source),
-            trackName ?? liveRaceContext.TrackName ?? PrepTrack);
+            resolvedTrack);
+    }
 
     private void RaiseReviewModeProperties()
     {

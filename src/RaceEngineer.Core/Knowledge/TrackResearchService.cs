@@ -143,11 +143,16 @@ public sealed class TrackResearchService
         return DateTimeOffset.UtcNow - anchor > TimeSpan.FromDays(options.TrackGuideRefreshDays);
     }
 
-    public static TrackGuide? ResolveGuideFromSources(IEnumerable<KnowledgeSource> sources)
+    public static TrackGuide? ResolveGuideFromSources(IEnumerable<KnowledgeSource> sources, string? trackName = null)
     {
         foreach (var source in sources.OrderByDescending(item => item.RetrievedAt))
         {
-            if (TrackGuideMapper.TryParse(source, out var guide))
+            if (!TrackGuideMapper.TryParse(source, out var guide))
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(trackName) || TrackGuideMatcher.Matches(guide, trackName))
             {
                 return guide;
             }

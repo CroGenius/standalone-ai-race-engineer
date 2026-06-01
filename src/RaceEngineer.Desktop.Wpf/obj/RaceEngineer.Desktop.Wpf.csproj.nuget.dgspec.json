@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj": {}
+    "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj": {}
   },
   "projects": {
-    "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj": {
+    "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj",
+        "projectUniqueName": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj",
         "projectName": "RaceEngineer.Core",
-        "projectPath": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj",
+        "projectPath": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj",
         "packagesPath": "C:\\Users\\budis\\.nuget\\packages\\",
-        "outputPath": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\obj\\",
+        "outputPath": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\budis\\AppData\\Roaming\\NuGet\\NuGet.Config"
@@ -68,11 +68,27 @@
               "version": "[8.0.27, 8.0.27]"
             },
             {
+              "name": "Microsoft.AspNetCore.App.Runtime.win-x64",
+              "version": "[8.0.27, 8.0.27]"
+            },
+            {
+              "name": "Microsoft.NETCore.App.Crossgen2.win-x64",
+              "version": "[8.0.27, 8.0.27]"
+            },
+            {
               "name": "Microsoft.NETCore.App.Ref",
               "version": "[8.0.27, 8.0.27]"
             },
             {
+              "name": "Microsoft.NETCore.App.Runtime.win-x64",
+              "version": "[8.0.27, 8.0.27]"
+            },
+            {
               "name": "Microsoft.WindowsDesktop.App.Ref",
+              "version": "[8.0.27, 8.0.27]"
+            },
+            {
+              "name": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
               "version": "[8.0.27, 8.0.27]"
             }
           ],
@@ -83,16 +99,21 @@
           },
           "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.300/PortableRuntimeIdentifierGraph.json"
         }
+      },
+      "runtimes": {
+        "win-x64": {
+          "#import": []
+        }
       }
     },
-    "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj": {
+    "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj",
+        "projectUniqueName": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj",
         "projectName": "RaceEngineer.Desktop.Wpf",
-        "projectPath": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj",
+        "projectPath": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj",
         "packagesPath": "C:\\Users\\budis\\.nuget\\packages\\",
-        "outputPath": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\obj\\",
+        "outputPath": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\budis\\AppData\\Roaming\\NuGet\\NuGet.Config"
@@ -108,8 +129,8 @@
             "framework": "net8.0-windows7.0",
             "targetAlias": "net8.0-windows",
             "projectReferences": {
-              "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj": {
-                "projectPath": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj"
+              "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj": {
+                "projectPath": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Core\\RaceEngineer.Core.csproj"
               }
             }
           }
@@ -165,6 +186,14 @@
               "version": "[8.0.27, 8.0.27]"
             },
             {
+              "name": "Microsoft.AspNetCore.App.Runtime.win-x64",
+              "version": "[8.0.27, 8.0.27]"
+            },
+            {
+              "name": "Microsoft.NETCore.App.Crossgen2.win-x64",
+              "version": "[8.0.27, 8.0.27]"
+            },
+            {
               "name": "Microsoft.NETCore.App.Host.win-x64",
               "version": "[8.0.27, 8.0.27]"
             },
@@ -173,7 +202,15 @@
               "version": "[8.0.27, 8.0.27]"
             },
             {
+              "name": "Microsoft.NETCore.App.Runtime.win-x64",
+              "version": "[8.0.27, 8.0.27]"
+            },
+            {
               "name": "Microsoft.WindowsDesktop.App.Ref",
+              "version": "[8.0.27, 8.0.27]"
+            },
+            {
+              "name": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
               "version": "[8.0.27, 8.0.27]"
             }
           ],
@@ -186,6 +223,11 @@
             }
           },
           "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.300/PortableRuntimeIdentifierGraph.json"
+        }
+      },
+      "runtimes": {
+        "win-x64": {
+          "#import": []
         }
       }
     }

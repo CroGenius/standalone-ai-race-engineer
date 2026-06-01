@@ -196,9 +196,17 @@ DriverCoachingBuildsTopThreeTargets();
 DriverCoachingNoDataFallback();
 TrackGuideZoneMapperMapsMonzaZones();
 TrackGuideZoneMapperMapsMonzaZoneSix();
+ZoneMapperPrefersCatalogOverCachedZonePlaceholders();
 StoredSessionMemoryWatchAnswerMapsRawZones();
 CoachQueryPipelineMapsStoredZonesWithoutCachedGuide();
+ReviewModeTrackResolutionUsesReviewSessionTrack();
+TrackGuideCatalogMapsRedBullRingAliases();
+TrackGuideDoesNotUseMonzaForUnknownTrack();
+TrackGuideRejectsMismatchedCachedGuide();
 SessionDebriefMapsStoredRawZones();
+LapDeltaSanityRejectsImpossibleTraceDeltas();
+DriverCoachingAnswerRemapsStaleContextCoaching();
+ZoneMapperPrefersCatalogOverCachedZonePlaceholders();
 DriverCoachingUsesTrackGuideCornerNames();
 EngineerAiContextIncludesDriverCoachingSummary();
 TelemetryTraceBuilderCreatesDeterministicTimeline();
@@ -3848,6 +3856,148 @@ static void CoachQueryPipelineMapsStoredZonesWithoutCachedGuide()
         "Pipeline watch answer should not expose Zone 6 without cached guide.");
 }
 
+static void ReviewModeTrackResolutionUsesReviewSessionTrack()
+{
+    Assert(TrackGuideWebCatalog.TryGetGuide("Monza", out _), "Fixture catalog should provide Monza guide.");
+
+    var (_, trace) = TrackGuideZoneMapper.ResolveTrackNameWithTrace(
+        raceContext: LiveRaceContext.Unavailable("test"),
+        prepPlan: new RacePrepPlan("GT3", null, "Practice", null, null, null, null, null, null, null),
+        reviewSessionTrack: "Monza");
+    Assert(trace.ReviewTrack == "Monza", "Review session track should be captured in resolution trace.");
+    Assert(trace.TrackName == "Monza", "Review session track should win over empty prep plan.");
+    Assert(trace.GuideResolved == "Monza", "Monza guide should resolve from review session track.");
+    Assert(trace.GuideSource == "catalog", "Review mode should use catalog guide when cache is empty.");
+
+    var stale = new DriverCoachingRecommendation(
+        true,
+        "Available",
+        DriverProgressTrend.Stable,
+        "Weakest area: Zone 1.",
+        "Zone 1: abrupt brake release",
+        "Zone 5",
+        "Zone 1: abrupt brake release",
+        "Consistency spread 0.4s",
+        null,
+        [],
+        ["Smooth brake release into Zone 1."],
+        [],
+        "Weakest area: Zone 1.");
+
+    var (session, _, performanceContext) = SessionWithPerformanceContext();
+    var context = new CoachContext(
+        RacePrepPlan: new RacePrepPlan("GT3", null, "Practice", null, null, null, null, null, null, null),
+        DriverCoaching: stale,
+        CachedTrackGuide: null,
+        ReviewSessionTrack: "Monza",
+        RecentSnapshots: performanceContext.RecentSnapshots);
+    var evidence = new CoachEvidenceBuilder().Build(new CoachEvidenceInput(
+        session,
+        ReviewSessionTrack: "Monza",
+        DriverCoaching: stale));
+
+    var pipeline = CoachQueryPipeline.Resolve(
+        session,
+        "where am i losing time",
+        new CoachEngine(),
+        context,
+        evidence);
+
+    Assert(
+        pipeline.FinalTtsPayload.Contains("Rettifilo", StringComparison.OrdinalIgnoreCase)
+            || pipeline.FinalDisplayedText.Contains("Rettifilo", StringComparison.OrdinalIgnoreCase),
+        "Review mode losing-time answer should map Zone 1 to Rettifilo.");
+    Assert(
+        !pipeline.FinalTtsPayload.Contains("Zone 1", StringComparison.OrdinalIgnoreCase),
+        "Review mode TTS should not expose Zone 1 when review track resolves Monza guide.");
+}
+
+static void TrackGuideCatalogMapsRedBullRingAliases()
+{
+    foreach (var alias in new[]
+             {
+                 "Red Bull Ring",
+                 "RedBullRing",
+                 "Spielberg",
+                 "RBR",
+                 "Red-Bull-Ring",
+                 "rb_ring",
+                 "ks_red_bull_ring"
+             })
+    {
+        Assert(
+            TrackGuideWebCatalog.TryGetGuide(alias, out var guide),
+            $"Catalog should resolve Red Bull Ring alias '{alias}'.");
+        Assert(
+            guide.TrackName == "Red Bull Ring",
+            $"Alias '{alias}' should canonicalize to Red Bull Ring.");
+    }
+
+    Assert(TrackGuideWebCatalog.TryGetGuide("Spielberg", out var rbrGuide), "Red Bull Ring fixture guide required.");
+    Assert(
+        TrackGuideZoneMapper.MapZoneLabel("Zone 1", rbrGuide) == "Niki Lauda Kurve",
+        "Red Bull Ring Zone 1 should map to Niki Lauda Kurve.");
+    Assert(
+        TrackGuideZoneMapper.MapZoneLabel("Zone 3", rbrGuide) == "Remus",
+        "Red Bull Ring Zone 3 should map to Remus.");
+    Assert(
+        TrackGuideZoneMapper.MapZoneLabel("Zone 6", rbrGuide) == "Würth",
+        "Red Bull Ring Zone 6 should map to Würth.");
+
+    var (_, trace) = TrackGuideZoneMapper.ResolveTrackNameWithTrace(
+        reviewSessionTrack: "Spielberg");
+    Assert(trace.TrackName == "Red Bull Ring", "Spielberg should canonicalize to Red Bull Ring.");
+    Assert(trace.GuideResolved == "Red Bull Ring", "Red Bull Ring guide should resolve from Spielberg.");
+    Assert(trace.GuideSource == "catalog", "Red Bull Ring should use catalog source.");
+    Assert(trace.GuideStatus == "available", "Red Bull Ring guide status should be available.");
+}
+
+static void TrackGuideDoesNotUseMonzaForUnknownTrack()
+{
+    Assert(
+        !TrackGuideWebCatalog.TryGetGuide("Unknown Circuit XYZ", out _),
+        "Unknown track should not resolve to any catalog guide.");
+
+    var monzaGuide = TrackGuideWebCatalog.TryGetGuide("Monza", out var guide) ? guide : null;
+    Assert(monzaGuide is not null, "Monza fixture guide required.");
+
+    var (resolvedGuide, source) = TrackGuideZoneMapper.ResolveGuideWithSource(
+        monzaGuide,
+        [TrackGuideMapper.ToKnowledgeSource(monzaGuide!, KnowledgeSourceTypes.Web)],
+        "Unknown Circuit XYZ");
+    Assert(resolvedGuide is null, "Unknown track must not reuse Monza cached guide.");
+    Assert(source == "none", "Unknown track guide source should remain none.");
+
+    var mapped = TrackGuideZoneMapper.MapZoneReferences("Your main loss is in Zone 1.", resolvedGuide);
+    Assert(
+        mapped.Contains("Zone 1", StringComparison.OrdinalIgnoreCase),
+        "Unknown track should keep Zone tokens when guide is unavailable.");
+
+    var (_, trace) = TrackGuideZoneMapper.ResolveTrackNameWithTrace();
+    Assert(trace.GuideStatus == "track-unresolved", "Missing track should report track-unresolved status.");
+}
+
+static void TrackGuideRejectsMismatchedCachedGuide()
+{
+    Assert(TrackGuideWebCatalog.TryGetGuide("Monza", out var monzaGuide), "Monza fixture guide required.");
+    Assert(TrackGuideWebCatalog.TryGetGuide("Spielberg", out var rbrGuide), "Red Bull Ring fixture guide required.");
+
+    var (guide, source) = TrackGuideZoneMapper.ResolveGuideWithSource(
+        monzaGuide,
+        null,
+        "Red Bull Ring");
+    Assert(guide?.TrackName == "Red Bull Ring", "Red Bull Ring track should resolve Red Bull Ring catalog guide.");
+    Assert(
+        source is "catalog" or "catalog-over-cache",
+        "Mismatched Monza cache should be ignored for Red Bull Ring track.");
+    Assert(
+        TrackGuideZoneMapper.MapZoneLabel("Zone 1", guide) == "Niki Lauda Kurve",
+        "Red Bull Ring review should not map zones using Monza corners.");
+    Assert(
+        TrackGuideZoneMapper.MapZoneLabel("Zone 1", monzaGuide) == "Rettifilo",
+        "Monza guide should still map Monza zones correctly.");
+}
+
 static void SessionDebriefMapsStoredRawZones()
 {
     Assert(TrackGuideWebCatalog.TryGetGuide("Monza", out _), "Fixture catalog should provide Monza guide.");
@@ -3889,6 +4039,157 @@ static void SessionDebriefMapsStoredRawZones()
         combined.Contains("Parabolica", StringComparison.OrdinalIgnoreCase),
         "Debrief should map Zone 6 to Parabolica.");
 }
+
+static void LapDeltaSanityRejectsImpossibleTraceDeltas()
+{
+    Assert(
+        !LapDeltaSanity.IsReasonableLapDelta(368.666),
+        "368.666s point delta should be rejected as impossible.");
+    Assert(
+        LapDeltaSanity.IsReasonableLapDelta(1.842, 105),
+        "Small point delta within lap duration should remain valid.");
+
+    var selectedStart = DateTimeOffset.UtcNow;
+    var bestStart = selectedStart.AddMinutes(10);
+    var selected = new[]
+    {
+        SnapshotAt(selectedStart, 0.0),
+        SnapshotAt(selectedStart.AddSeconds(50), 0.5),
+        SnapshotAt(selectedStart.AddSeconds(100), 1.0)
+    };
+    var best = new[]
+    {
+        SnapshotAt(bestStart, 0.0),
+        SnapshotAt(bestStart.AddSeconds(48), 0.5),
+        SnapshotAt(bestStart.AddSeconds(96), 1.0)
+    };
+
+    var builder = new TelemetryTraceBuilder();
+    var session = new SessionState();
+    session.ApplySnapshot(selected[0], []);
+    session.ApplySnapshot(selected[^1], []);
+    var timeline = builder.Build(new TelemetryTimelineInput(
+        session,
+        selected.Concat(best).ToArray(),
+        SelectedLapNumber: 1));
+
+    var deltaRow = timeline.Rows.FirstOrDefault(row => row.Name == "Delta");
+    Assert(deltaRow is not null, "Delta trace row should be generated.");
+    var worst = deltaRow!.Series.SelectMany(series => series.Points).Max(point => Math.Abs(point.Value));
+    Assert(
+        worst < 10,
+        "Lap-relative delta trace should not inherit absolute timestamp offsets between laps.");
+}
+
+static void DriverCoachingAnswerRemapsStaleContextCoaching()
+{
+    Assert(TrackGuideWebCatalog.TryGetGuide("Monza", out var guide), "Fixture catalog should provide Monza guide.");
+    var stale = new DriverCoachingRecommendation(
+        true,
+        "Available",
+        DriverProgressTrend.Stable,
+        "Progress is stable versus your recent baseline.",
+        "Zone 1: unstable braking",
+        "Zone 5",
+        "Zone 1: unstable braking",
+        "Consistency spread 0.4s",
+        null,
+        [],
+        ["Smooth brake release into Zone 1.", "Smooth brake release into Zone 3."],
+        ["Weakest area: Zone 1."],
+        "Weakest area: Zone 1. Strongest area: Zone 5.");
+
+    var session = new SessionState();
+    var context = new CoachContext(
+        RacePrepPlan: new RacePrepPlan("GT3", "Monza", "Practice", null, null, null, null, null, null, null),
+        DriverCoaching: stale,
+        CachedTrackGuide: null);
+    var coach = new CoachEngine();
+    var answer = coach.Answer(session, "where am i losing time", context);
+
+    Assert(
+        !answer.Content.Contains("Zone 1", StringComparison.OrdinalIgnoreCase),
+        "Stale context coaching should be remapped before losing-time answer is returned.");
+    Assert(
+        answer.Content.Contains("Rettifilo", StringComparison.OrdinalIgnoreCase),
+        "Stale Zone 1 coaching should map to Rettifilo on Monza.");
+}
+
+static void ZoneMapperPrefersCatalogOverCachedZonePlaceholders()
+{
+    var cached = new TrackGuide(
+        TrackGuide.IdForTrack("Monza"),
+        "Monza",
+        [],
+        null,
+        null,
+        5,
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+            new TrackGuideCorner("Zone 1", 0.06, 0.14),
+            new TrackGuideCorner("Zone 2", 0.20, 0.30),
+            new TrackGuideCorner("Zone 3", 0.34, 0.44),
+            new TrackGuideCorner("Zone 4", 0.50, 0.62),
+            new TrackGuideCorner("Zone 5", 0.85, 0.96)
+        ],
+        [],
+        DateTimeOffset.UtcNow,
+        null,
+        "stale-cache");
+
+    Assert(
+        TrackGuideZoneMapper.UsesZonePlaceholderCorners(cached),
+        "Cached guide with Zone corner labels should be detected as placeholders.");
+
+    var (guide, source) = TrackGuideZoneMapper.ResolveGuideWithSource(cached, null, "Monza");
+    Assert(
+        source == "catalog-over-cache",
+        "Zone mapping should prefer catalog over cached placeholder corners.");
+    Assert(
+        TrackGuideZoneMapper.MapZoneLabel("Zone 1", guide) == "Rettifilo",
+        "Catalog guide should map Zone 1 to Rettifilo even when stale cache exists.");
+
+    var staleCoaching = new DriverCoachingRecommendation(
+        true,
+        "Available",
+        DriverProgressTrend.Stable,
+        "Weakest area: Zone 1.",
+        "Zone 1: unstable braking",
+        "Zone 5",
+        "Zone 1: unstable braking",
+        "Consistency spread 0.4s",
+        null,
+        [],
+        ["Smooth brake release into Zone 3."],
+        [],
+        "Weakest area: Zone 1.");
+
+    var mapped = TrackGuideZoneMapper.MapDriverCoachingRecommendation(staleCoaching, guide, "Test");
+    Assert(
+        !mapped.Summary.Contains("Zone 1", StringComparison.OrdinalIgnoreCase),
+        "Mapped coaching summary should not retain Zone 1 when catalog guide is used.");
+    Assert(
+        mapped.TopCoachingTargets.Any(item => item.Contains("Lesmo 2", StringComparison.OrdinalIgnoreCase)),
+        "Zone 3 target should map to Lesmo 2 on Monza.");
+}
+
+static TelemetrySnapshot SnapshotAt(DateTimeOffset timestamp, double progress) =>
+    Packet($$$"""{"lap_progress":{{{progress.ToString(CultureInfo.InvariantCulture)}}},"speed_kmh":180,"throttle":0.5,"brake":0.2}""")
+        with
+        {
+            Timestamp = timestamp,
+            Lap = Packet("""{"lap_progress":0.1}""").Lap with { LapNumber = 1, LapProgress = progress }
+        };
 
 static void DriverCoachingUsesTrackGuideCornerNames()
 {

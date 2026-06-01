@@ -10,20 +10,19 @@ public static class TrackGuideWebCatalog
             return false;
         }
 
-        var key = TrackGuide.NormalizeTrackKey(trackName);
-        if (key.Contains("monza", StringComparison.Ordinal))
+        return TrackGuideCatalogIdentity.Identify(trackName) switch
         {
-            guide = BuildMonza();
-            return true;
-        }
+            TrackGuideCatalogTrack.Monza => Assign(BuildMonza(), out guide),
+            TrackGuideCatalogTrack.Spa => Assign(BuildSpa(), out guide),
+            TrackGuideCatalogTrack.RedBullRing => Assign(BuildRedBullRing(), out guide),
+            _ => false
+        };
+    }
 
-        if (key.Contains("spa", StringComparison.Ordinal))
-        {
-            guide = BuildSpa();
-            return true;
-        }
-
-        return false;
+    private static bool Assign(TrackGuide source, out TrackGuide guide)
+    {
+        guide = source;
+        return true;
     }
 
     private static TrackGuide BuildMonza()
@@ -32,7 +31,7 @@ public static class TrackGuideWebCatalog
         return new TrackGuide(
             TrackGuide.IdForTrack("Monza"),
             "Monza",
-            ["Autodromo Nazionale Monza", "Monza GP"],
+            ["Autodromo Nazionale Monza", "Monza GP", "Monza-GP"],
             "Italy",
             "5.793 km",
             11,
@@ -171,6 +170,94 @@ public static class TrackGuideWebCatalog
             [
                 new("Built-in track guide catalog", "catalog://track/spa"),
                 new("Community reference", "https://en.wikipedia.org/wiki/circuit_de_spa-francorchamps")
+            ],
+            fetchedAt,
+            null,
+            "web-catalog");
+    }
+
+    private static TrackGuide BuildRedBullRing()
+    {
+        var fetchedAt = new DateTimeOffset(2026, 1, 15, 0, 0, 0, TimeSpan.Zero);
+        return new TrackGuide(
+            TrackGuide.IdForTrack("Red Bull Ring"),
+            "Red Bull Ring",
+            [
+                "RedBullRing",
+                "Red Bull Ring",
+                "Red-Bull-Ring",
+                "Spielberg",
+                "RBR",
+                "rb_ring",
+                "Red Bull Ring GP"
+            ],
+            "Austria",
+            "4.318 km",
+            10,
+            [
+                "Sector 1 is heavy braking into Turn 1 and momentum through Remus.",
+                "Sector 2 mixes mid-speed corners with traction-sensitive exits.",
+                "Sector 3 rewards commitment through the final two corners onto the straight."
+            ],
+            [
+                "Turn 1 / Niki Lauda Kurve",
+                "Turn 3 / Remus",
+                "Turn 4 / Schlossgold",
+                "Turn 6 / Würth"
+            ],
+            [
+                "Remus exit",
+                "Rindt exit",
+                "Final corner exit"
+            ],
+            [
+                "Start/finish straight",
+                "Approach to Turn 1",
+                "Run to Turn 3"
+            ],
+            [
+                "Into Turn 1 after the main straight",
+                "Into Turn 3 after a draft"
+            ],
+            [
+                "Stable front under Turn 1 braking.",
+                "Rear support for traction at Remus and Schlossgold.",
+                "Ride height and kerb compliance for final sector."
+            ],
+            [
+                "Turn 1 loads the front-left repeatedly.",
+                "Rear tyres pay for aggressive Remus exits."
+            ],
+            [
+                "Front grip builds quickly on short straights.",
+                "Rears need a clean lap before pushing final sector."
+            ],
+            [
+                "Rear overheating shows up under repeated Remus exits.",
+                "Front-left can fade if Turn 1 is over-driven early in a stint."
+            ],
+            [
+                "Short lap with repeated hard braking keeps consumption moderate.",
+                "Drafting on the main straight can reduce fuel use."
+            ],
+            [
+                "One-stop is common; protect tyres through mid-sector to keep pace late."
+            ],
+            [
+                new("Niki Lauda Kurve", 0.05, 0.11, "Turn 1 heavy braking from top speed."),
+                new("Turn 2", 0.11, 0.17, "Short link between Turn 1 and Remus."),
+                new("Remus", 0.18, 0.26, "Turn 3 downhill left; traction on exit matters."),
+                new("Schlossgold", 0.28, 0.36, "Turn 4 right-hander; rhythm and rear stability."),
+                new("Rauch", 0.38, 0.46, "Turn 5 left; prepare for Würth."),
+                new("Würth", 0.46, 0.54, "Turn 6 right; traction sets up mid-sector."),
+                new("Rindt", 0.58, 0.66, "Turn 7 left-hand corner."),
+                new("Red Bull Mobile", 0.66, 0.74, "Turn 8 right; commit to final sector."),
+                new("Turn 9", 0.80, 0.88, "Penultimate corner before the straight."),
+                new("Final Corner", 0.88, 0.96, "Turn 10 onto the main straight.")
+            ],
+            [
+                new("Built-in track guide catalog", "catalog://track/red-bull-ring"),
+                new("Community reference", "https://en.wikipedia.org/wiki/red_bull_ring")
             ],
             fetchedAt,
             null,
