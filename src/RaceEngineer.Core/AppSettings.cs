@@ -1,11 +1,13 @@
 using System.Text.Json;
 using RaceEngineer.Core.Profile;
+using RaceEngineer.Core.Telemetry;
 using RaceEngineer.Core.Voice;
 using RaceEngineer.Core.Knowledge;
 
 namespace RaceEngineer.Core;
 
 public sealed record AppSettings(
+    string TelemetryProvider,
     string UdpBindIp,
     int UdpPort,
     string DatabasePath,
@@ -43,6 +45,7 @@ public sealed record AppSettings(
     int ResearchRefreshDays = 30)
 {
     public static AppSettings Default => new(
+        "simhub",
         "127.0.0.1",
         20999,
         @"%LOCALAPPDATA%\RaceEngineer\race_engineer.sqlite3",
@@ -170,6 +173,7 @@ public sealed record AppSettings(
     {
         return settings with
         {
+            TelemetryProvider = TelemetryProviderFactory.NormalizeProvider(settings.TelemetryProvider),
             PushToTalkHotkey = string.IsNullOrWhiteSpace(settings.PushToTalkHotkey) ? Default.PushToTalkHotkey : settings.PushToTalkHotkey.Trim(),
             VoiceInputCooldownSeconds = settings.VoiceInputCooldownSeconds is < 0 or > 120
                 ? Default.VoiceInputCooldownSeconds

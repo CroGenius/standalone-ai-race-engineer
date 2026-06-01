@@ -209,6 +209,15 @@ TrackGuideZoneMapperMapsMonzaZoneSix();
 ZoneMapperPrefersCatalogOverCachedZonePlaceholders();
 StoredSessionMemoryWatchAnswerMapsRawZones();
 CoachQueryPipelineMapsStoredZonesWithoutCachedGuide();
+CoachResponsePrioritizerLimitsDefaultAnswer();
+CoachResponsePrioritizerDetailedModePreservesFullAnswer();
+CoachQueryPipelinePrioritizesCommonCoachQueries();
+RaceStrategyIntelligenceEnoughFuel();
+RaceStrategyIntelligenceNotEnoughFuel();
+RaceStrategyTyreDegradationWarning();
+RaceStrategyPitRecommendationAvailable();
+RaceStrategyInsufficientDataFallback();
+EngineerAiContextContainsStrategyFacts();
 ReviewModeTrackResolutionUsesReviewSessionTrack();
 TrackGuideCatalogMapsRedBullRingAliases();
 TrackGuideDoesNotUseMonzaForUnknownTrack();
@@ -220,6 +229,12 @@ ZoneMapperPrefersCatalogOverCachedZonePlaceholders();
 DriverCoachingUsesTrackGuideCornerNames();
 EngineerAiContextIncludesDriverCoachingSummary();
 TelemetryTraceBuilderCreatesDeterministicTimeline();
+SimHubTelemetryProviderStillParsesExistingFixture();
+SimHubProviderCapabilitiesReportMissingOpponentGaps();
+CoachGapQuestionExplainsProviderLimitation();
+TelemetryProviderFactorySelectsSimHub();
+TelemetryProviderFactoryUnknownProviderFallsBackSafely();
+TelemetryProviderFactoryIracingReportsNotImplemented();
 EndToEndFixtureReplayVerifiesPipeline();
 await ReceiverAcceptsOnlyValidPacketsOnDefaultEndpoint();
 
@@ -3446,11 +3461,89 @@ static void CoachRaceAwarenessMissingGapSaysUnavailable()
         new CoachContext(RaceContext: raceContext));
 
     Assert(
-        answer.Content.Contains("Opponent gap ahead data is unavailable", StringComparison.OrdinalIgnoreCase),
+        answer.Content.Contains("Opponent gap ahead data is unavailable", StringComparison.OrdinalIgnoreCase)
+            || answer.Content.Contains("does not expose opponent gaps", StringComparison.OrdinalIgnoreCase),
         "Race awareness answer must say opponent gap data is unavailable when telemetry omits it.");
     Assert(
         !answer.Content.Contains("0.3s/lap", StringComparison.OrdinalIgnoreCase),
         "Race awareness must not invent gap values.");
+}
+
+static void SimHubTelemetryProviderStillParsesExistingFixture()
+{
+    var provider = new SimHubTelemetryProvider("127.0.0.1", 20999);
+    var raw = ValidRaw("""{"speed_kmh":181.5,"gear":4,"throttle":0.72,"lap_progress":0.42,"tyre_temp_c":[90,91,null,89]}""");
+    Assert(SimHubPacketParser.TryParse(raw, out var snapshot, out var warning), $"Fixture packet should parse: {warning}");
+    Assert(provider.ProviderId == "simhub", "SimHub provider should identify as simhub.");
+    Assert(snapshot!.Car.SpeedKmh == 181.5, "Fixture speed should still parse through SimHub schema.");
+}
+
+static void SimHubProviderCapabilitiesReportMissingOpponentGaps()
+{
+    var capabilities = TelemetryProviderCapabilities.SimHub;
+
+    Assert(!capabilities.OpponentGaps, "SimHub provider should report opponent gaps as unsupported.");
+    Assert(!capabilities.Standings, "SimHub provider should report standings as unsupported.");
+    Assert(
+        capabilities.MissingCapabilityLabels.Contains(TelemetryProviderCapabilities.CapabilityLabels.OpponentGaps),
+        "Missing capabilities should include opponent gaps.");
+    Assert(
+        capabilities.MissingCapabilityLabels.Contains(TelemetryProviderCapabilities.CapabilityLabels.Standings),
+        "Missing capabilities should include standings.");
+}
+
+static void CoachGapQuestionExplainsProviderLimitation()
+{
+    var coach = new CoachEngine();
+    var session = new SessionState();
+    session.ApplySnapshot(
+        SimHubPacketParser.Parse(
+            """{"schema":"acevo_engineer.simhub_datacore","schema_version":1,"track_name":"Monza","position":5,"speed_kmh":180}"""),
+        []);
+    var raceContext = RaceContextService.Build(session, session.LatestSnapshot);
+    var answer = coach.Answer(
+        session,
+        "gap ahead",
+        new CoachContext(
+            RaceContext: raceContext,
+            TelemetryProviderCapabilities: TelemetryProviderCapabilities.SimHub));
+
+    Assert(
+        answer.Content.Contains("SimHub", StringComparison.OrdinalIgnoreCase),
+        "Coach gap answer should name the active provider.");
+    Assert(
+        answer.Content.Contains("does not expose opponent gaps", StringComparison.OrdinalIgnoreCase),
+        "Coach gap answer should explain the provider limitation.");
+}
+
+static void TelemetryProviderFactorySelectsSimHub()
+{
+    var result = TelemetryProviderFactory.Instance.Create(AppSettings.Default);
+
+    Assert(result.Provider is SimHubTelemetryProvider, "Default settings should create the SimHub provider.");
+    Assert(result.Provider.ProviderId == "simhub", "SimHub provider id should be simhub.");
+    Assert(result.Warnings.Count == 0, "Default SimHub selection should not emit warnings.");
+}
+
+static void TelemetryProviderFactoryUnknownProviderFallsBackSafely()
+{
+    var result = TelemetryProviderFactory.Instance.Create(AppSettings.Default with { TelemetryProvider = "unknown-provider" });
+
+    Assert(result.Provider is SimHubTelemetryProvider, "Unknown provider should fall back to SimHub.");
+    Assert(
+        result.Warnings.Any(warning => warning.Contains("Unknown telemetry provider", StringComparison.OrdinalIgnoreCase)),
+        "Unknown provider fallback should emit a warning.");
+}
+
+static void TelemetryProviderFactoryIracingReportsNotImplemented()
+{
+    var result = TelemetryProviderFactory.Instance.Create(AppSettings.Default with { TelemetryProvider = "iracing" });
+
+    Assert(result.Provider is UnavailableTelemetryProvider, "iRacing setting should create an unavailable provider stub.");
+    Assert(result.Provider.Status == TelemetryProviderStatus.Error, "iRacing stub should report error status.");
+    Assert(
+        result.Warnings.Any(warning => warning.Contains("not implemented", StringComparison.OrdinalIgnoreCase)),
+        "iRacing stub should emit a not-implemented warning.");
 }
 
 static void CoachTrackIdentityRoutingDoesNotFallbackToPosition()
@@ -4201,6 +4294,329 @@ static void CoachQueryPipelineMapsStoredZonesWithoutCachedGuide()
     Assert(
         !pipeline.FinalDisplayedText.Contains("Zone 6", StringComparison.OrdinalIgnoreCase),
         "Pipeline watch answer should not expose Zone 6 without cached guide.");
+}
+
+static int CountNumberedPriorityLines(string content) =>
+    content.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Count(line => line.Length >= 3 && char.IsDigit(line[0]) && line[1] == '.' && line[2] == ' ');
+
+static void CoachResponsePrioritizerLimitsDefaultAnswer()
+{
+    var packets = new CoachEvidencePacket[]
+    {
+        new("Knowledge", "Catalog tip", "Info", 0.4, CoachEvidenceSourceType.Knowledge, null, [], null, "Carry minimum speed through Parabolica."),
+        new("WebResearch", "Research note", "Info", 0.5, CoachEvidenceSourceType.Knowledge, null, [], null, "Cached research: attack curb at T1."),
+        new("TrackMemory", "Stored weakness", "Info", 0.7, CoachEvidenceSourceType.Session, null, [], null, "Zone 4: unstable throttle (0.3s)."),
+        new("Performance", "Weak zone", "Warning", 0.85, CoachEvidenceSourceType.Analytics, 3, [], 0.31, "Zone 2 brake release costs 0.31s."),
+        new("Telemetry", "Live delta", "Warning", 0.92, CoachEvidenceSourceType.Telemetry, 3, [], 0.18, "Live telemetry: losing 0.18s in Sector 2."),
+    };
+    var message = new CoachMessage(
+        "coach",
+        "Live telemetry: losing 0.18s in Sector 2. Focus on brake release in Zone 2.",
+        [],
+        null,
+        packets);
+    var evidence = new CoachEvidenceBundle(packets);
+
+    var compact = CoachResponsePrioritizer.Apply(message, "where am i losing time", evidence);
+
+    Assert(
+        compact.Content.StartsWith(CoachResponsePrioritizer.PrioritiesHeader, StringComparison.Ordinal),
+        "Default coach answer should use Top priorities header.");
+    Assert(
+        compact.Content.Contains(CoachResponsePrioritizer.SupportingEvidenceNote, StringComparison.Ordinal),
+        "Default coach answer should note supporting evidence is available.");
+    Assert(
+        CountNumberedPriorityLines(compact.Content) <= CoachResponsePrioritizer.MaxPriorityPoints,
+        "Default coach answer should include at most three numbered priorities.");
+    Assert(
+        compact.Content.Contains("Live telemetry", StringComparison.OrdinalIgnoreCase),
+        "Highest-priority live telemetry should appear in compact answer.");
+    Assert(
+        compact.EvidencePackets.Count == packets.Length,
+        "Prioritization should preserve evidence packets internally.");
+}
+
+static void CoachResponsePrioritizerDetailedModePreservesFullAnswer()
+{
+    var content = "Live telemetry: losing 0.18s in Sector 2."
+        + $"{Environment.NewLine}{Environment.NewLine}Evidence:{Environment.NewLine}- Zone 2 brake release costs 0.31s.";
+    var message = new CoachMessage("coach", content, [], null, []);
+    var evidence = CoachEvidenceBundle.Empty;
+
+    var detailed = CoachResponsePrioritizer.Apply(message, "explain why am i losing time", evidence);
+
+    Assert(
+        detailed.Content == content,
+        "Detailed mode should preserve the full coach answer and embedded evidence.");
+    Assert(
+        CoachResponsePrioritizer.IsDetailedModeRequest("show evidence for sector 2"),
+        "Show evidence phrasing should enable detailed mode.");
+}
+
+static void CoachQueryPipelinePrioritizesCommonCoachQueries()
+{
+    var coach = new CoachEngine();
+    var (session, performance, performanceContext) = SessionWithPerformanceContext();
+    var evidence = BuildSampleCoachEvidence(session);
+    Assert(performance.Availability == "Available", "Performance analysis should be available for pipeline prioritization.");
+
+    var losingTime = CoachQueryPipeline.Resolve(
+        session,
+        "where am i losing time",
+        coach,
+        performanceContext,
+        evidence);
+    Assert(
+        losingTime.FinalDisplayedText.Contains(CoachResponsePrioritizer.PrioritiesHeader, StringComparison.Ordinal),
+        "Pipeline losing-time answer should be compact and actionable first.");
+    Assert(
+        losingTime.FinalWritten.EvidencePackets.Count > 0,
+        "Pipeline should retain evidence packets for detailed follow-up.");
+
+    var improvement = CoachQueryPipeline.Resolve(
+        session,
+        "what should i improve",
+        coach,
+        performanceContext,
+        evidence);
+    Assert(
+        improvement.FinalDisplayedText.Contains(CoachResponsePrioritizer.PrioritiesHeader, StringComparison.Ordinal)
+            || improvement.FinalDisplayedText.Contains(CoachResponsePrioritizer.SupportingEvidenceNote, StringComparison.Ordinal),
+        "Pipeline improvement answer should prioritize concise coaching points.");
+
+    var watchContext = performanceContext with
+    {
+        RacePrepPlan = new RacePrepPlan("GT3", "Monza", "Practice", null, null, null, null, null, null, null)
+    };
+    var watch = CoachQueryPipeline.Resolve(
+        session,
+        "what should i watch on this track",
+        coach,
+        watchContext,
+        evidence);
+    Assert(
+        watch.FinalDisplayedText.Contains(CoachResponsePrioritizer.PrioritiesHeader, StringComparison.Ordinal)
+            || watch.FinalDisplayedText.Contains(CoachResponsePrioritizer.SupportingEvidenceNote, StringComparison.Ordinal),
+        "Pipeline watch answer should lead with concise track priorities.");
+
+    var detailed = CoachQueryPipeline.Resolve(
+        session,
+        "explain why am i losing time",
+        coach,
+        performanceContext,
+        evidence);
+    Assert(
+        !detailed.FinalDisplayedText.StartsWith(CoachResponsePrioritizer.PrioritiesHeader, StringComparison.Ordinal),
+        "Detailed mode should skip compact prioritization.");
+}
+
+static SessionContextAssessment StableRaceStrategyContext() =>
+    new(
+        SessionPhase.Race,
+        VehicleActivity.OnTrack,
+        "Race / On track",
+        StrategyConfidenceLevel.High,
+        "High",
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        "Stable samples.");
+
+static RaceStrategyIntelligenceRecommendation BuildRaceStrategyIntelligence(
+    SessionState session,
+    SessionContextAssessment? context = null,
+    SessionTyreIntelligence? tyreIntelligence = null,
+    LiveRaceContext? raceContext = null,
+    string? query = null)
+{
+    var snapshots = BuildLapIntelligenceSnapshots(session);
+    var analytics = new TelemetryAnalyticsService().Analyze(new SessionAnalyticsInput(session, snapshots));
+    var lapIntelligence = new LapIntelligenceService().Analyze(new LapIntelligenceInput(session, snapshots));
+    var strategy = new StrategyEngine().Analyze(new StrategyInput(session, analytics, lapIntelligence));
+    return RaceStrategyIntelligenceService.Build(
+        new RaceStrategyIntelligenceInput(
+            session,
+            session.LatestSnapshot,
+            snapshots,
+            analytics,
+            lapIntelligence,
+            strategy,
+            tyreIntelligence,
+            null,
+            null,
+            null,
+            null,
+            context ?? StableRaceStrategyContext(),
+            raceContext),
+        query);
+}
+
+static void RaceStrategyIntelligenceEnoughFuel()
+{
+    var engine = new EventEngine();
+    var session = new SessionState();
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":30.0}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":90.0,"fuel":28.0}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":28.0}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":89.0,"fuel":26.0}"""));
+
+    var intelligence = BuildRaceStrategyIntelligence(session);
+
+    Assert(intelligence.Fuel.HasData, "Race strategy fuel intelligence should be available with fuel samples.");
+    Assert(
+        intelligence.Fuel.Recommendation.Contains("No fuel saving required", StringComparison.OrdinalIgnoreCase),
+        $"Enough fuel scenario should not require fuel saving. Actual: '{intelligence.Fuel.Recommendation}'");
+    Assert(
+        intelligence.Fuel.CurrentBurnRatePerLap is > 0,
+        "Race strategy should report a telemetry-based burn rate.");
+    Assert(
+        intelligence.Fuel.ProjectedLapsRemaining is > 5,
+        "Comfortable fuel load should project more than five laps.");
+}
+
+static void RaceStrategyIntelligenceNotEnoughFuel()
+{
+    var engine = new EventEngine();
+    var session = new SessionState();
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":4.0}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":90.0,"fuel":3.0}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":3.0}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":89.0,"fuel":1.0}"""));
+
+    var intelligence = BuildRaceStrategyIntelligence(
+        session,
+        raceContext: new LiveRaceContext(
+            "Monza",
+            null,
+            "GT3",
+            null,
+            "Race",
+            20,
+            12,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            RaceContextConfidence.Partial,
+            new RaceFieldDiagnostics([], [], "test")));
+
+    Assert(intelligence.Fuel.HasData, "Low fuel scenario should still compute fuel strategy from telemetry.");
+    Assert(
+        intelligence.Fuel.FuelSavingRequired || !intelligence.Fuel.CanFinishSafely,
+        "Low fuel scenario should flag saving required or unsafe finish.");
+}
+
+static void RaceStrategyTyreDegradationWarning()
+{
+    var engine = new EventEngine();
+    var session = new SessionState();
+    var snapshots = new List<TelemetrySnapshot>();
+    for (var index = 0; index < 12; index++)
+    {
+        var temp = 80 + index;
+        Apply(session, engine, Packet($$"""{"speed_kmh":145,"lap_progress":0.35,"tyre_temp_c":[{{temp}},{{temp + 1}},{{temp + 4}},{{temp + 5}}]}"""));
+        if (session.LatestSnapshot is not null)
+        {
+            snapshots.Add(session.LatestSnapshot);
+        }
+    }
+
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":8.0}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":90.0,"fuel":6.0}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.99,"fuel":6.0}"""));
+    Apply(session, engine, Packet("""{"lap_progress":0.01,"lap_time_s":89.5,"fuel":4.0}"""));
+
+    var tyreIntelligence = new TyreIntelligenceService().Analyze(new TyreIntelligenceInput(
+        session,
+        snapshots,
+        session.Events,
+        VehicleActivity.OnTrack,
+        SessionPhase.Race));
+    var intelligence = BuildRaceStrategyIntelligence(session, tyreIntelligence: tyreIntelligence);
+
+    Assert(intelligence.Tyre.HasData, "Tyre strategy should be available with temperature history.");
+    Assert(
+        intelligence.Tyre.OutlookSummary.Contains("temperature", StringComparison.OrdinalIgnoreCase)
+            || intelligence.Tyre.EstimatedPerformanceDropLapsMin is not null,
+        "Tyre strategy should warn about degradation or temperature trend.");
+}
+
+static void RaceStrategyPitRecommendationAvailable()
+{
+    var (session, _) = SessionWithFuelEstimate();
+    var intelligence = BuildRaceStrategyIntelligence(session);
+
+    Assert(intelligence.Pit.HasData, "Pit recommendation should be available with stable fuel and stint data.");
+    Assert(
+        intelligence.Pit.EarliestSensibleStopLap is > 0 && intelligence.Pit.LatestSensibleStopLap is > 0,
+        "Pit recommendation should include a sensible stop window.");
+}
+
+static void RaceStrategyInsufficientDataFallback()
+{
+    var intelligence = RaceStrategyIntelligenceService.Build(
+        new RaceStrategyIntelligenceInput(
+            new SessionState(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null));
+    Assert(
+        !intelligence.Fuel.HasData,
+        "Insufficient fuel samples should disable fuel strategy.");
+    Assert(
+        intelligence.Fuel.Availability.Contains("two completed fuel samples", StringComparison.OrdinalIgnoreCase),
+        "Insufficient data should return the required fuel sample message.");
+
+    var coach = new CoachEngine();
+    var answer = coach.Answer(new SessionState(), "how many laps left");
+    Assert(
+        answer.Content.Contains("two completed fuel samples", StringComparison.OrdinalIgnoreCase),
+        "Coach laps-left query should surface insufficient telemetry fallback.");
+}
+
+static void EngineerAiContextContainsStrategyFacts()
+{
+    var (session, _) = SessionWithFuelEstimate();
+    var intelligence = BuildRaceStrategyIntelligence(session);
+    var context = new CoachContext(
+        SessionContext: StableRaceStrategyContext(),
+        RaceStrategyIntelligence: intelligence);
+    var aiContext = EngineerAiContextBuilder.Build(
+        session,
+        "can i finish",
+        context,
+        CoachEvidenceBundle.Empty);
+
+    Assert(
+        aiContext.Facts.Any(fact => fact.Summary == "Strategy summary"),
+        "AI context should include strategy summary for strategy queries.");
+    Assert(
+        aiContext.Facts.Any(fact => fact.Summary == "Fuel outlook"),
+        "AI context should include fuel outlook for strategy queries.");
+    Assert(
+        aiContext.Facts.Any(fact => fact.Summary == "Fuel burn"),
+        "AI context should include fuel burn fact for strategy queries.");
 }
 
 static void ReviewModeTrackResolutionUsesReviewSessionTrack()

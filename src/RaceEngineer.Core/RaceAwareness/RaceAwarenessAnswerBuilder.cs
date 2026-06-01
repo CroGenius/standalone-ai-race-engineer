@@ -1,5 +1,6 @@
 using System.Globalization;
 using RaceEngineer.Core.Session;
+using RaceEngineer.Core.Telemetry;
 
 namespace RaceEngineer.Core.RaceAwareness;
 
@@ -16,7 +17,8 @@ public static class RaceAwarenessAnswerBuilder
         RaceAwarenessRoutingResult routing,
         string? prepTrack = null,
         string? prepCar = null,
-        OpponentIntelligenceRecommendation? opponentIntelligence = null)
+        OpponentIntelligenceRecommendation? opponentIntelligence = null,
+        TelemetryProviderCapabilities? telemetryProviderCapabilities = null)
     {
         if (subtopic is RaceAwarenessSubtopic.CatchingAhead
             or RaceAwarenessSubtopic.PullingAway
@@ -25,7 +27,7 @@ public static class RaceAwarenessAnswerBuilder
             or RaceAwarenessSubtopic.RaceSituation
             or RaceAwarenessSubtopic.OpponentIdentity)
         {
-            return OpponentIntelligenceAnswerBuilder.Build(subtopic, opponentIntelligence, routing);
+            return OpponentIntelligenceAnswerBuilder.Build(subtopic, opponentIntelligence, routing, telemetryProviderCapabilities);
         }
 
         return subtopic switch
@@ -33,8 +35,8 @@ public static class RaceAwarenessAnswerBuilder
             RaceAwarenessSubtopic.TrackIdentity => BuildTrackIdentity(raceContext, routing, prepTrack),
             RaceAwarenessSubtopic.CarIdentity => BuildCarIdentity(raceContext, routing, prepCar),
             RaceAwarenessSubtopic.Position => BuildPosition(session, raceContext, routing),
-            RaceAwarenessSubtopic.GapAhead => BuildGapAhead(raceContext, routing),
-            RaceAwarenessSubtopic.GapBehind => BuildGapBehind(raceContext, routing),
+            RaceAwarenessSubtopic.GapAhead => BuildGapAhead(raceContext, routing, telemetryProviderCapabilities),
+            RaceAwarenessSubtopic.GapBehind => BuildGapBehind(raceContext, routing, telemetryProviderCapabilities),
             RaceAwarenessSubtopic.SessionType => BuildSessionType(raceContext, routing),
             RaceAwarenessSubtopic.OpponentCount => BuildOpponentCount(raceContext, routing),
             _ => BuildRaceContext(raceContext, routing)
@@ -119,7 +121,10 @@ public static class RaceAwarenessAnswerBuilder
             routing with { FallbackReason = "position and total_cars missing from telemetry." });
     }
 
-    private static RaceAwarenessAnswer BuildGapAhead(LiveRaceContext? raceContext, RaceAwarenessRoutingResult routing)
+    private static RaceAwarenessAnswer BuildGapAhead(
+        LiveRaceContext? raceContext,
+        RaceAwarenessRoutingResult routing,
+        TelemetryProviderCapabilities? telemetryProviderCapabilities)
     {
         if (raceContext?.GapAheadSeconds is { } gapAhead)
         {
@@ -130,12 +135,20 @@ public static class RaceAwarenessAnswerBuilder
         }
 
         return new RaceAwarenessAnswer(
-            "Opponent gap ahead data is unavailable from telemetry.",
+            TelemetryProviderCapabilityMessages.GapAheadUnavailable(telemetryProviderCapabilities),
             [],
-            routing with { FallbackReason = "gap_ahead_s missing from telemetry." });
+            routing with
+            {
+                FallbackReason = telemetryProviderCapabilities is not null && !telemetryProviderCapabilities.OpponentGaps
+                    ? "provider does not expose opponent gaps"
+                    : "gap_ahead_s missing from telemetry."
+            });
     }
 
-    private static RaceAwarenessAnswer BuildGapBehind(LiveRaceContext? raceContext, RaceAwarenessRoutingResult routing)
+    private static RaceAwarenessAnswer BuildGapBehind(
+        LiveRaceContext? raceContext,
+        RaceAwarenessRoutingResult routing,
+        TelemetryProviderCapabilities? telemetryProviderCapabilities)
     {
         if (raceContext?.GapBehindSeconds is { } gapBehind)
         {
@@ -146,9 +159,14 @@ public static class RaceAwarenessAnswerBuilder
         }
 
         return new RaceAwarenessAnswer(
-            "Opponent gap behind data is unavailable from telemetry.",
+            TelemetryProviderCapabilityMessages.GapBehindUnavailable(telemetryProviderCapabilities),
             [],
-            routing with { FallbackReason = "gap_behind_s missing from telemetry." });
+            routing with
+            {
+                FallbackReason = telemetryProviderCapabilities is not null && !telemetryProviderCapabilities.OpponentGaps
+                    ? "provider does not expose opponent gaps"
+                    : "gap_behind_s missing from telemetry."
+            });
     }
 
     private static RaceAwarenessAnswer BuildSessionType(LiveRaceContext? raceContext, RaceAwarenessRoutingResult routing)

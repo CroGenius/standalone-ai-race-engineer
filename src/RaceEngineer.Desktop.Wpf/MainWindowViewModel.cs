@@ -29,7 +29,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 {
     private const int SnapshotSampleSeconds = 1;
     private const int MaxLiveTraceSnapshots = 1200;
-    private readonly TelemetryReceiver receiver;
+    private readonly ITelemetryProvider telemetryProvider;
     private readonly TelemetryDiagnostics diagnostics;
     private readonly RawPacketCapture rawPacketCapture;
     private readonly PacketReplayTool replayTool = new();
@@ -120,6 +120,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private string strategyPitRecommendation = "-";
     private string strategyTyreRisk = "-";
     private string strategySummary = "-";
+    private string raceStrategyFuelBurnLabel = "-";
+    private string raceStrategyProjectedLapsLabel = "-";
+    private string raceStrategyFinishEstimateLabel = "-";
+    private string raceStrategyTyreOutlookLabel = "-";
+    private string raceStrategyPitRecommendationLabel = "-";
+    private string raceStrategyConfidenceLabel = "-";
+    private RaceStrategyIntelligenceRecommendation? currentRaceStrategyIntelligence;
     private TelemetryTimeline traceTimeline = TelemetryTimeline.Empty;
     private double timelineCursorProgress;
     private SessionTelemetryAnalytics sessionAnalytics = SessionTelemetryAnalytics.Empty;
@@ -272,7 +279,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             startupWarnings.Add($"Debug folders could not be created. {exception.Message}");
         }
 
-        receiver = new TelemetryReceiver(settings.UdpBindIp, settings.UdpPort);
+        var providerResult = TelemetryProviderFactory.Instance.Create(settings);
+        telemetryProvider = providerResult.Provider;
+        foreach (var warning in providerResult.Warnings)
+        {
+            startupWarnings.Add(warning);
+        }
+
         diagnostics = new TelemetryDiagnostics(settings.UdpBindIp, settings.UdpPort);
         rawPacketCapture = new RawPacketCapture(Path.Combine(settings.CaptureFolder, "raw-packets.jsonl"));
         voiceService = new VoiceService(CreateVoiceOutputSafely());
@@ -338,8 +351,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         FetchTrackResearchCommand = new RelayCommand(() => _ = FetchTrackResearchAsync());
         FetchTrackCarStrategyResearchCommand = new RelayCommand(() => _ = FetchTrackCarStrategyResearchAsync());
         RefreshWebResearchCommand = new RelayCommand(() => _ = RefreshWebResearchAsync());
-        receiver.PacketProcessed += OnPacketProcessed;
-        receiver.SnapshotReceived += OnSnapshotReceived;
+        telemetryProvider.PacketProcessed += OnPacketProcessed;
+        telemetryProvider.SnapshotReceived += OnSnapshotReceived;
         MicrophoneDevices.Add(new MicrophoneDeviceOption
         {
             DeviceNumber = -1,
@@ -489,6 +502,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public string StrategyPitRecommendation => strategyPitRecommendation;
     public string StrategyTyreRisk => strategyTyreRisk;
     public string StrategySummary => strategySummary;
+    public string RaceStrategyFuelBurnLabel => raceStrategyFuelBurnLabel;
+    public string RaceStrategyProjectedLapsLabel => raceStrategyProjectedLapsLabel;
+    public string RaceStrategyFinishEstimateLabel => raceStrategyFinishEstimateLabel;
+    public string RaceStrategyTyreOutlookLabel => raceStrategyTyreOutlookLabel;
+    public string RaceStrategyPitRecommendationLabel => raceStrategyPitRecommendationLabel;
+    public string RaceStrategyConfidenceLabel => raceStrategyConfidenceLabel;
 
     public string PrefDriverName
     {
@@ -693,8 +712,24 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     public int InvalidPacketsCount => invalidPacketsCount;
     public string LastPacketTimestamp => lastPacketTimestamp?.ToLocalTime().ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture) ?? "-";
     public string LastParserWarning => lastParserWarning;
-    public string UdpBind => $"{diagnostics.BindAddress}:{diagnostics.Port}";
-    public string ReceiverState => diagnostics.ReceiverRunning ? "Running" : "Stopped";
+    public string UdpBind => telemetryProvider is SimHubTelemetryProvider simHub
+        ? $"{simHub.BindAddress}:{simHub.Port}"
+        : $"{diagnostics.BindAddress}:{diagnostics.Port}";
+    public string ReceiverState => telemetryProvider.Status switch
+    {
+        TelemetryProviderStatus.Running => "Running",
+        TelemetryProviderStatus.Error => "Error",
+        _ => "Stopped"
+    };
+    public string TelemetryProviderName => telemetryProvider.DisplayName;
+    public string TelemetryProviderStatusLabel => telemetryProvider.Status switch
+    {
+        TelemetryProviderStatus.Running => "Running",
+        TelemetryProviderStatus.Error => "Error",
+        _ => "Offline"
+    };
+    public string TelemetryProviderCapabilitiesSummary => telemetryProvider.Capabilities.Summary;
+    public string TelemetryProviderMissingCapabilitiesLabel => telemetryProvider.Capabilities.MissingSummary;
     public string PacketsPerSecond => diagnostics.PacketsPerSecond.ToString("0", CultureInfo.InvariantCulture);
     public string ValidPacketsPerSecond => diagnostics.ValidPacketsPerSecond.ToString("0", CultureInfo.InvariantCulture);
     public string InvalidPacketsPerSecond => diagnostics.InvalidPacketsPerSecond.ToString("0", CultureInfo.InvariantCulture);
@@ -897,8 +932,8 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
         try
         {
-            await receiver.StartAsync();
-            diagnostics.SetReceiverRunning(receiver.IsRunning);
+            await telemetryProvider.StartAsync();
+            diagnostics.SetReceiverRunning(telemetryProvider.Status == TelemetryProviderStatus.Running);
         }
         catch (InvalidOperationException exception)
         {
@@ -1157,7 +1192,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             CurrentCoachContext(),
             BuildCoachEvidence(),
             userPreferences.Coach);
-        AppendCoachChatLines(pipeline.FinalWritten);
+        AppendCoachChatLines(pipeline.FinalWritten, message);
     }
 
     private CoachEvidenceBundle BuildCoachEvidence()
@@ -1184,6 +1219,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             cachedTrackGuide,
             currentOpponentIntelligence,
             currentDriverCoaching,
+            currentRaceStrategyIntelligence,
             isReviewMode ? reviewSessionTrack : null));
     }
 
@@ -1293,12 +1329,15 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     private static string ShortenPanelText(string value) =>
         value.Length <= 96 ? value : value[..93] + "...";
 
-    private void AppendCoachChatLines(CoachMessage answer)
+    private void AppendCoachChatLines(CoachMessage answer, string? query = null)
     {
         var prefix = isReviewMode ? "Coach (review):" : "Coach:";
         var uncertainty = string.IsNullOrWhiteSpace(answer.Uncertainty) ? "" : $" ({answer.Uncertainty})";
         ChatMessages.Add($"{prefix} {answer.Content}{uncertainty}");
-        if (answer.EvidencePackets.Count > 0 && userPreferences.Coach.EvidenceBulletsEnabled)
+        var showEvidenceBullets = answer.EvidencePackets.Count > 0
+            && userPreferences.Coach.EvidenceBulletsEnabled
+            && (query is null || CoachResponsePrioritizer.IsDetailedModeRequest(query));
+        if (showEvidenceBullets)
         {
             var bullets = string.Join(
                 Environment.NewLine,
@@ -1431,8 +1470,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public async Task StopAsync()
     {
-        receiver.Stop();
+        await telemetryProvider.StopAsync();
         diagnostics.SetReceiverRunning(false);
+        await telemetryProvider.DisposeAsync();
         voiceInputService.Dispose();
         var summaryMarkdown = coachEngine.GeneratePostSessionReport(session, CurrentPrepPlan());
         await storageService.SavePostSessionReportAsync(session.SessionId, summaryMarkdown);
@@ -1914,7 +1954,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             confirmQuery: voiceInputService.ConfirmationsEnabled,
             preferences: userPreferences.Coach,
             transcriptContext: transcriptContext);
-        AppendCoachChatLines(result.WrittenResponse);
+        AppendCoachChatLines(result.WrittenResponse, query);
         ChatMessages.Add(result.Spoken
             ? $"Voice diag: spoken — ui='{result.FinalDisplayedText}' summary='{result.GeneratedSummary}' tts='{result.FinalTtsPayload}'"
             : $"Voice diag: not spoken — {result.SpeechDiagnostic} ui='{result.FinalDisplayedText}' summary='{result.GeneratedSummary}'");
@@ -2336,6 +2376,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 : $"{strategy.TyreRisk.RiskLevel} ({strategy.TyreRisk.RiskScore0To100:0}/100)";
             strategySummary = strategy.Summary;
             RefreshStrategyKnowledge();
+            RefreshRaceStrategyIntelligence();
             RefreshTrackCarKnowledge();
         }
         catch (Exception exception)
@@ -2346,6 +2387,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             strategyPitRecommendation = "-";
             strategyTyreRisk = "-";
             strategySummary = "Strategy analysis unavailable.";
+            raceStrategyFuelBurnLabel = "-";
+            raceStrategyProjectedLapsLabel = "-";
+            raceStrategyFinishEstimateLabel = "-";
+            raceStrategyTyreOutlookLabel = "-";
+            raceStrategyPitRecommendationLabel = "-";
+            raceStrategyConfidenceLabel = "-";
+            currentRaceStrategyIntelligence = null;
             strategyKnowledgeTrackLabel = "unavailable";
             strategyKnowledgeCarClassLabel = "unavailable";
             strategyKnowledgeRecommendedFuelLabel = "-";
@@ -2493,6 +2541,12 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(StrategyPitRecommendation));
         OnPropertyChanged(nameof(StrategyTyreRisk));
         OnPropertyChanged(nameof(StrategySummary));
+        OnPropertyChanged(nameof(RaceStrategyFuelBurnLabel));
+        OnPropertyChanged(nameof(RaceStrategyProjectedLapsLabel));
+        OnPropertyChanged(nameof(RaceStrategyFinishEstimateLabel));
+        OnPropertyChanged(nameof(RaceStrategyTyreOutlookLabel));
+        OnPropertyChanged(nameof(RaceStrategyPitRecommendationLabel));
+        OnPropertyChanged(nameof(RaceStrategyConfidenceLabel));
         OnPropertyChanged(nameof(StrategyKnowledgeTrackLabel));
         OnPropertyChanged(nameof(StrategyKnowledgeCarClassLabel));
         OnPropertyChanged(nameof(StrategyKnowledgeRecommendedFuelLabel));
@@ -3056,11 +3110,13 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             CurrentPrepPlan(),
             KnowledgeSources.Select(item => item.Source).ToArray(),
             HasExternalResearchSources(),
+            telemetryProvider.Capabilities,
             userPreferences.Coach,
             sessionContextAssessment,
             sessionTyreIntelligence,
             sessionAnalytics,
             mappedDriverPerformance,
+            sessionLapIntelligence,
             sessionStrategy,
             ActiveTraceSnapshots.Count > 0 ? ActiveTraceSnapshots.TakeLast(40).ToArray() : null,
             liveRaceContext,
@@ -3070,11 +3126,65 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             recentStoredSessionMemories,
             cachedTrackGuide,
             currentStrategyKnowledge,
+            currentRaceStrategyIntelligence,
             currentTrackCarKnowledge,
             cachedWebResearch,
             currentOpponentIntelligence,
             mappedDriverCoaching,
             isReviewMode ? reviewSessionTrack : null);
+    }
+
+    private void RefreshRaceStrategyIntelligence()
+    {
+        try
+        {
+            currentRaceStrategyIntelligence = RaceStrategyIntelligenceService.Build(
+                new RaceStrategyIntelligenceInput(
+                    ActiveSession,
+                    ActiveSession.LatestSnapshot,
+                    ActiveTraceSnapshots.Count > 0 ? ActiveTraceSnapshots.TakeLast(40).ToArray() : null,
+                    sessionAnalytics,
+                    sessionLapIntelligence,
+                    sessionStrategy,
+                    sessionTyreIntelligence,
+                    currentStrategyKnowledge,
+                    currentTrackCarKnowledge,
+                    previousStoredSessionMemory,
+                    cachedWebResearch,
+                    sessionContextAssessment,
+                    liveRaceContext));
+
+            var intelligence = currentRaceStrategyIntelligence;
+            raceStrategyFuelBurnLabel = intelligence.Fuel.CurrentBurnRatePerLap is { } burn
+                ? RaceStrategyIntelligenceService.FormatBurnRate(burn)
+                : intelligence.Fuel.Availability;
+            raceStrategyProjectedLapsLabel = intelligence.Fuel.ProjectedLapsRemaining is { } laps
+                ? laps.ToString("0.0", CultureInfo.InvariantCulture)
+                : "-";
+            raceStrategyFinishEstimateLabel = intelligence.Fuel.ProjectedFuelAtFinish is { } finish
+                ? RaceStrategyIntelligenceService.FormatLiters(finish)
+                : intelligence.Fuel.CanFinishSafely
+                    ? "Finish OK"
+                    : intelligence.Fuel.Availability;
+            raceStrategyTyreOutlookLabel = intelligence.Tyre.HasData
+                ? intelligence.Tyre.OutlookSummary
+                : intelligence.Tyre.Availability;
+            raceStrategyPitRecommendationLabel = intelligence.Pit.HasData
+                ? $"{intelligence.Pit.Recommendation} — {intelligence.Pit.RecommendationSummary}"
+                : intelligence.Pit.Availability;
+            raceStrategyConfidenceLabel = intelligence.ConfidenceLabel;
+        }
+        catch (Exception exception)
+        {
+            currentRaceStrategyIntelligence = null;
+            raceStrategyFuelBurnLabel = "-";
+            raceStrategyProjectedLapsLabel = "-";
+            raceStrategyFinishEstimateLabel = "-";
+            raceStrategyTyreOutlookLabel = "-";
+            raceStrategyPitRecommendationLabel = "-";
+            raceStrategyConfidenceLabel = "-";
+            ReportOptionalPanelFailure("Race strategy", exception);
+        }
     }
 
     private bool HasExternalResearchSources() =>
@@ -3243,6 +3353,10 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         OnPropertyChanged(nameof(UdpBind));
         OnPropertyChanged(nameof(ReceiverState));
+        OnPropertyChanged(nameof(TelemetryProviderName));
+        OnPropertyChanged(nameof(TelemetryProviderStatusLabel));
+        OnPropertyChanged(nameof(TelemetryProviderCapabilitiesSummary));
+        OnPropertyChanged(nameof(TelemetryProviderMissingCapabilitiesLabel));
         OnPropertyChanged(nameof(PacketsPerSecond));
         OnPropertyChanged(nameof(ValidPacketsPerSecond));
         OnPropertyChanged(nameof(InvalidPacketsPerSecond));

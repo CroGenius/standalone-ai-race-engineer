@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "UBhS3WOptfo=",
+  "dgSpecHash": "dPEJPzvtlH8=",
   "success": true,
   "projectFilePath": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj",
   "expectedPackageFiles": [
@@ -31,12 +31,8 @@
     "C:\\Users\\budis\\.nuget\\packages\\whisper.net.runtime\\1.9.0\\whisper.net.runtime.1.9.0.nupkg.sha512",
     "C:\\Users\\budis\\.nuget\\packages\\whisper.net.runtime.metal\\1.9.0\\whisper.net.runtime.metal.1.9.0.nupkg.sha512",
     "C:\\Users\\budis\\.nuget\\packages\\microsoft.netcore.app.ref\\8.0.27\\microsoft.netcore.app.ref.8.0.27.nupkg.sha512",
-    "C:\\Users\\budis\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\8.0.27\\microsoft.netcore.app.runtime.win-x64.8.0.27.nupkg.sha512",
     "C:\\Users\\budis\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\8.0.27\\microsoft.windowsdesktop.app.ref.8.0.27.nupkg.sha512",
-    "C:\\Users\\budis\\.nuget\\packages\\microsoft.windowsdesktop.app.runtime.win-x64\\8.0.27\\microsoft.windowsdesktop.app.runtime.win-x64.8.0.27.nupkg.sha512",
     "C:\\Users\\budis\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\8.0.27\\microsoft.aspnetcore.app.ref.8.0.27.nupkg.sha512",
-    "C:\\Users\\budis\\.nuget\\packages\\microsoft.aspnetcore.app.runtime.win-x64\\8.0.27\\microsoft.aspnetcore.app.runtime.win-x64.8.0.27.nupkg.sha512",
-    "C:\\Users\\budis\\.nuget\\packages\\microsoft.netcore.app.crossgen2.win-x64\\8.0.27\\microsoft.netcore.app.crossgen2.win-x64.8.0.27.nupkg.sha512",
     "C:\\Users\\budis\\.nuget\\packages\\microsoft.netcore.app.host.win-x64\\8.0.27\\microsoft.netcore.app.host.win-x64.8.0.27.nupkg.sha512"
   ],
   "logs": []

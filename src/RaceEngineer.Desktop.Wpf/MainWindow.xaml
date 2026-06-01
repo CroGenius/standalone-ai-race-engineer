@@ -147,6 +147,13 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
                         <TextBlock Text="Live Telemetry" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
+                        <TextBlock Text="Telemetry Provider" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <UniformGrid Columns="2" Rows="4" Margin="0,0,0,12">
+                            <TextBlock Text="Provider" /><TextBlock Text="{Binding TelemetryProviderName}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                            <TextBlock Text="Status" /><TextBlock Text="{Binding TelemetryProviderStatusLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                            <TextBlock Text="Capabilities" /><TextBlock Text="{Binding TelemetryProviderCapabilitiesSummary}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                            <TextBlock Text="Missing capabilities" /><TextBlock Text="{Binding TelemetryProviderMissingCapabilitiesLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        </UniformGrid>
                         <UniformGrid Columns="2" Rows="10">
                             <TextBlock Text="Speed" /><TextBlock Text="{Binding Speed}" TextAlignment="Right" Foreground="#9AA6AC" />
                             <TextBlock Text="RPM" /><TextBlock Text="{Binding Rpm}" TextAlignment="Right" Foreground="#9AA6AC" />
@@ -444,6 +451,15 @@
                     </UniformGrid>
                     <TextBlock Text="Strategy summary" Margin="0,0,0,2" />
                     <TextBlock Text="{Binding StrategySummary}" TextWrapping="Wrap" Foreground="#9AA6AC" Margin="0,0,0,8" />
+                    <TextBlock Text="Race Strategy" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <UniformGrid Columns="2" Rows="6" Margin="0,0,0,12">
+                        <TextBlock Text="Fuel burn" /><TextBlock Text="{Binding RaceStrategyFuelBurnLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Projected laps" /><TextBlock Text="{Binding RaceStrategyProjectedLapsLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Finish estimate" /><TextBlock Text="{Binding RaceStrategyFinishEstimateLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Tyre outlook" /><TextBlock Text="{Binding RaceStrategyTyreOutlookLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Pit recommendation" /><TextBlock Text="{Binding RaceStrategyPitRecommendationLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                        <TextBlock Text="Confidence" /><TextBlock Text="{Binding RaceStrategyConfidenceLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </UniformGrid>
                     <TextBlock Text="Strategy Knowledge" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8" />
                     <UniformGrid Columns="2" Rows="5" Margin="0,0,0,18">
                         <TextBlock Text="Track" /><TextBlock Text="{Binding StrategyKnowledgeTrackLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />

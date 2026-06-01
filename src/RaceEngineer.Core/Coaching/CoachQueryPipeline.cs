@@ -67,6 +67,7 @@ public static class CoachQueryPipeline
         var raceRouting = RaceAwarenessQueryClassifier.Classify(query, context?.RaceContext);
         sanitizedWritten = RaceAwarenessAnswerValidator.Enforce(query, sanitizedWritten, session, context);
         sanitizedWritten = CoachTopicOutputGuard.RejectIdentityBleed(topic, sanitizedWritten, context?.RaceContext);
+        sanitizedWritten = CoachResponsePrioritizer.Apply(sanitizedWritten, query, evidence);
 
         var summaryResult = SpokenSummaryGenerator.GenerateSpokenSummary(sanitizedWritten, effectivePreferences, query);
         if (string.IsNullOrWhiteSpace(summaryResult.Summary))

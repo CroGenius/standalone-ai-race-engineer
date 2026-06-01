@@ -311,7 +311,37 @@ public static class CoachQueryPhrases
     public static readonly string[] FuelStrategy =
     [
         "can i finish",
-        "imam li dovoljno goriva"
+        "imam li dovoljno goriva",
+        "how many laps left",
+        "how many laps can i do",
+        "how many laps remaining",
+        "should i save fuel",
+        "save fuel"
+    ];
+
+    public static readonly string[] RaceStrategyIntelligence =
+    [
+        "fuel for 10 laps",
+        "fuel for 15 laps",
+        "fuel for ",
+        "how many laps left",
+        "how many laps can i do",
+        "how many laps remaining",
+        "can i finish",
+        "should i save fuel",
+        "save fuel",
+        "fuel target per lap",
+        "fuel margin",
+        "tyre outlook",
+        "tire outlook",
+        "tyre risk",
+        "tire risk",
+        "next 5 laps",
+        "stint viability",
+        "should i pit",
+        "pit now or stay out",
+        "stay out or pit",
+        "strategy recommendation"
     ];
 
     public static readonly string[] Fuel =
@@ -436,6 +466,7 @@ public static class CoachQueryPhrases
             .Concat(FuelAmount)
             .Concat(FuelConsumption)
             .Concat(FuelStrategy)
+            .Concat(RaceStrategyIntelligence)
             .Concat(RaceAwareness)
             .Concat(TrackIdentity)
             .Concat(CarIdentity)

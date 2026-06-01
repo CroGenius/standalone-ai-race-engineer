@@ -77,6 +77,7 @@ public sealed class CoachEvidenceBuilder
             null,
             events));
         AddStrategyPackets(packets, strategy);
+        AddRaceStrategyIntelligencePackets(packets, input.RaceStrategyIntelligence);
         AddStrategyKnowledgePackets(packets, input.StrategyKnowledge);
         AddTrackCarKnowledgePackets(packets, input.TrackCarKnowledge);
         AddWebResearchPackets(packets, input.CachedWebResearch);
@@ -1272,6 +1273,97 @@ public sealed class CoachEvidenceBuilder
             [],
             null,
             strategy.Summary));
+    }
+
+    private static void AddRaceStrategyIntelligencePackets(
+        List<CoachEvidencePacket> packets,
+        RaceStrategyIntelligenceRecommendation? intelligence)
+    {
+        if (intelligence is not { HasData: true })
+        {
+            return;
+        }
+
+        if (intelligence.Fuel is { HasData: true } fuel)
+        {
+            if (fuel.CurrentBurnRatePerLap is { } burn)
+            {
+                packets.Add(new CoachEvidencePacket(
+                    "Strategy",
+                    "Race strategy fuel burn",
+                    "Info",
+                    0.93,
+                    CoachEvidenceSourceType.Telemetry,
+                    null,
+                    [],
+                    burn,
+                    $"Current burn {burn.ToString("0.0", CultureInfo.InvariantCulture)} L/lap."));
+            }
+
+            if (fuel.ProjectedLapsRemaining is { } laps)
+            {
+                packets.Add(new CoachEvidencePacket(
+                    "Strategy",
+                    "Race strategy projected laps",
+                    fuel.FuelSavingRequired ? "Warning" : "Info",
+                    0.91,
+                    CoachEvidenceSourceType.Telemetry,
+                    null,
+                    [],
+                    laps,
+                    $"Projected laps on fuel: {laps.ToString("0.0", CultureInfo.InvariantCulture)}."));
+            }
+
+            packets.Add(new CoachEvidencePacket(
+                "Strategy",
+                "Race strategy fuel outlook",
+                fuel.FuelSavingRequired ? "Warning" : "Info",
+                0.90,
+                CoachEvidenceSourceType.Telemetry,
+                null,
+                [],
+                fuel.ProjectedFuelAtFinish,
+                fuel.Recommendation));
+        }
+
+        if (intelligence.Tyre is { HasData: true } tyre)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "Strategy",
+                "Race strategy tyre outlook",
+                "Info",
+                0.88,
+                CoachEvidenceSourceType.Telemetry,
+                null,
+                [],
+                null,
+                tyre.OutlookSummary));
+        }
+
+        if (intelligence.Pit is { HasData: true } pit)
+        {
+            packets.Add(new CoachEvidencePacket(
+                "Strategy",
+                "Race strategy pit outlook",
+                pit.Recommendation == PitRecommendation.PitNow ? "Warning" : "Info",
+                0.89,
+                CoachEvidenceSourceType.Session,
+                null,
+                [],
+                pit.LatestSensibleStopLap,
+                $"{pit.RecommendationSummary} Window L{pit.EarliestSensibleStopLap}-L{pit.LatestSensibleStopLap}."));
+        }
+
+        packets.Add(new CoachEvidencePacket(
+            "Strategy",
+            "Race strategy summary",
+            "Info",
+            0.92,
+            CoachEvidenceSourceType.Session,
+            null,
+            [],
+            null,
+            intelligence.StrategySummary));
     }
 
     private static void AddDriverCoachingPackets(

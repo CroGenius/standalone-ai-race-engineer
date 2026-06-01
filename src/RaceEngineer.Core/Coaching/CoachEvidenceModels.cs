@@ -74,6 +74,7 @@ public sealed record CoachEvidenceInput(
     Knowledge.TrackGuide? CachedTrackGuide = null,
     OpponentIntelligenceRecommendation? OpponentIntelligence = null,
     DriverCoachingRecommendation? DriverCoaching = null,
+    Strategy.RaceStrategyIntelligenceRecommendation? RaceStrategyIntelligence = null,
     string? ReviewSessionTrack = null);
 
 public static class CoachEvidenceSelector

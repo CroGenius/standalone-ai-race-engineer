@@ -25,11 +25,13 @@ public sealed record CoachContext(
     RacePrepPlan? RacePrepPlan = null,
     IReadOnlyList<KnowledgeSource>? KnowledgeSources = null,
     bool ExternalResearchAvailable = false,
+    Telemetry.TelemetryProviderCapabilities? TelemetryProviderCapabilities = null,
     Profile.CoachPreferencesRecord? Preferences = null,
     SessionContext.SessionContextAssessment? SessionContext = null,
     Analytics.SessionTyreIntelligence? TyreIntelligence = null,
     Analytics.SessionTelemetryAnalytics? Analytics = null,
     Analytics.SessionDriverPerformance? DriverPerformance = null,
+    Analytics.SessionLapIntelligence? LapIntelligence = null,
     Strategy.SessionStrategy? Strategy = null,
     IReadOnlyList<Telemetry.TelemetrySnapshot>? RecentSnapshots = null,
     LiveRaceContext? RaceContext = null,
@@ -39,6 +41,7 @@ public sealed record CoachContext(
     IReadOnlyList<SessionMemorySummary>? RecentStoredSessionMemories = null,
     TrackGuide? CachedTrackGuide = null,
     Strategy.StrategyKnowledgeRecommendation? StrategyKnowledge = null,
+    Strategy.RaceStrategyIntelligenceRecommendation? RaceStrategyIntelligence = null,
     TrackCarKnowledgeRecommendation? TrackCarKnowledge = null,
     WebResearchBundle? CachedWebResearch = null,
     OpponentIntelligenceRecommendation? OpponentIntelligence = null,
@@ -118,6 +121,14 @@ public sealed class CoachEngine : ICoachEngine
         if (ContainsAny(text, "combine my telemetry", "driving data say versus", "telemetry with track notes", "data versus the track guide"))
         {
             return CombinedTelemetryKnowledgeAnswer(session, recentEvents, context);
+        }
+
+        if (ShouldUseRaceStrategyIntelligence(session, text, primaryTopic))
+        {
+            return AttachEvidence(
+                RaceStrategyIntelligenceCoachService.Answer(userMessage, session, context),
+                evidence,
+                CoachEvidenceTopic.Strategy);
         }
 
         if (ContainsAny(text, CoachQueryPhrases.TrackCarKnowledge))
@@ -332,7 +343,8 @@ public sealed class CoachEngine : ICoachEngine
             routing,
             context?.RacePrepPlan?.Track,
             context?.RacePrepPlan?.Car,
-            context?.OpponentIntelligence);
+            context?.OpponentIntelligence,
+            context?.TelemetryProviderCapabilities);
         return ToRaceAwarenessCoachMessage(answer);
     }
 
@@ -1735,6 +1747,40 @@ public sealed class CoachEngine : ICoachEngine
     {
         return new CoachMessage("coach", $"{action}{Environment.NewLine}{Environment.NewLine}Evidence:{Environment.NewLine}- {evidence}", [], evidence, packets ?? []);
     }
+
+    private static bool ShouldUseRaceStrategyIntelligence(
+        SessionState session,
+        string text,
+        CoachQueryTopic primaryTopic)
+    {
+        if (!IsRaceStrategyIntelligenceQuery(text, primaryTopic))
+        {
+            return false;
+        }
+
+        if (ContainsAny(text, "fuel for") && session.FuelUsedPerLap is null)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsRaceStrategyIntelligenceQuery(string text, CoachQueryTopic primaryTopic) =>
+        ContainsAny(text, CoachQueryPhrases.RaceStrategyIntelligence)
+        || (primaryTopic is CoachQueryTopic.FuelStrategy or CoachQueryTopic.Strategy or CoachQueryTopic.Pit
+            && ContainsAny(
+                text,
+                "fuel for",
+                "laps left",
+                "save fuel",
+                "tyre outlook",
+                "tire outlook",
+                "tyre risk",
+                "tire risk",
+                "pit now or stay out",
+                "stay out or pit",
+                "strategy recommendation"));
 
     private static bool ContainsAny(string text, params string[] needles)
     {

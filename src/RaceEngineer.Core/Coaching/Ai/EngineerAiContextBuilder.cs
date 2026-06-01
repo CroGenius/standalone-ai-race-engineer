@@ -2,6 +2,7 @@ using RaceEngineer.Core.Events;
 using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Session;
 using RaceEngineer.Core.SessionContext;
+using RaceEngineer.Core.Strategy;
 
 namespace RaceEngineer.Core.Coaching.Ai;
 
@@ -47,8 +48,10 @@ public static class EngineerAiContextBuilder
         var packets = SelectPackets(evidence, primaryTopic, evidenceTopic, sessionContext);
         var trackCarFacts = BuildTrackCarKnowledgeFacts(context, session, question);
         var webResearchFacts = BuildWebResearchFacts(context, question);
+        var raceStrategyFacts = BuildRaceStrategyFacts(context, primaryTopic);
         var facts = trackCarFacts
             .Concat(webResearchFacts)
+            .Concat(raceStrategyFacts)
             .Concat(packets.Select(ToFact))
             .Take(MaxFacts)
             .ToArray();
@@ -327,4 +330,78 @@ public static class EngineerAiContextBuilder
             ? ResearchKnowledgeCoachService.BuildAiFacts(bundle, question)
             : [];
     }
+
+    private static IReadOnlyList<EngineerAiFact> BuildRaceStrategyFacts(
+        CoachContext? context,
+        CoachQueryTopic primaryTopic)
+    {
+        if (!IsStrategyRelatedTopic(primaryTopic)
+            || context?.RaceStrategyIntelligence is not { HasData: true } intelligence)
+        {
+            return [];
+        }
+
+        var facts = new List<EngineerAiFact>
+        {
+            new(
+                "Strategy",
+                "Strategy summary",
+                intelligence.StrategySummary,
+                0.92,
+                "Telemetry",
+                null)
+        };
+
+        if (intelligence.Fuel is { HasData: true } fuel)
+        {
+            facts.Add(new EngineerAiFact(
+                "Strategy",
+                "Fuel outlook",
+                fuel.Recommendation,
+                0.91,
+                "Telemetry",
+                null));
+            if (fuel.CurrentBurnRatePerLap is { } burn)
+            {
+                facts.Add(new EngineerAiFact(
+                    "Strategy",
+                    "Fuel burn",
+                    $"Current burn {burn.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)} L/lap.",
+                    0.93,
+                    "Telemetry",
+                    null));
+            }
+        }
+
+        if (intelligence.Tyre is { HasData: true } tyre)
+        {
+            facts.Add(new EngineerAiFact(
+                "Strategy",
+                "Tyre outlook",
+                tyre.OutlookSummary,
+                0.88,
+                "Telemetry",
+                null));
+        }
+
+        if (intelligence.Pit is { HasData: true } pit)
+        {
+            facts.Add(new EngineerAiFact(
+                "Strategy",
+                "Pit outlook",
+                pit.RecommendationSummary,
+                0.89,
+                "Telemetry",
+                null));
+        }
+
+        return facts;
+    }
+
+    private static bool IsStrategyRelatedTopic(CoachQueryTopic topic) =>
+        topic is CoachQueryTopic.FuelStrategy
+            or CoachQueryTopic.FuelAmount
+            or CoachQueryTopic.FuelConsumption
+            or CoachQueryTopic.Strategy
+            or CoachQueryTopic.Pit;
 }
