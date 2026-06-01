@@ -144,6 +144,9 @@ SessionMemorySummaryBuildsFromFixtureLaps();
 await SessionMemoryRetrievalByTrackCar();
 SessionDebriefContainsStrengthsWeaknessesActions();
 CoachEvidenceIncludesStoredSessionMemoryWhenTrackCarMatch();
+CoachingQueriesRouteDespiteLowConfidence();
+StoredSessionMemoryUsesNaturalLanguage();
+CoachingTrackGuidePhrasesPassTranscriptGate();
 await CachedTrackGuideLookupByTrack();
 await TrackGuideCacheRefresh();
 await TrackResearchDisabledProviderDoesNotFetchWeb();
@@ -2465,8 +2468,88 @@ static void CoachEvidenceIncludesStoredSessionMemoryWhenTrackCarMatch()
         new CoachContext(PreviousStoredSessionMemory: stored),
         evidence);
     Assert(
-        answer.Content.Contains("Stored session data", StringComparison.OrdinalIgnoreCase),
-        "Coach answer should label stored session data when historical memory exists.");
+        answer.Content.Contains("During your previous Monza session", StringComparison.OrdinalIgnoreCase),
+        "Coach answer should use natural coaching language for stored struggle questions.");
+    Assert(
+        !answer.Content.Contains("Zone 4", StringComparison.OrdinalIgnoreCase),
+        "Coach answer should not expose raw zone identifiers when a track guide is available.");
+}
+
+static void CoachingQueriesRouteDespiteLowConfidence()
+{
+    var session = new SessionState();
+    var result = CoachQueryPipeline.Resolve(
+        session,
+        "what should i improve",
+        new CoachEngine(),
+        null,
+        null,
+        null,
+        false,
+        new CoachQueryTranscriptContext("what should i improve", "what should i improve", 0.35f));
+
+    Assert(
+        !result.FinalDisplayedText.Contains("didn't catch", StringComparison.OrdinalIgnoreCase),
+        "Known coaching query should route even with low speech confidence.");
+}
+
+static void StoredSessionMemoryUsesNaturalLanguage()
+{
+    Assert(TrackGuideWebCatalog.TryGetGuide("Monza", out var guide), "Fixture catalog should provide Monza guide.");
+    var stored = new SessionMemorySummary(
+        Guid.NewGuid(),
+        "monza|gt3",
+        "Monza",
+        "GT3",
+        "Practice",
+        DateTimeOffset.UtcNow.AddDays(-2),
+        112.4,
+        112.8,
+        78,
+        2.1,
+        null,
+        null,
+        [],
+        [],
+        ["Zone 4: unstable throttle (0.3s)"],
+        [],
+        [],
+        []);
+
+    var answer = SessionMemoryCoachingFormatter.BuildStruggleAnswer(stored, guide);
+    Assert(
+        answer.Contains("During your previous Monza session", StringComparison.OrdinalIgnoreCase),
+        "Struggle answer should open with natural session context.");
+    Assert(
+        answer.Contains("Focus on", StringComparison.OrdinalIgnoreCase),
+        "Struggle answer should include a recommendation.");
+    Assert(
+        !answer.Contains("Zone 4", StringComparison.OrdinalIgnoreCase),
+        "Struggle answer should not expose raw zone identifiers when corner mapping exists.");
+    Assert(
+        answer.Contains("Parabolica", StringComparison.OrdinalIgnoreCase),
+        "Zone 4 should map to the named Monza corner in the cached guide.");
+}
+
+static void CoachingTrackGuidePhrasesPassTranscriptGate()
+{
+    foreach (var query in new[]
+             {
+                 "what should i improve",
+                 "what can i improve",
+                 "what should i focus on",
+                 "what should i watch on this track",
+                 "how should i drive this track",
+                 "track advice",
+                 "driving advice"
+             })
+    {
+        var decision = TranscriptGate.Evaluate(
+            query,
+            0.40f,
+            new SpeechCaptureMetrics(10f, 10f, 10f, 1f, false, false, "Test mic", MicSignalQuality.Bad));
+        Assert(decision.Accepted, $"Coaching phrase should pass transcript gate: {query}");
+    }
 }
 
 static async Task CachedTrackGuideLookupByTrack()

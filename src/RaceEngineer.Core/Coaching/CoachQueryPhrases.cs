@@ -49,8 +49,12 @@ public static class CoachQueryPhrases
     public static readonly string[] Improvement =
     [
         "what should i improve",
+        "what can i improve",
         "what should i work on",
+        "what should i focus on",
         "what to improve",
+        "driving advice",
+        "driving tips",
         "što trebam popraviti",
         "sto trebam popraviti",
         "what is my weakest point",
@@ -65,8 +69,12 @@ public static class CoachQueryPhrases
     public static readonly string[] DriverCoaching =
     [
         "what should i improve",
+        "what can i improve",
         "what should i work on",
+        "what should i focus on",
         "what to improve",
+        "driving advice",
+        "driving tips",
         "where am i losing time",
         "losing time",
         "lose time",
@@ -216,9 +224,12 @@ public static class CoachQueryPhrases
         "what setup should i consider",
         "setup should i consider",
         "what should i watch on this track",
+        "what should i watch on the track",
+        "what should i watch on this circuit",
         "what are the key corners",
         "key corners",
         "track guide",
+        "track advice",
         "tell me about this track",
         "about this track",
         "track notes",
@@ -368,12 +379,18 @@ public static class CoachQueryPhrases
         "next lap focus",
         "where am i losing time",
         "what should i improve",
+        "what can i improve",
+        "what should i focus on",
+        "what should i watch on this track",
+        "track advice",
+        "driving advice",
         "tell me about this track",
         "setup notes",
         "fuel plan",
         "what is my strategy",
         "should I stay out",
         "do I need to pit",
+        "what did i struggle with here",
         "koliko goriva imam",
         "gdje gubim vrijeme",
         "kako kočim",
@@ -409,4 +426,67 @@ public static class CoachQueryPhrases
             .Concat(LapTime)
             .Concat(Incidents)
             .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    public static bool IsRoutableCoachingQuery(string text)
+    {
+        var normalized = CoachQueryTopicClassifier.NormalizeQuery(text);
+        if (normalized.Length == 0)
+        {
+            return false;
+        }
+
+        if (CoachQueryTopicClassifier.ClassifyPrimary(normalized) != CoachQueryTopic.Unknown)
+        {
+            return true;
+        }
+
+        return MatchesKnownRecognitionPhrase(normalized);
+    }
+
+    public static bool ShouldBypassTranscriptRejection(string text)
+    {
+        var normalized = CoachQueryTopicClassifier.NormalizeQuery(text);
+        if (normalized.Length == 0)
+        {
+            return false;
+        }
+
+        return ContainsAny(normalized, Improvement)
+            || ContainsAny(normalized, DriverCoaching)
+            || ContainsAny(normalized, TrackGuide)
+            || ContainsAny(normalized, StoredSessionMemory);
+    }
+
+    public static bool MatchesKnownRecognitionPhrase(string normalizedText)
+    {
+        foreach (var phrase in AllRecognitionPhrases)
+        {
+            var candidate = phrase.Trim().ToLowerInvariant();
+            if (candidate.Length == 0)
+            {
+                continue;
+            }
+
+            if (normalizedText.Contains(candidate, StringComparison.OrdinalIgnoreCase)
+                || candidate.Contains(normalizedText, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool ContainsAny(string text, params string[] phrases)
+    {
+        foreach (var phrase in phrases)
+        {
+            if (text.Contains(phrase, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

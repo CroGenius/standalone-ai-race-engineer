@@ -37,6 +37,11 @@ public static class CoachQueryTopicClassifier
     {
         var text = NormalizeQuery(question);
 
+        if (ContainsAny(text, CoachQueryPhrases.StoredSessionMemory))
+        {
+            return CoachQueryTopic.TrackMemory;
+        }
+
         if (ContainsAny(text, CoachQueryPhrases.TrackGuide))
         {
             return CoachQueryTopic.TrackGuide;

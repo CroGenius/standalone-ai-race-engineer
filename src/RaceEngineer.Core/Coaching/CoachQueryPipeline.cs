@@ -35,7 +35,7 @@ public static class CoachQueryPipeline
         var normalizedTranscript = transcriptContext?.NormalizedTranscript
             ?? CoachQueryTopicClassifier.NormalizeQuery(query);
 
-        if (ShouldRejectUnclearTranscript(transcriptContext))
+        if (ShouldRejectUnclearTranscript(transcriptContext, normalizedTranscript))
         {
             return BuildUnclearTranscriptResult(
                 query,
@@ -155,8 +155,16 @@ public static class CoachQueryPipeline
         return new CoachQueryPipelineResult(finalWritten, summaryResult, payload, displayText, trace);
     }
 
-    private static bool ShouldRejectUnclearTranscript(CoachQueryTranscriptContext? transcriptContext)
+    private static bool ShouldRejectUnclearTranscript(
+        CoachQueryTranscriptContext? transcriptContext,
+        string normalizedTranscript)
     {
+        if (!string.IsNullOrWhiteSpace(normalizedTranscript)
+            && CoachQueryPhrases.ShouldBypassTranscriptRejection(normalizedTranscript))
+        {
+            return false;
+        }
+
         if (transcriptContext?.GateDecision is { Accepted: false })
         {
             return true;

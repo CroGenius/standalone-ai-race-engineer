@@ -35,7 +35,7 @@ public static class DriverCoachingAnswerBuilder
             return BuildBetterThanLastTime(coaching);
         }
 
-        if (ContainsAny(text, "what should i improve", "what should i work on", "what to improve", "sto trebam popraviti"))
+        if (ContainsAny(text, "what should i improve", "what can i improve", "what should i work on", "what should i focus on", "what to improve", "sto trebam popraviti", "driving advice"))
         {
             return BuildImprovement(coaching);
         }

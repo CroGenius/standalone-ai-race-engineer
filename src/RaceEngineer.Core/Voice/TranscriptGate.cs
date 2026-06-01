@@ -60,6 +60,11 @@ public static class TranscriptGate
             return TranscriptGateDecision.Reject("Empty transcript.", "I didn't catch that.");
         }
 
+        if (CoachQueryPhrases.ShouldBypassTranscriptRejection(normalized))
+        {
+            return TranscriptGateDecision.Accept();
+        }
+
         if (metrics is not null)
         {
             if (metrics.SignalQuality == MicSignalQuality.Bad)
@@ -155,25 +160,8 @@ public static class TranscriptGate
         return false;
     }
 
-    private static bool LooksLikeKnownPhrase(string normalized)
-    {
-        foreach (var phrase in CoachQueryPhrases.AllRecognitionPhrases)
-        {
-            var candidate = phrase.Trim().ToLowerInvariant();
-            if (candidate.Length == 0)
-            {
-                continue;
-            }
-
-            if (normalized.Contains(candidate, StringComparison.OrdinalIgnoreCase)
-                || candidate.Contains(normalized, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    private static bool LooksLikeKnownPhrase(string normalized) =>
+        CoachQueryPhrases.MatchesKnownRecognitionPhrase(normalized);
 
     private static string Normalize(string text) =>
         text.ReplaceLineEndings(" ").Trim().ToLowerInvariant();

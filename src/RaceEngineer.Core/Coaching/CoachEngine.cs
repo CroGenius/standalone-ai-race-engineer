@@ -120,6 +120,14 @@ public sealed class CoachEngine : ICoachEngine
                 CoachEvidenceTopic.Strategy);
         }
 
+        if (text.Contains("next lap", StringComparison.Ordinal)
+            && ContainsAny(text, "focus", "work on", "what should i focus on"))
+        {
+            return recentEvents.Any(item => item.Type is not EventType.LapStart and not EventType.LapEnd and not EventType.HeavyBraking)
+                ? NextLapFocusAnswer(recentEvents)
+                : PrepFieldAnswer("Practice goal", context?.RacePrepPlan?.PracticeGoal);
+        }
+
         if (TryTrackGuideAnswer(userMessage, session, context, evidence) is { } trackGuideAnswer)
         {
             return trackGuideAnswer;
@@ -397,6 +405,7 @@ public sealed class CoachEngine : ICoachEngine
         }
 
         var text = query.ToLowerInvariant();
+        var guide = ResolveTrackGuide(context);
         if (text.Contains("watch", StringComparison.Ordinal))
         {
             var watchItems = stored.MainTimeLossZones
@@ -404,7 +413,6 @@ public sealed class CoachEngine : ICoachEngine
                 .Concat(stored.ThrottleWeaknesses)
                 .Concat(stored.ImprovementTargets)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Take(3)
                 .ToArray();
             if (watchItems.Length == 0)
             {
@@ -415,8 +423,8 @@ public sealed class CoachEngine : ICoachEngine
 
             return AttachEvidence(
                 Message(
-                    $"Stored session data for {stored.TrackName}: watch for {string.Join("; ", watchItems)}.",
-                    [$"stored session: {stored.RecordedAt:yyyy-MM-dd}", .. watchItems],
+                    SessionMemoryCoachingFormatter.BuildWatchAnswer(stored, guide),
+                    [$"stored session: {stored.RecordedAt:yyyy-MM-dd}"],
                     []),
                 evidence,
                 CoachEvidenceTopic.TrackMemory);
@@ -428,7 +436,6 @@ public sealed class CoachEngine : ICoachEngine
             .Concat(stored.Incidents)
             .Concat(stored.ImprovementTargets)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(4)
             .ToArray();
         if (struggleItems.Length == 0)
         {
@@ -439,8 +446,8 @@ public sealed class CoachEngine : ICoachEngine
 
         return AttachEvidence(
             Message(
-                $"Stored session data for {stored.TrackName}: you struggled most with {string.Join("; ", struggleItems)}.",
-                [$"stored session: {stored.RecordedAt:yyyy-MM-dd}", .. struggleItems],
+                SessionMemoryCoachingFormatter.BuildStruggleAnswer(stored, guide),
+                [$"stored session: {stored.RecordedAt:yyyy-MM-dd}"],
                 []),
             evidence,
             CoachEvidenceTopic.TrackMemory);
@@ -1273,6 +1280,7 @@ public sealed class CoachEngine : ICoachEngine
         var notes = new List<string>();
         if (context?.PreviousStoredSessionMemory is { } previous)
         {
+            var guide = context.CachedTrackGuide;
             var weaknesses = previous.MainTimeLossZones
                 .Concat(previous.BrakingWeaknesses)
                 .Concat(previous.ThrottleWeaknesses)
@@ -1280,6 +1288,7 @@ public sealed class CoachEngine : ICoachEngine
                 .Where(item => !string.IsNullOrWhiteSpace(item))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Take(2)
+                .Select(item => SessionMemoryCoachingFormatter.FormatWeaknessItemForDisplay(item, guide, previous.TrackName))
                 .ToArray();
             if (weaknesses.Length > 0)
             {
@@ -1400,6 +1409,11 @@ public sealed class CoachEngine : ICoachEngine
         CoachEvidenceBundle? evidence)
     {
         var text = userMessage.ToLowerInvariant();
+        if (text.Contains("next lap", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
         if (!ContainsAny(text, CoachQueryPhrases.DriverCoaching))
         {
             return null;
@@ -1421,6 +1435,18 @@ public sealed class CoachEngine : ICoachEngine
 
         if (coaching is null || !coaching.HasData)
         {
+            if (context?.PreviousStoredSessionMemory is { } stored
+                && ContainsAny(text, CoachQueryPhrases.Improvement))
+            {
+                return AttachEvidence(
+                    Message(
+                        SessionMemoryCoachingFormatter.BuildImprovementFromStored(stored, context.CachedTrackGuide),
+                        [$"stored session: {stored.RecordedAt:yyyy-MM-dd}"],
+                        []),
+                    evidence,
+                    CoachEvidenceTopic.Improvement);
+            }
+
             if (context?.DriverPerformance?.Availability == SessionDriverPerformance.NeedCleanLapMessage
                 || coaching?.Availability == SessionDriverPerformance.NeedCleanLapMessage)
             {
