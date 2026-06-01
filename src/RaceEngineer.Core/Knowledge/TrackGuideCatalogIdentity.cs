@@ -90,7 +90,9 @@ public static class TrackGuideCatalogIdentity
         || key.EndsWith("_rbr", StringComparison.Ordinal)
         || key.EndsWith("-rbr", StringComparison.Ordinal)
         || key.Contains("redbullring_gp", StringComparison.Ordinal)
-        || key.Contains("red_bull_ring", StringComparison.Ordinal);
+        || key.Contains("red_bull_ring", StringComparison.Ordinal)
+        || key.Contains("red bull ring gp", StringComparison.Ordinal)
+        || key.Contains("red bull ring-gp", StringComparison.Ordinal);
 
     private static bool MatchesNurburgringGp(string key) =>
         key.Contains("nurburgring gp", StringComparison.Ordinal)

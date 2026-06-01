@@ -44,9 +44,10 @@ public sealed class WebResearchService
         CancellationToken cancellationToken = default)
     {
         var lookup = await cache.LookupAsync(track, car, carClass, cancellationToken);
+        var displayTrack = track ?? lookup.Items.FirstOrDefault()?.Track;
         return lookup.Items.Count == 0
-            ? WebResearchBundle.Empty(track, car, carClass)
-            : new WebResearchBundle(track, car, carClass, lookup.Items);
+            ? WebResearchBundle.Empty(displayTrack, car, carClass)
+            : new WebResearchBundle(displayTrack, car, carClass, lookup.Items);
     }
 
     public async Task<WebResearchBundle> EnsureCachedAsync(
@@ -77,23 +78,10 @@ public sealed class WebResearchService
             return bundle;
         }
 
-        var trackFetch = await provider.FetchTrackResearchAsync(track.Trim(), cancellationToken);
-        if (trackFetch.Items.Count > 0)
+        var trackFetch = await FetchTrackResearchAsync(track, car, carClass, cancellationToken);
+        if (trackFetch.Items.Count == 0 && !string.IsNullOrWhiteSpace(carClass ?? car))
         {
-            await cache.SaveManyAsync(trackFetch.Items, cancellationToken);
-        }
-
-        if (!string.IsNullOrWhiteSpace(car) || !string.IsNullOrWhiteSpace(carClass))
-        {
-            var strategyFetch = await provider.FetchTrackCarStrategyAsync(
-                track.Trim(),
-                car,
-                carClass,
-                cancellationToken);
-            if (strategyFetch.Items.Count > 0)
-            {
-                await cache.SaveManyAsync(strategyFetch.Items, cancellationToken);
-            }
+            _ = await FetchTrackCarStrategyAsync(track, car, carClass, cancellationToken);
         }
 
         return await LoadBundleAsync(track, car, carClass, cancellationToken);
@@ -101,25 +89,32 @@ public sealed class WebResearchService
 
     public async Task<WebResearchFetchResult> FetchTrackResearchAsync(
         string? track,
+        string? car = null,
+        string? carClass = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(track))
         {
-            return new WebResearchFetchResult([], false, "Track must be detected before fetching track research.");
+            return WebResearchFetchResult.Failed(
+                "Track must be detected before fetching track research.",
+                provider.Name);
         }
 
         if (!options.Enabled)
         {
-            return new WebResearchFetchResult([], false, "Web research is disabled in settings.");
+            return WebResearchFetchResult.Disabled("Web research is disabled in settings.");
         }
 
+        var before = await cache.LookupAsync(track, car, carClass, cancellationToken);
+        var cacheStatus = before.Items.Count > 0 ? "hit" : "miss";
         var fetch = await provider.FetchTrackResearchAsync(track.Trim(), cancellationToken);
         if (fetch.Items.Count > 0)
         {
             await cache.SaveManyAsync(fetch.Items, cancellationToken);
+            cacheStatus = "updated";
         }
 
-        return fetch;
+        return BuildFetchResult(fetch, cacheStatus);
     }
 
     public async Task<WebResearchFetchResult> FetchTrackCarStrategyAsync(
@@ -130,21 +125,26 @@ public sealed class WebResearchService
     {
         if (string.IsNullOrWhiteSpace(track))
         {
-            return new WebResearchFetchResult([], false, "Track must be detected before fetching track-car strategy.");
+            return WebResearchFetchResult.Failed(
+                "Track must be detected before fetching track-car strategy.",
+                provider.Name);
         }
 
         if (!options.Enabled)
         {
-            return new WebResearchFetchResult([], false, "Web research is disabled in settings.");
+            return WebResearchFetchResult.Disabled("Web research is disabled in settings.");
         }
 
+        var before = await cache.LookupAsync(track, car, carClass, cancellationToken);
+        var cacheStatus = before.Items.Count > 0 ? "hit" : "miss";
         var fetch = await provider.FetchTrackCarStrategyAsync(track.Trim(), car, carClass, cancellationToken);
         if (fetch.Items.Count > 0)
         {
             await cache.SaveManyAsync(fetch.Items, cancellationToken);
+            cacheStatus = "updated";
         }
 
-        return fetch;
+        return BuildFetchResult(fetch, cacheStatus);
     }
 
     public async Task<WebResearchFetchResult> RefreshResearchAsync(
@@ -155,30 +155,75 @@ public sealed class WebResearchService
     {
         if (string.IsNullOrWhiteSpace(track))
         {
-            return new WebResearchFetchResult([], false, "Track must be detected before refreshing research.");
+            return WebResearchFetchResult.Failed(
+                "Track must be detected before refreshing research.",
+                provider.Name);
         }
 
         if (!options.Enabled)
         {
             var cached = await LoadBundleAsync(track, car, carClass, cancellationToken);
             return cached.HasResearch
-                ? new WebResearchFetchResult(cached.Items, false, "Web research is disabled; loaded cached research only.")
-                : new WebResearchFetchResult([], false, "Web research is disabled in settings.");
+                ? new WebResearchFetchResult(
+                    cached.Items,
+                    false,
+                    "Web research is disabled; loaded cached research only.",
+                    provider.Name,
+                    "hit",
+                    "failed",
+                    "Web research is disabled in settings.")
+                : WebResearchFetchResult.Disabled("Web research is disabled in settings.");
         }
 
+        var before = await cache.LookupAsync(track, car, carClass, cancellationToken);
+        var cacheStatus = before.Items.Count > 0 ? "hit" : "miss";
         var trackFetch = await provider.FetchTrackResearchAsync(track.Trim(), cancellationToken);
-        await cache.SaveManyAsync(trackFetch.Items, cancellationToken);
+        if (trackFetch.Items.Count > 0)
+        {
+            await cache.SaveManyAsync(trackFetch.Items, cancellationToken);
+        }
+
         var strategyFetch = await provider.FetchTrackCarStrategyAsync(track.Trim(), car, carClass, cancellationToken);
-        await cache.SaveManyAsync(strategyFetch.Items, cancellationToken);
+        if (strategyFetch.Items.Count > 0)
+        {
+            await cache.SaveManyAsync(strategyFetch.Items, cancellationToken);
+        }
+
         var bundle = await LoadBundleAsync(track, car, carClass, cancellationToken);
-        return new WebResearchFetchResult(
-            bundle.Items,
-            trackFetch.RefreshedFromRemote || strategyFetch.RefreshedFromRemote,
-            bundle.HasResearch
-                ? $"Refreshed cached research for {track.Trim()}."
-                : trackFetch.Message);
+        if (bundle.HasResearch)
+        {
+            cacheStatus = "updated";
+        }
+
+        return bundle.HasResearch
+            ? WebResearchFetchResult.Succeeded(
+                bundle.Items,
+                $"Refreshed cached research for {TrackGuideCatalogIdentity.CanonicalName(track) ?? track.Trim()}.",
+                provider.Name,
+                cacheStatus)
+            : WebResearchFetchResult.Failed(
+                trackFetch.Message,
+                provider.Name,
+                cacheStatus);
     }
 
     public bool IsStale(WebResearchBundle bundle) =>
         ResearchCacheService.IsStale(bundle, options.ResearchRefreshDays);
+
+    private WebResearchFetchResult BuildFetchResult(
+        WebResearchFetchResult fetch,
+        string cacheStatus)
+    {
+        if (fetch.Items.Count > 0)
+        {
+            return WebResearchFetchResult.Succeeded(
+                fetch.Items,
+                fetch.Message,
+                provider.Name,
+                cacheStatus,
+                fetch.RefreshedFromRemote);
+        }
+
+        return WebResearchFetchResult.Failed(fetch.Message, provider.Name, cacheStatus);
+    }
 }

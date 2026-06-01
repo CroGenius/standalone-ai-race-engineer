@@ -183,6 +183,7 @@ TrackCarKnowledgeFuelForTenLapsUsesLiveTelemetry();
 TrackCarKnowledgeBrakeDemandUsesStoredKnowledge();
 TrackCarKnowledgeAiContextIncludesFacts();
 await WebResearchCacheLookupRoundTrip();
+await WebResearchCacheMatchesTrackAliasAndCarFilter();
 await WebResearchStaleRefreshBehavior();
 WebResearchDisabledProviderDoesNotFetch();
 WebResearchCoachAnswerCombinesCachedResearchAndTelemetry();
@@ -3207,6 +3208,55 @@ static async Task WebResearchCacheLookupRoundTrip()
         ResearchKnowledgeMapper.TryParse(ResearchKnowledgeMapper.ToKnowledgeSource(item), out var parsed)
             && parsed.Summary == item.Summary,
         "Research mapper round-trip should preserve summary.");
+}
+
+static async Task WebResearchCacheMatchesTrackAliasAndCarFilter()
+{
+    var dbPath = Path.Combine(Path.GetTempPath(), $"race-engineer-web-research-alias-{Guid.NewGuid():N}.sqlite3");
+    var storage = new StorageService(dbPath);
+    await storage.InitializeAsync();
+    var cache = new ResearchCacheService(storage);
+    await cache.SaveAsync(new ResearchKnowledgeItem(
+        Guid.NewGuid(),
+        ResearchTopics.TrackGuide,
+        "Red Bull Ring",
+        null,
+        null,
+        "Cached track research for Red Bull Ring.",
+        ["Turn 1 heavy stop"],
+        [new ResearchSourceLabel("web-search-placeholder catalog")],
+        DateTimeOffset.UtcNow,
+        "Medium",
+        "web-search-placeholder"));
+    await cache.SaveAsync(new ResearchKnowledgeItem(
+        Guid.NewGuid(),
+        ResearchTopics.TrackCarStrategy,
+        "Red Bull Ring",
+        "BMW M4 GT3 Evo",
+        "GT3",
+        "Cached track-car strategy for Red Bull Ring GT3.",
+        ["One-stop typical"],
+        [new ResearchSourceLabel("built-in catalog")],
+        DateTimeOffset.UtcNow,
+        "Medium",
+        "web-search-placeholder"));
+
+    var lookup = await cache.LookupAsync("Red Bull Ring-GP", "BMW M4 GT3 Evo", "GT3");
+    Assert(lookup.Items.Count >= 2, "Alias track lookup should include track-wide and GT3 strategy items.");
+    Assert(
+        lookup.Items.Any(item => item.Topic == ResearchTopics.TrackGuide),
+        "Alias track lookup should include track guide research saved under canonical track name.");
+    Assert(
+        lookup.Items.Any(item => item.Topic == ResearchTopics.TrackCarStrategy && item.CarClass == "GT3"),
+        "Alias track lookup should include car-class strategy items.");
+
+    var service = new WebResearchService(storage, new WebResearchOptions(true, false, 30));
+    var fetch = await service.FetchTrackResearchAsync("Red Bull Ring-GP", "BMW M4 GT3 Evo", "GT3");
+    Assert(fetch.Status == "success", "Fetch with track alias should succeed against placeholder provider.");
+    Assert(fetch.ItemsReturned >= 4, "Track fetch should return multiple research items.");
+    var bundle = await service.LoadBundleAsync("Red Bull Ring-GP", "BMW M4 GT3 Evo", "GT3");
+    Assert(bundle.HasResearch, "Loaded bundle should contain cached research after fetch.");
+    Assert(bundle.SourceCount >= fetch.ItemsReturned, "Bundle source count should reflect cached research items.");
 }
 
 static async Task WebResearchStaleRefreshBehavior()

@@ -231,8 +231,8 @@
             </Border>
 
             <Border Grid.Row="1" Grid.Column="1">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <StackPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,16,0">
+                <StackPanel Margin="0,0,4,0">
                     <TextBlock Text="Session" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
                     <UniformGrid Columns="2" Rows="7" Margin="0,0,0,12">
                         <TextBlock Text="Current lap" /><TextBlock Text="{Binding CurrentLap}" TextAlignment="Right" Foreground="#9AA6AC" />
@@ -520,13 +520,47 @@
                     <TextBlock Text="Setup notes" Margin="0,0,0,2" Foreground="#9AA6AC" TextWrapping="Wrap" />
                     <TextBlock Text="{Binding TrackGuideSetupNotesLabel}" TextWrapping="Wrap" Margin="0,0,0,18" />
                     <TextBlock Text="Research" FontSize="17" FontWeight="SemiBold" Margin="0,0,0,12" />
-                    <UniformGrid Columns="2" Rows="5" Margin="0,0,0,8">
-                        <TextBlock Text="Detected track" /><TextBlock Text="{Binding WebResearchDetectedTrackLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
-                        <TextBlock Text="Detected car/class" /><TextBlock Text="{Binding WebResearchDetectedCarClassLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
-                        <TextBlock Text="Research available" /><TextBlock Text="{Binding WebResearchAvailableLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
-                        <TextBlock Text="Last fetched" /><TextBlock Text="{Binding WebResearchLastFetchedLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
-                        <TextBlock Text="Source count" /><TextBlock Text="{Binding WebResearchSourceCountLabel}" TextAlignment="Right" Foreground="#9AA6AC" TextWrapping="Wrap" />
-                    </UniformGrid>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="ResearchLabel" />
+                            <ColumnDefinition Width="*" MinWidth="0" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Detected track" Margin="0,0,12,6" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding WebResearchDetectedTrackLabel}" Foreground="#9AA6AC" TextWrapping="Wrap" Margin="0,0,0,6" />
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Detected car/class" Margin="0,0,12,6" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding WebResearchDetectedCarClassLabel}" Foreground="#9AA6AC" TextWrapping="Wrap" Margin="0,0,0,6" />
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Research available" Margin="0,0,12,6" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding WebResearchAvailableLabel}" Foreground="#9AA6AC" TextWrapping="Wrap" Margin="0,0,0,6" />
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Last fetched" Margin="0,0,12,6" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding WebResearchLastFetchedLabel}" Foreground="#9AA6AC" TextWrapping="Wrap" Margin="0,0,0,6" />
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Source count" Margin="0,0,12,6" />
+                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding WebResearchSourceCountLabel}" Foreground="#9AA6AC" TextWrapping="Wrap" Margin="0,0,0,6" />
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Provider" Margin="0,0,12,6" />
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding WebResearchProviderLabel}" Foreground="#9AA6AC" TextWrapping="Wrap" Margin="0,0,0,6" />
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Cache" Margin="0,0,12,6" />
+                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding WebResearchCacheStatusLabel}" Foreground="#9AA6AC" TextWrapping="Wrap" Margin="0,0,0,6" />
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Items fetched" Margin="0,0,12,6" />
+                        <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding WebResearchItemsFetchedLabel}" Foreground="#9AA6AC" TextWrapping="Wrap" Margin="0,0,0,6" />
+                        <TextBlock Grid.Row="8" Grid.Column="0" Text="Fetch status" Margin="0,0,12,6" />
+                        <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding WebResearchFetchStatusLabel}" Foreground="#9AA6AC" TextWrapping="Wrap" Margin="0,0,0,6" />
+                        <TextBlock Grid.Row="9" Grid.Column="0" Text="Last fetch result" Margin="0,0,12,6" />
+                        <TextBlock Grid.Row="9" Grid.Column="1" Text="{Binding WebResearchLastFetchResultLabel}" Foreground="#9AA6AC" TextWrapping="Wrap" Margin="0,0,0,6" />
+                        <TextBlock Grid.Row="10" Grid.Column="0" Text="Error" Margin="0,0,12,0" />
+                        <TextBlock Grid.Row="10" Grid.Column="1" Text="{Binding WebResearchErrorMessageLabel}" Foreground="#9AA6AC" TextWrapping="Wrap" />
+                    </Grid>
                     <UniformGrid Columns="1" Margin="0,0,0,18">
                         <Button Content="Fetch Track Research"
                                 Command="{Binding FetchTrackResearchCommand}"

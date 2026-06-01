@@ -11,10 +11,7 @@ public sealed class ResearchCacheService(StorageService storageService)
         string? topic = null,
         CancellationToken cancellationToken = default)
     {
-        var sources = await storageService.ListKnowledgeSourcesAsync(
-            car: car,
-            track: track,
-            cancellationToken: cancellationToken);
+        var sources = await storageService.ListKnowledgeSourcesAsync(cancellationToken: cancellationToken);
         return sources
             .Where(ResearchKnowledgeMapper.IsResearchSource)
             .Select(source =>
@@ -24,11 +21,10 @@ public sealed class ResearchCacheService(StorageService storageService)
             })
             .Where(item => item is not null)
             .Cast<ResearchKnowledgeItem>()
+            .Where(item => MatchesTrack(item.Track, track))
+            .Where(item => MatchesCarScope(item, car, carClass))
             .Where(item => string.IsNullOrWhiteSpace(topic)
                 || string.Equals(item.Topic, topic, StringComparison.OrdinalIgnoreCase))
-            .Where(item => string.IsNullOrWhiteSpace(carClass)
-                || string.IsNullOrWhiteSpace(item.CarClass)
-                || string.Equals(item.CarClass, carClass, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(item => item.FetchedAt)
             .ToArray();
     }
@@ -45,12 +41,6 @@ public sealed class ResearchCacheService(StorageService storageService)
         }
 
         var items = await ListCachedAsync(track.Trim(), car, carClass, cancellationToken: cancellationToken);
-        if (items.Count == 0)
-        {
-            var allTrackItems = await ListCachedAsync(track.Trim(), cancellationToken: cancellationToken);
-            items = allTrackItems;
-        }
-
         return items.Count == 0
             ? new WebResearchLookupResult([], false, "No cached web research is stored for this track.")
             : new WebResearchLookupResult(items, true, null);
@@ -59,7 +49,7 @@ public sealed class ResearchCacheService(StorageService storageService)
     public async Task SaveAsync(ResearchKnowledgeItem item, CancellationToken cancellationToken = default)
     {
         await storageService.SaveKnowledgeSourceAsync(
-            ResearchKnowledgeMapper.ToKnowledgeSource(item),
+            ResearchKnowledgeMapper.ToKnowledgeSource(NormalizeStoredItem(item)),
             cancellationToken);
     }
 
@@ -76,4 +66,55 @@ public sealed class ResearchCacheService(StorageService storageService)
 
     public static bool IsStale(WebResearchBundle bundle, int refreshDays) =>
         bundle.LastFetchedAt is null || DateTimeOffset.UtcNow - bundle.LastFetchedAt.Value > TimeSpan.FromDays(refreshDays);
+
+    internal static bool MatchesTrack(string? itemTrack, string? requestedTrack)
+    {
+        if (string.IsNullOrWhiteSpace(requestedTrack))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(itemTrack))
+        {
+            return false;
+        }
+
+        return TrackGuideCatalogIdentity.Matches(itemTrack, requestedTrack);
+    }
+
+    internal static bool MatchesCarScope(ResearchKnowledgeItem item, string? car, string? carClass)
+    {
+        if (string.IsNullOrWhiteSpace(item.Car) && string.IsNullOrWhiteSpace(item.CarClass))
+        {
+            return true;
+        }
+
+        var normalizedClass = TrackCarKnowledgeCatalog.NormalizeCarClass(carClass ?? car);
+        if (!string.IsNullOrWhiteSpace(normalizedClass)
+            && !string.IsNullOrWhiteSpace(item.CarClass)
+            && string.Equals(item.CarClass, normalizedClass, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(car)
+            && !string.IsNullOrWhiteSpace(item.Car)
+            && string.Equals(item.Car, car, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return string.IsNullOrWhiteSpace(car) && string.IsNullOrWhiteSpace(carClass);
+    }
+
+    private static ResearchKnowledgeItem NormalizeStoredItem(ResearchKnowledgeItem item)
+    {
+        var canonicalTrack = TrackGuideCatalogIdentity.CanonicalName(item.Track) ?? item.Track?.Trim();
+        var normalizedClass = TrackCarKnowledgeCatalog.NormalizeCarClass(item.CarClass ?? item.Car);
+        return item with
+        {
+            Track = canonicalTrack,
+            CarClass = normalizedClass ?? item.CarClass
+        };
+    }
 }

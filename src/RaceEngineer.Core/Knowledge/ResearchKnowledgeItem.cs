@@ -89,7 +89,31 @@ public sealed record WebResearchLookupResult(
 public sealed record WebResearchFetchResult(
     IReadOnlyList<ResearchKnowledgeItem> Items,
     bool RefreshedFromRemote,
-    string Message);
+    string Message,
+    string ProviderName = "unknown",
+    string CacheStatus = "unknown",
+    string Status = "unknown",
+    string? ErrorMessage = null)
+{
+    public int ItemsReturned => Items.Count;
+
+    public static WebResearchFetchResult Disabled(string reason) =>
+        new([], false, reason, DisabledWebResearchProvider.Instance.Name, "miss", "failed", reason);
+
+    public static WebResearchFetchResult Failed(
+        string reason,
+        string providerName,
+        string cacheStatus = "miss") =>
+        new([], false, reason, providerName, cacheStatus, "failed", reason);
+
+    public static WebResearchFetchResult Succeeded(
+        IReadOnlyList<ResearchKnowledgeItem> items,
+        string message,
+        string providerName,
+        string cacheStatus,
+        bool refreshedFromRemote = true) =>
+        new(items, refreshedFromRemote, message, providerName, cacheStatus, "success", null);
+}
 
 public sealed record WebResearchBundle(
     string? Track,
