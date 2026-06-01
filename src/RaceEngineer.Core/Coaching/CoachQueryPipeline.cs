@@ -1,5 +1,6 @@
 using System.Reflection;
 using RaceEngineer.Core.Coaching.Ai;
+using RaceEngineer.Core.Knowledge;
 using RaceEngineer.Core.Profile;
 using RaceEngineer.Core.RaceAwareness;
 using RaceEngineer.Core.Session;
@@ -103,6 +104,18 @@ public static class CoachQueryPipeline
             requiresUnifiedOutput ? [] : sanitizedWritten.GroundedEventIds,
             requiresUnifiedOutput ? gate.EvidenceReason : sanitizedWritten.Uncertainty,
             requiresUnifiedOutput ? [] : sanitizedWritten.EvidencePackets);
+
+        var guide = TrackGuideZoneMapper.ResolveGuide(
+            context?.CachedTrackGuide,
+            context?.KnowledgeSources,
+            context?.RaceContext?.TrackName
+                ?? context?.RacePrepPlan?.Track
+                ?? context?.PreviousStoredSessionMemory?.TrackName
+                ?? session.LatestSnapshot?.RaceAwareness?.TrackName);
+        finalWritten = TrackGuideZoneMapper.MapCoachMessage(finalWritten, guide);
+        displayText = finalWritten.Content;
+        enforcedSummary = TrackGuideZoneMapper.MapZoneReferences(enforcedSummary, guide);
+        payload = TrackGuideZoneMapper.MapZoneReferences(payload, guide);
 
         var answerSource = InferAnswerSource(primaryWritten, deterministicWritten, sanitizedWritten, gate, requiresUnifiedOutput);
         var evidenceSelection = DescribeEvidence(evidence, topic);

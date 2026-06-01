@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "tIXzdOfua5A=",
+  "dgSpecHash": "VFz7L9no/Yc=",
   "success": true,
-  "projectFilePath": "C:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj",
+  "projectFilePath": "c:\\Users\\budis\\Documents\\Codex\\2026-05-27\\new-project-standalone-ai-race-engineer\\src\\RaceEngineer.Desktop.Wpf\\RaceEngineer.Desktop.Wpf.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\budis\\.nuget\\packages\\microsoft.data.sqlite\\10.0.0\\microsoft.data.sqlite.10.0.0.nupkg.sha512",
     "C:\\Users\\budis\\.nuget\\packages\\microsoft.data.sqlite.core\\10.0.0\\microsoft.data.sqlite.core.10.0.0.nupkg.sha512",

@@ -195,6 +195,10 @@ DriverCoachingExtractsRepeatedWeaknesses();
 DriverCoachingBuildsTopThreeTargets();
 DriverCoachingNoDataFallback();
 TrackGuideZoneMapperMapsMonzaZones();
+TrackGuideZoneMapperMapsMonzaZoneSix();
+StoredSessionMemoryWatchAnswerMapsRawZones();
+CoachQueryPipelineMapsStoredZonesWithoutCachedGuide();
+SessionDebriefMapsStoredRawZones();
 DriverCoachingUsesTrackGuideCornerNames();
 EngineerAiContextIncludesDriverCoachingSummary();
 TelemetryTraceBuilderCreatesDeterministicTimeline();
@@ -1488,12 +1492,12 @@ static void CoachAnswersTrackKnowledgeWithSourceLabels()
 {
     var coach = new CoachEngine();
     var context = new CoachContext(
-        RacePrepPlan: new RacePrepPlan(null, "Monza", "Practice", null, null, null, null, null, null, null),
+        RacePrepPlan: new RacePrepPlan(null, "Brands Hatch", "Practice", null, null, null, null, null, null, null),
         KnowledgeSources: [
-            KnowledgeSource.ManualNote("Monza guide", "Watch front locking into heavy braking zones.", track: "Monza", category: "track")
+            KnowledgeSource.ManualNote("Brands Hatch guide", "Watch front locking into heavy braking zones.", track: "Brands Hatch", category: "track")
         ]);
 
-    var answer = coach.Answer(new SessionState(), "What should I watch for at Monza?", context);
+    var answer = coach.Answer(new SessionState(), "What should I watch for at Brands Hatch?", context);
 
     Assert(answer.Content.Contains("Stored track notes:", StringComparison.Ordinal), "Knowledge answer should label stored track notes.");
     Assert(answer.Content.Contains("External research:", StringComparison.Ordinal), "Knowledge answer should label external research state.");
@@ -3718,6 +3722,172 @@ static void TrackGuideZoneMapperMapsMonzaZones()
     Assert(
         TrackGuideZoneMapper.MapZoneLabel("Zone 4", null) == "Zone 4",
         "Without a track guide, Zone labels should remain unchanged.");
+}
+
+static void TrackGuideZoneMapperMapsMonzaZoneSix()
+{
+    Assert(TrackGuideWebCatalog.TryGetGuide("Monza", out var guide), "Fixture catalog should provide Monza guide.");
+    var zone6 = new PerformanceZone(6, "Zone 6", 6, 0.88, 0.96);
+    Assert(
+        TrackGuideZoneMapper.MapZoneLabel(zone6, guide) == "Parabolica",
+        "Monza Zone 6 should map to Parabolica via estimated lap progress.");
+    Assert(
+        TrackGuideZoneMapper.MapZoneReferences("Zone 6: late braking (0.2s)", guide).Contains("Parabolica", StringComparison.OrdinalIgnoreCase),
+        "Stored Zone 6 weakness text should map to Parabolica.");
+}
+
+static void StoredSessionMemoryWatchAnswerMapsRawZones()
+{
+    Assert(TrackGuideWebCatalog.TryGetGuide("Monza", out var guide), "Fixture catalog should provide Monza guide.");
+    var stored = new SessionMemorySummary(
+        Guid.NewGuid(),
+        "monza|gt3",
+        "Monza",
+        "GT3",
+        "Practice",
+        DateTimeOffset.UtcNow.AddDays(-2),
+        112.4,
+        112.8,
+        78,
+        2.1,
+        null,
+        null,
+        [],
+        [],
+        ["Zone 1", "Zone 4: unstable throttle (0.3s)", "Zone 6: late braking (0.2s)"],
+        [],
+        [],
+        []);
+
+    var watch = SessionMemoryCoachingFormatter.BuildWatchAnswer(stored, guide);
+    Assert(
+        !watch.Contains("Zone 1", StringComparison.OrdinalIgnoreCase),
+        "Watch answer should not expose Zone 1 when corner mapping exists.");
+    Assert(
+        !watch.Contains("Zone 4", StringComparison.OrdinalIgnoreCase),
+        "Watch answer should not expose Zone 4 when corner mapping exists.");
+    Assert(
+        !watch.Contains("Zone 6", StringComparison.OrdinalIgnoreCase),
+        "Watch answer should not expose Zone 6 when corner mapping exists.");
+    Assert(
+        watch.Contains("Rettifilo", StringComparison.OrdinalIgnoreCase),
+        "Watch answer should include Rettifilo for Zone 1.");
+    Assert(
+        watch.Contains("Parabolica", StringComparison.OrdinalIgnoreCase),
+        "Watch answer should include Parabolica for Zone 6.");
+}
+
+static void CoachQueryPipelineMapsStoredZonesWithoutCachedGuide()
+{
+    Assert(TrackGuideWebCatalog.TryGetGuide("Monza", out _), "Fixture catalog should provide Monza guide.");
+    var stored = new SessionMemorySummary(
+        Guid.NewGuid(),
+        "monza|gt3",
+        "Monza",
+        "GT3",
+        "Practice",
+        DateTimeOffset.UtcNow.AddDays(-1),
+        112.4,
+        112.8,
+        78,
+        2.1,
+        null,
+        null,
+        [],
+        [],
+        ["Zone 1: unstable braking (0.2s)", "Zone 4: unstable throttle (0.3s)"],
+        [],
+        ["Zone 6: late braking (0.2s)"],
+        []);
+
+    var session = new SessionState();
+    var context = new CoachContext(
+        RacePrepPlan: new RacePrepPlan("GT3", "Monza", "Practice", null, null, null, null, null, null, null),
+        PreviousStoredSessionMemory: stored,
+        CachedTrackGuide: null);
+    var evidence = new CoachEvidenceBuilder().Build(new CoachEvidenceInput(
+        session,
+        PreviousStoredSessionMemory: stored,
+        RaceContext: new LiveRaceContext(
+            "Monza",
+            null,
+            "GT3",
+            null,
+            "Practice",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            RaceContextConfidence.Partial,
+            new RaceFieldDiagnostics([], [], "test"))));
+
+    var pipeline = CoachQueryPipeline.Resolve(
+        session,
+        "what should i watch on this track",
+        new CoachEngine(),
+        context,
+        evidence);
+
+    Assert(
+        !pipeline.FinalDisplayedText.Contains("Zone 1", StringComparison.OrdinalIgnoreCase),
+        "Pipeline watch answer should not expose Zone 1 without cached guide.");
+    Assert(
+        !pipeline.FinalDisplayedText.Contains("Zone 4", StringComparison.OrdinalIgnoreCase),
+        "Pipeline watch answer should not expose Zone 4 without cached guide.");
+    Assert(
+        !pipeline.FinalDisplayedText.Contains("Zone 6", StringComparison.OrdinalIgnoreCase),
+        "Pipeline watch answer should not expose Zone 6 without cached guide.");
+}
+
+static void SessionDebriefMapsStoredRawZones()
+{
+    Assert(TrackGuideWebCatalog.TryGetGuide("Monza", out _), "Fixture catalog should provide Monza guide.");
+    var summary = new SessionMemorySummary(
+        Guid.NewGuid(),
+        "monza|gt3",
+        "Monza",
+        "GT3",
+        "Practice",
+        DateTimeOffset.UtcNow.AddDays(-3),
+        112.4,
+        112.8,
+        78,
+        2.1,
+        null,
+        null,
+        [],
+        ["Zone 4: unstable throttle (0.3s)"],
+        ["Zone 6: late braking (0.2s)"],
+        [],
+        ["Zone 1: unstable braking (0.2s)"],
+        []);
+
+    var debrief = SessionDebriefGenerator.Generate(summary);
+    var combined = string.Join(" ", debrief.Weaknesses.Concat(debrief.NextSessionActions));
+    Assert(
+        !combined.Contains("Zone 1", StringComparison.OrdinalIgnoreCase),
+        "Debrief should not expose Zone 1 when Monza corner map exists.");
+    Assert(
+        !combined.Contains("Zone 4", StringComparison.OrdinalIgnoreCase),
+        "Debrief should not expose Zone 4 when Monza corner map exists.");
+    Assert(
+        !combined.Contains("Zone 6", StringComparison.OrdinalIgnoreCase),
+        "Debrief should not expose Zone 6 when Monza corner map exists.");
+    Assert(
+        combined.Contains("Ascari", StringComparison.OrdinalIgnoreCase),
+        "Debrief should map Zone 4 to Ascari.");
+    Assert(
+        combined.Contains("Parabolica", StringComparison.OrdinalIgnoreCase),
+        "Debrief should map Zone 6 to Parabolica.");
 }
 
 static void DriverCoachingUsesTrackGuideCornerNames()

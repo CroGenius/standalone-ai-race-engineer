@@ -8,7 +8,10 @@ public static class SessionDebriefGenerator
 {
     public static SessionDebrief Generate(SessionMemorySummary summary, SessionMemoryBuildInput? input = null)
     {
-        var guide = input?.CachedTrackGuide;
+        var guide = TrackGuideZoneMapper.ResolveGuide(
+            input?.CachedTrackGuide,
+            null,
+            summary.TrackName);
         var strengths = BuildStrengths(summary, input);
         var weaknesses = MapTextItems(BuildWeaknesses(summary), guide);
         var fuelAnalysis = BuildFuelAnalysis(summary);

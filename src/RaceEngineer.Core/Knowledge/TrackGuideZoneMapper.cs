@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using RaceEngineer.Core.Analytics;
+using RaceEngineer.Core.Coaching;
+using RaceEngineer.Core.RaceAwareness;
 
 namespace RaceEngineer.Core.Knowledge;
 
@@ -10,16 +12,36 @@ public static class TrackGuideZoneMapper
         @"\bzone\s*(?<num>\d+)\b",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
-    public static string MapZoneLabel(PerformanceZone zone, TrackGuide? guide)
+    public static TrackGuide? ResolveGuide(
+        TrackGuide? cachedGuide,
+        IEnumerable<KnowledgeSource>? knowledgeSources = null,
+        string? trackName = null)
     {
-        if (TryMapZoneNumber(zone.ZoneNumber, guide, out var byIndex))
+        if (cachedGuide?.Corners is { Count: > 0 })
         {
-            return byIndex;
+            return cachedGuide;
         }
 
-        if (TryMapByProgress(zone, guide, out var byProgress))
+        if (!string.IsNullOrWhiteSpace(trackName)
+            && TrackGuideWebCatalog.TryGetGuide(trackName, out var catalogGuide))
         {
-            return byProgress;
+            return catalogGuide;
+        }
+
+        var fromSources = TrackResearchService.ResolveGuideFromSources(knowledgeSources ?? []);
+        if (fromSources?.Corners is { Count: > 0 })
+        {
+            return fromSources;
+        }
+
+        return cachedGuide ?? fromSources;
+    }
+
+    public static string MapZoneLabel(PerformanceZone zone, TrackGuide? guide)
+    {
+        if (TryMapZoneReference(zone.ZoneNumber, guide, zone, out var mapped))
+        {
+            return mapped;
         }
 
         return zone.Label;
@@ -35,7 +57,7 @@ public static class TrackGuideZoneMapper
         var match = ZoneTokenPattern.Match(zoneLabel);
         if (match.Success
             && int.TryParse(match.Groups["num"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var zoneNumber)
-            && TryMapZoneNumber(zoneNumber, guide, out var mapped))
+            && TryMapZoneReference(zoneNumber, guide, null, out var mapped))
         {
             return mapped;
         }
@@ -54,7 +76,7 @@ public static class TrackGuideZoneMapper
         var zoneMatch = ZoneTokenPattern.Match(trimmed);
         if (zoneMatch.Success
             && int.TryParse(zoneMatch.Groups["num"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var zoneNumber)
-            && TryMapZoneNumber(zoneNumber, guide, out var mapped))
+            && TryMapZoneReference(zoneNumber, guide, null, out var mapped))
         {
             return mapped;
         }
@@ -96,13 +118,56 @@ public static class TrackGuideZoneMapper
         return ZoneTokenPattern.Replace(text, match =>
         {
             if (!int.TryParse(match.Groups["num"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var zoneNumber)
-                || !TryMapZoneNumber(zoneNumber, guide, out var mapped))
+                || !TryMapZoneReference(zoneNumber, guide, null, out var mapped))
             {
                 return match.Value;
             }
 
             return mapped;
         });
+    }
+
+    public static CoachMessage MapCoachMessage(CoachMessage message, TrackGuide? guide)
+    {
+        if (guide?.Corners is not { Count: > 0 })
+        {
+            return message;
+        }
+
+        return message with
+        {
+            Content = MapZoneReferences(message.Content, guide),
+            Uncertainty = string.IsNullOrWhiteSpace(message.Uncertainty)
+                ? message.Uncertainty
+                : MapZoneReferences(message.Uncertainty, guide),
+            EvidencePackets = message.EvidencePackets
+                .Select(packet => packet with { Explanation = MapZoneReferences(packet.Explanation, guide) })
+                .ToArray()
+        };
+    }
+
+    public static DriverCoachingRecommendation MapDriverCoachingRecommendation(
+        DriverCoachingRecommendation coaching,
+        TrackGuide? guide)
+    {
+        if (!coaching.HasData || guide?.Corners is not { Count: > 0 })
+        {
+            return coaching;
+        }
+
+        return coaching with
+        {
+            BiggestWeakness = MapOptionalText(coaching.BiggestWeakness, guide),
+            StrongestArea = MapOptionalText(coaching.StrongestArea, guide),
+            WeakestArea = MapOptionalText(coaching.WeakestArea, guide),
+            ConsistencySummary = MapOptionalText(coaching.ConsistencySummary, guide),
+            PreviousSessionDeltaSummary = MapOptionalText(coaching.PreviousSessionDeltaSummary, guide),
+            ProgressTrendSummary = MapOptionalText(coaching.ProgressTrendSummary, guide),
+            Summary = MapOptionalText(coaching.Summary, guide) ?? coaching.Summary,
+            RepeatedWeaknesses = MapTextItems(coaching.RepeatedWeaknesses, guide),
+            TopCoachingTargets = MapTextItems(coaching.TopCoachingTargets, guide),
+            CoachingInsights = MapTextItems(coaching.CoachingInsights, guide)
+        };
     }
 
     public static SessionDriverPerformance MapPerformance(SessionDriverPerformance performance, TrackGuide? guide)
@@ -127,9 +192,7 @@ public static class TrackGuideZoneMapper
             .Select(message => MapZoneReferences(message, guide))
             .ToArray();
 
-        var mappedWeakness = string.IsNullOrWhiteSpace(performance.MainWeakness)
-            ? performance.MainWeakness
-            : MapZoneReferences(performance.MainWeakness, guide);
+        var mappedWeakness = MapOptionalText(performance.MainWeakness, guide);
 
         var mappedBiggest = performance.BiggestTimeLoss is null
             ? null
@@ -138,7 +201,8 @@ public static class TrackGuideZoneMapper
                 Zone = performance.BiggestTimeLoss.Zone with
                 {
                     Label = MapZoneLabel(performance.BiggestTimeLoss.Zone, guide)
-                }
+                },
+                Behaviors = MapTextItems(performance.BiggestTimeLoss.Behaviors, guide)
             };
 
         return performance with
@@ -147,12 +211,40 @@ public static class TrackGuideZoneMapper
             MistakeClusters = mappedClusters,
             CoachingMessages = mappedMessages,
             MainWeakness = mappedWeakness,
-            BiggestTimeLoss = mappedBiggest
+            BiggestTimeLoss = mappedBiggest,
+            BrakingQuality = MapQualityMetric(performance.BrakingQuality, guide),
+            ThrottleQuality = MapQualityMetric(performance.ThrottleQuality, guide),
+            Consistency = MapQualityMetric(performance.Consistency, guide)
         };
     }
 
     public static IReadOnlyList<string> MapTextItems(IEnumerable<string> items, TrackGuide? guide) =>
         items.Select(item => MapZoneReferences(item, guide)).ToArray();
+
+    private static PerformanceQualityMetric MapQualityMetric(PerformanceQualityMetric metric, TrackGuide? guide) =>
+        metric with { Detail = MapZoneReferences(metric.Detail, guide) };
+
+    private static string? MapOptionalText(string? text, TrackGuide? guide) =>
+        string.IsNullOrWhiteSpace(text) ? text : MapZoneReferences(text, guide);
+
+    private static bool TryMapZoneReference(
+        int zoneNumber,
+        TrackGuide? guide,
+        PerformanceZone? zone,
+        out string cornerName)
+    {
+        if (TryMapZoneNumber(zoneNumber, guide, out cornerName))
+        {
+            return true;
+        }
+
+        if (zone is not null && TryMapByProgress(zone, guide, out cornerName))
+        {
+            return true;
+        }
+
+        return TryMapByEstimatedProgress(zoneNumber, guide, out cornerName);
+    }
 
     private static bool TryMapZoneNumber(int zoneNumber, TrackGuide? guide, out string cornerName)
     {
@@ -180,7 +272,30 @@ public static class TrackGuideZoneMapper
         }
 
         var mid = (zone.ProgressStart + zone.ProgressEnd) / 2.0;
-        foreach (var corner in guide.Corners)
+        return TryMapProgressMidpoint(mid, guide, out cornerName);
+    }
+
+    private static bool TryMapByEstimatedProgress(int zoneNumber, TrackGuide? guide, out string cornerName)
+    {
+        cornerName = string.Empty;
+        if (guide?.Corners is not { Count: > 0 } corners || zoneNumber < 1)
+        {
+            return false;
+        }
+
+        var mid = (zoneNumber - 0.5) / Math.Max(zoneNumber, corners.Count);
+        return TryMapProgressMidpoint(mid, guide, out cornerName);
+    }
+
+    private static bool TryMapProgressMidpoint(double mid, TrackGuide? guide, out string cornerName)
+    {
+        cornerName = string.Empty;
+        if (guide?.Corners is not { Count: > 0 } corners)
+        {
+            return false;
+        }
+
+        foreach (var corner in corners)
         {
             if (corner.LapProgressStart is { } start
                 && corner.LapProgressEnd is { } end
@@ -192,6 +307,32 @@ public static class TrackGuideZoneMapper
             }
         }
 
-        return false;
+        TrackGuideCorner? nearest = null;
+        var nearestDistance = double.MaxValue;
+        foreach (var corner in corners)
+        {
+            if (corner.LapProgressStart is not { } start || corner.LapProgressEnd is not { } end)
+            {
+                continue;
+            }
+
+            var cornerMid = (start + end) / 2.0;
+            var distance = Math.Abs(mid - cornerMid);
+            if (distance >= nearestDistance)
+            {
+                continue;
+            }
+
+            nearestDistance = distance;
+            nearest = corner;
+        }
+
+        if (nearest is null)
+        {
+            return false;
+        }
+
+        cornerName = nearest.Name;
+        return true;
     }
 }

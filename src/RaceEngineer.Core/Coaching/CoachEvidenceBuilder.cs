@@ -32,15 +32,27 @@ public sealed class CoachEvidenceBuilder
             input.Session,
             input.Snapshots,
             events));
-        var driverPerformance = input.DriverPerformance ?? driverPerformanceService.Analyze(new DriverPerformanceInput(
-            input.Session,
-            input.Snapshots,
-            events,
-            analytics,
-            lapIntelligence,
-            input.TrackMemory,
-            input.TrackMemoryComparison,
-            input.Session.LastLap?.LapNumber));
+        var packets = new List<CoachEvidencePacket>();
+        var guide = TrackGuideZoneMapper.ResolveGuide(
+            input.CachedTrackGuide,
+            input.KnowledgeSources,
+            input.RaceContext?.TrackName
+                ?? input.PreviousStoredSessionMemory?.TrackName
+                ?? input.Session.LatestSnapshot?.RaceAwareness?.TrackName);
+        var driverPerformance = TrackGuideZoneMapper.MapPerformance(
+            input.DriverPerformance ?? driverPerformanceService.Analyze(new DriverPerformanceInput(
+                input.Session,
+                input.Snapshots,
+                events,
+                analytics,
+                lapIntelligence,
+                input.TrackMemory,
+                input.TrackMemoryComparison,
+                input.Session.LastLap?.LapNumber)),
+            guide);
+        var coaching = input.DriverCoaching is null
+            ? null
+            : TrackGuideZoneMapper.MapDriverCoachingRecommendation(input.DriverCoaching, guide);
         var timeline = input.Timeline ?? (input.Snapshots is { Count: >= 2 }
             ? traceBuilder.Build(new TelemetryTimelineInput(
                 input.Session,
@@ -48,8 +60,6 @@ public sealed class CoachEvidenceBuilder
                 events,
                 input.Session.LastLap?.LapNumber))
             : TelemetryTimeline.Empty);
-
-        var packets = new List<CoachEvidencePacket>();
         AddSessionPackets(packets, input.Session);
         AddEventPackets(packets, events);
         AddAnalyticsPackets(packets, analytics);
@@ -69,12 +79,13 @@ public sealed class CoachEvidenceBuilder
         AddSessionMemorySummaryPackets(
             packets,
             input.PreviousStoredSessionMemory,
-            input.RecentStoredSessionMemories);
+            input.RecentStoredSessionMemories,
+            guide);
         AddTracePackets(packets, timeline);
         AddKnowledgePackets(packets, input.KnowledgeSources);
-        AddTrackGuidePackets(packets, input.CachedTrackGuide);
+        AddTrackGuidePackets(packets, guide);
         AddOpponentIntelligencePackets(packets, input.OpponentIntelligence);
-        AddDriverCoachingPackets(packets, input.DriverCoaching);
+        AddDriverCoachingPackets(packets, coaching);
 
         return new CoachEvidenceBundle(packets
             .OrderBy(packet => packet.Category, StringComparer.Ordinal)
@@ -926,7 +937,8 @@ public sealed class CoachEvidenceBuilder
     private static void AddSessionMemorySummaryPackets(
         List<CoachEvidencePacket> packets,
         SessionMemorySummary? previousSummary,
-        IReadOnlyList<SessionMemorySummary>? recentSummaries)
+        IReadOnlyList<SessionMemorySummary>? recentSummaries,
+        TrackGuide? guide)
     {
         if (previousSummary is not null)
         {
@@ -939,7 +951,7 @@ public sealed class CoachEvidenceBuilder
                 null,
                 [],
                 previousSummary.BestLapSeconds,
-                previousSummary.OneLineSummary));
+                TrackGuideZoneMapper.MapZoneReferences(previousSummary.OneLineSummary, guide)));
 
             if (previousSummary.ImprovementTargets.Count > 0)
             {
@@ -952,7 +964,7 @@ public sealed class CoachEvidenceBuilder
                     null,
                     [],
                     null,
-                    $"Stored session data for {previousSummary.TrackName}: focus on {string.Join("; ", previousSummary.ImprovementTargets.Take(3))}."));
+                    $"Stored session data for {previousSummary.TrackName}: focus on {string.Join("; ", TrackGuideZoneMapper.MapTextItems(previousSummary.ImprovementTargets.Take(3), guide))}."));
             }
 
             if (previousSummary.MainTimeLossZones.Count > 0)
@@ -966,7 +978,7 @@ public sealed class CoachEvidenceBuilder
                     null,
                     [],
                     null,
-                    $"Stored session data for {previousSummary.TrackName}: {string.Join("; ", previousSummary.MainTimeLossZones.Take(3))}."));
+                    $"Stored session data for {previousSummary.TrackName}: {string.Join("; ", TrackGuideZoneMapper.MapTextItems(previousSummary.MainTimeLossZones.Take(3), guide))}."));
             }
         }
 

@@ -89,7 +89,7 @@ public static class SessionMemoryCoachingFormatter
 
     private static SessionWeaknessInsight FormatWeaknessItem(string raw, TrackGuide? guide, string trackName)
     {
-        var cleaned = raw.Trim();
+        var cleaned = TrackGuideZoneMapper.MapZoneReferences(raw.Trim(), guide);
         var (location, behavior, lossSeconds) = ParseRawWeakness(cleaned);
         var humanLocation = ResolveHumanLocation(location, guide);
         var humanBehavior = HumanizeBehavior(behavior);

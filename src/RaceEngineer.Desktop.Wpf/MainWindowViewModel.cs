@@ -1369,6 +1369,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         });
 
         ChatMessages.Add($"Coach (review): Loaded session from {startedLabel}. Ask about laps, events, fuel, or session summary.");
+        await RefreshTrackResearchAsync(track);
+        await RefreshStoredSessionMemoryAsync(track, car);
+        RefreshAnalytics();
         RaiseReviewModeProperties();
         RaiseTelemetryProperties();
         (ExitReviewModeCommand as RelayCommand)?.RaiseCanExecuteChanged();
@@ -2084,7 +2087,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
                 trackMemoryRecord,
                 trackMemoryComparison,
                 ActiveSession.LastLap?.LapNumber));
-            var performance = sessionDriverPerformance;
+            var performance = TrackGuideZoneMapper.MapPerformance(
+                sessionDriverPerformance,
+                ResolveActiveTrackGuide());
             performanceBiggestLossLabel = performance.Availability != "Available"
                 ? performance.Availability
                 : performance.BiggestTimeLoss is { } loss
@@ -2409,7 +2414,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             trackMemoryComparison,
             previousStoredSessionMemory,
             recentStoredSessionMemories,
-            cachedTrackGuide,
+            ResolveActiveTrackGuide(),
             trackMemoryRecord,
             liveRaceContext.CarClass));
 
@@ -2807,7 +2812,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             sessionMemoryLastSummaryLabel = previousStoredSessionMemory?.OneLineSummary ?? "No stored session summary yet.";
             sessionMemoryKnownWeaknessesLabel = previousStoredSessionMemory is null
                 ? "-"
-                : FormatProfileItems(BuildSessionMemoryWeaknessLines(previousStoredSessionMemory));
+                : FormatProfileItems(BuildSessionMemoryWeaknessLines(previousStoredSessionMemory, ResolveActiveTrackGuide(previousStoredSessionMemory.TrackName)));
             Application.Current?.Dispatcher.Invoke(RaiseAnalyticsProperties);
         }
         catch (Exception exception)
@@ -2821,7 +2826,9 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         }
     }
 
-    private static IReadOnlyList<string> BuildSessionMemoryWeaknessLines(SessionMemorySummary summary) =>
+    private static IReadOnlyList<string> BuildSessionMemoryWeaknessLines(
+        SessionMemorySummary summary,
+        TrackGuide? guide) =>
         (summary.MainTimeLossZones ?? [])
             .Concat(summary.BrakingWeaknesses ?? [])
             .Concat(summary.ThrottleWeaknesses ?? [])
@@ -2829,7 +2836,14 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
             .Concat(summary.RepeatedWeaknesses ?? [])
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(4)
+            .Select(item => TrackGuideZoneMapper.MapZoneReferences(item, guide))
             .ToArray();
+
+    private TrackGuide? ResolveActiveTrackGuide(string? trackName = null) =>
+        TrackGuideZoneMapper.ResolveGuide(
+            cachedTrackGuide,
+            KnowledgeSources.Select(item => item.Source),
+            trackName ?? liveRaceContext.TrackName ?? PrepTrack);
 
     private void RaiseReviewModeProperties()
     {

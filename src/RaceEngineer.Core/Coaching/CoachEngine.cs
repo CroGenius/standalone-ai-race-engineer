@@ -69,9 +69,10 @@ public sealed class CoachEngine : ICoachEngine
 
     public CoachMessage Answer(SessionState session, string userMessage, CoachContext? context = null, CoachEvidenceBundle? evidence = null)
     {
-        return CoachResponseFormatter.ApplyPreferences(
-            RouteAnswer(session, userMessage, context, evidence),
-            context?.Preferences);
+        var message = RouteAnswer(session, userMessage, context, evidence);
+        var guide = ResolveTrackGuide(context, session);
+        message = TrackGuideZoneMapper.MapCoachMessage(message, guide);
+        return CoachResponseFormatter.ApplyPreferences(message, context?.Preferences);
     }
 
     public CoachMessage BuildDeterministicAnswer(
@@ -204,6 +205,7 @@ public sealed class CoachEngine : ICoachEngine
                         "No improvement evidence is available.",
                         evidence,
                         CoachEvidenceTopic.Improvement),
+                    session,
                     context,
                     evidence);
             case CoachQueryTopic.LapComparison:
@@ -363,10 +365,11 @@ public sealed class CoachEngine : ICoachEngine
 
         if (context?.PreviousStoredSessionMemory is { } previousSummary)
         {
-            var storedLine = previousSummary.OneLineSummary;
+            var guide = ResolveTrackGuide(context, session);
+            var storedLine = TrackGuideZoneMapper.MapZoneReferences(previousSummary.OneLineSummary, guide);
             if (previousSummary.ImprovementTargets.Count > 0)
             {
-                storedLine += $" Focus areas: {string.Join("; ", previousSummary.ImprovementTargets.Take(3))}.";
+                storedLine += $" Focus areas: {string.Join("; ", TrackGuideZoneMapper.MapTextItems(previousSummary.ImprovementTargets.Take(3), guide))}.";
             }
 
             return AttachEvidence(
@@ -405,7 +408,7 @@ public sealed class CoachEngine : ICoachEngine
         }
 
         var text = query.ToLowerInvariant();
-        var guide = ResolveTrackGuide(context);
+        var guide = ResolveTrackGuide(context, session);
         if (text.Contains("watch", StringComparison.Ordinal))
         {
             var watchItems = stored.MainTimeLossZones
@@ -455,6 +458,7 @@ public sealed class CoachEngine : ICoachEngine
 
     private static CoachMessage EnrichImprovementWithStoredMemory(
         CoachMessage message,
+        SessionState session,
         CoachContext? context,
         CoachEvidenceBundle? evidence)
     {
@@ -464,12 +468,15 @@ public sealed class CoachEngine : ICoachEngine
             return message;
         }
 
+        var guide = ResolveTrackGuide(context, session);
+        var mappedTargets = TrackGuideZoneMapper.MapTextItems(stored.ImprovementTargets.Take(3), guide);
+
         if (message.Content.Contains(SessionDriverPerformance.NeedCleanLapMessage, StringComparison.Ordinal))
         {
             return AttachEvidence(
                 Message(
-                    $"Stored session data for {stored.TrackName}: focus on {string.Join("; ", stored.ImprovementTargets.Take(3))}.",
-                    stored.ImprovementTargets.Take(3).Select(item => $"stored target: {item}").ToArray(),
+                    $"Stored session data for {stored.TrackName}: focus on {string.Join("; ", mappedTargets)}.",
+                    mappedTargets.Select(item => $"stored target: {item}").ToArray(),
                     []),
                 evidence,
                 CoachEvidenceTopic.TrackMemory);
@@ -477,8 +484,8 @@ public sealed class CoachEngine : ICoachEngine
 
         return AttachEvidence(
             Message(
-                $"{message.Content} Stored session data for {stored.TrackName} also suggests {string.Join("; ", stored.ImprovementTargets.Take(3))}.",
-                stored.ImprovementTargets.Take(3).Select(item => $"stored target: {item}").ToArray(),
+                $"{message.Content} Stored session data for {stored.TrackName} also suggests {string.Join("; ", mappedTargets)}.",
+                mappedTargets.Select(item => $"stored target: {item}").ToArray(),
                 []),
             evidence,
             CoachEvidenceTopic.Improvement);
@@ -708,7 +715,7 @@ public sealed class CoachEngine : ICoachEngine
 
         if (context?.DriverPerformance is { Availability: "Available" } performance)
         {
-            var mapped = TrackGuideZoneMapper.MapPerformance(performance, context.CachedTrackGuide);
+            var mapped = TrackGuideZoneMapper.MapPerformance(performance, ResolveTrackGuide(context, session));
             return AttachEvidence(
                 new CoachMessage(
                     "coach",
@@ -1233,7 +1240,7 @@ public sealed class CoachEngine : ICoachEngine
             return null;
         }
 
-        var guide = ResolveTrackGuide(context);
+        var guide = ResolveTrackGuide(context, session);
         if (guide is null)
         {
             return AttachEvidence(
@@ -1281,7 +1288,12 @@ public sealed class CoachEngine : ICoachEngine
         var notes = new List<string>();
         if (context?.PreviousStoredSessionMemory is { } previous)
         {
-            var guide = context.CachedTrackGuide;
+            var guide = TrackGuideZoneMapper.ResolveGuide(
+                context.CachedTrackGuide,
+                context.KnowledgeSources,
+                previous.TrackName
+                    ?? context.RaceContext?.TrackName
+                    ?? context.RacePrepPlan?.Track);
             var weaknesses = previous.MainTimeLossZones
                 .Concat(previous.BrakingWeaknesses)
                 .Concat(previous.ThrottleWeaknesses)
@@ -1309,15 +1321,18 @@ public sealed class CoachEngine : ICoachEngine
         return notes;
     }
 
-    private static TrackGuide? ResolveTrackGuide(CoachContext? context)
+    private static TrackGuide? ResolveTrackGuide(CoachContext? context, SessionState? session = null)
     {
-        if (context?.CachedTrackGuide is not null)
-        {
-            return context.CachedTrackGuide;
-        }
-
-        return TrackResearchService.ResolveGuideFromSources(context?.KnowledgeSources ?? []);
+        return TrackGuideZoneMapper.ResolveGuide(
+            context?.CachedTrackGuide,
+            context?.KnowledgeSources,
+            ResolveTrackName(context, session));
     }
+
+    private static string? ResolveTrackName(CoachContext? context, SessionState? session) =>
+        context?.RaceContext?.TrackName
+        ?? context?.RacePrepPlan?.Track
+        ?? session?.LatestSnapshot?.RaceAwareness?.TrackName;
 
     private static List<string> BuildLiveTelemetryNotes(SessionState session, CoachContext? context)
     {
@@ -1336,7 +1351,7 @@ public sealed class CoachEngine : ICoachEngine
         if (context?.DriverPerformance is { Availability: "Available", MainWeakness: var weakness }
             && !string.IsNullOrWhiteSpace(weakness))
         {
-            notes.Add($"current weakness: {TrackGuideZoneMapper.MapZoneReferences(weakness, context.CachedTrackGuide)}");
+            notes.Add($"current weakness: {TrackGuideZoneMapper.MapZoneReferences(weakness, ResolveTrackGuide(context, session))}");
         }
 
         return notes;
@@ -1421,6 +1436,7 @@ public sealed class CoachEngine : ICoachEngine
         }
 
         var coaching = context?.DriverCoaching;
+        var guide = ResolveTrackGuide(context, session);
         if (coaching is null && context?.DriverPerformance is { Availability: "Available" } performance)
         {
             coaching = DriverCoachingIntelligenceService.Build(new DriverCoachingInput(
@@ -1430,7 +1446,7 @@ public sealed class CoachEngine : ICoachEngine
                 context.TrackMemoryComparison,
                 context.PreviousStoredSessionMemory,
                 context.RecentStoredSessionMemories,
-                context.CachedTrackGuide,
+                guide,
                 context.TrackMemory));
         }
 
@@ -1441,7 +1457,7 @@ public sealed class CoachEngine : ICoachEngine
             {
                 return AttachEvidence(
                     Message(
-                        SessionMemoryCoachingFormatter.BuildImprovementFromStored(stored, context.CachedTrackGuide),
+                        SessionMemoryCoachingFormatter.BuildImprovementFromStored(stored, guide),
                         [$"stored session: {stored.RecordedAt:yyyy-MM-dd}"],
                         []),
                     evidence,
@@ -1484,7 +1500,7 @@ public sealed class CoachEngine : ICoachEngine
         var gate = DrivingTechniqueGate.Evaluate(topic, session, context?.SessionContext);
         if (context?.DriverPerformance is { Availability: "Available" } performance)
         {
-            var mapped = TrackGuideZoneMapper.MapPerformance(performance, context.CachedTrackGuide);
+            var mapped = TrackGuideZoneMapper.MapPerformance(performance, ResolveTrackGuide(context, session));
             return AttachEvidence(
                 new CoachMessage("coach", performanceAnswer(mapped), [], null, []),
                 evidence,
@@ -1519,7 +1535,7 @@ public sealed class CoachEngine : ICoachEngine
         var gate = DrivingTechniqueGate.Evaluate(topic, session, context?.SessionContext);
         if (context?.DriverPerformance is { Availability: "Available" } performance)
         {
-            var mapped = TrackGuideZoneMapper.MapPerformance(performance, context.CachedTrackGuide);
+            var mapped = TrackGuideZoneMapper.MapPerformance(performance, ResolveTrackGuide(context, session));
             return AttachEvidence(
                 new CoachMessage("coach", performanceAnswer(mapped), [], null, []),
                 evidence,
